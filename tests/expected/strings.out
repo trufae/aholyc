@@ -1,0 +1,6 @@
+dec 255 hex FF chr A str abc
+pad [   42] [42   ] [00042]
+float 3.140000 e 1.234568e+04 g 0.5
+custom 7
+id-9
+99 bottles (len 10)

@@ -1,0 +1,3 @@
+Rex: 4 legs, age 3
+Pup: 4 legs, age 1
+sizeof(CAnimal)=16 offset(CDog.name)=16

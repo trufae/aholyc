@@ -1,0 +1,9 @@
+mhc
+src/*.o
+src/embed.c
+tools/file2c
+tests/out/
+a.out
+*.ll
+*.mhc.c
+*.mhc.js
