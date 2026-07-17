@@ -53,6 +53,15 @@ for (;;) switch (pc) {
 HolyC exceptions map onto JS exceptions with a per-invocation try stack.
 Caveat: `I64` is a JS number — exact to 53 bits only.
 
+The JS runtime gets the same dead-code treatment as the C runtime:
+`runtime/rt.js` is split into chunks by `//@ name dep...` markers, the
+backend records every runtime helper the program actually references
+while emitting, and only the transitive closure of used chunks is
+shipped — a hello world carries ~17 runtime functions instead of ~90.
+When adding a runtime function, give it a marker line listing the other
+runtime functions it calls; shared module state (like the PRNG seed)
+lives in its own chunk that its users depend on.
+
 ## Adding a backend
 
 Backends are a vtable in `src/mhc.h`:

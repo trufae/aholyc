@@ -93,6 +93,93 @@ static int label_block(const char *name) {
 	return lmap[nlmap++].blk;
 }
 
+/* ------------------------------------------------- runtime usage (DCE) */
+
+/* rt.js is split into chunks by '//@ name dep...' markers; only chunks
+ * transitively referenced by the emitted program are shipped. */
+typedef struct {
+	char *name;
+	char *deps[12];
+	int ndeps;
+	char *src;
+	size_t len, cap;
+	bool inc;
+} RtChunk;
+
+static RtChunk chunks[160];
+static int nchunks;
+static char *core_src;
+
+static void chunk_add(RtChunk *c, const char *line, size_t n) {
+	while (c->len + n + 1 > c->cap) {
+		c->cap = c->cap? c->cap * 2: 256;
+		c->src = realloc (c->src, c->cap);
+	}
+	memcpy (c->src + c->len, line, n);
+	c->len += n;
+	c->src[c->len] = 0;
+}
+
+static void parse_rt_chunks(void) {
+	static bool done;
+	if (done) {
+		return;
+	}
+	done = true;
+	RtChunk core = {0};
+	RtChunk *cur = &core;
+	const char *p = rt_js_src;
+	while (*p) {
+		const char *eol = strchr (p, '\n');
+		size_t n = eol? (size_t)(eol - p) + 1: strlen (p);
+		if (!strncmp (p, "//@ ", 4)) {
+			if (nchunks >= 160) {
+				error ("js backend: too many runtime chunks");
+			}
+			cur = &chunks[nchunks++];
+			memset (cur, 0, sizeof(*cur));
+			/* parse: //@ name dep dep... */
+			char buf[256];
+			size_t m = n < sizeof(buf)? n: sizeof(buf) - 1;
+			memcpy (buf, p + 4, m - 4);
+			buf[m - 4] = 0;
+			char *save = NULL;
+			char *t = strtok_r (buf, " \t\r\n", &save);
+			cur->name = xstrdup (t? t: "?");
+			while ((t = strtok_r (NULL, " \t\r\n", &save)) != NULL) {
+				if (cur->ndeps < 12) {
+					cur->deps[cur->ndeps++] = xstrdup (t);
+				}
+			}
+		} else {
+			chunk_add (cur, p, n);
+		}
+		p += n;
+	}
+	core_src = core.src? core.src: xstrdup ("");
+}
+
+static void mark_chunk(const char *name) {
+	for (int i = 0; i < nchunks; i++) {
+		if (!strcmp (chunks[i].name, name)) {
+			if (!chunks[i].inc) {
+				chunks[i].inc = true;
+				for (int d = 0; d < chunks[i].ndeps; d++) {
+					mark_chunk (chunks[i].deps[d]);
+				}
+			}
+			return;
+		}
+	}
+	/* not a runtime symbol (user extern, hc_* name): ignore */
+}
+
+/* record a runtime helper reference; returns the name for printf use */
+static const char *RT(const char *name) {
+	mark_chunk (name);
+	return name;
+}
+
 static bool is_agg(Type *ty) {
 	return ty && (ty->kind == TY_CLASS || ty->kind == TY_ARRAY);
 }
@@ -126,7 +213,7 @@ static char *fname(Obj *fn) {
 		return xstrdup ("__hc_start");
 	}
 	if (fn->is_extern) {
-		return xstrdup (extname (fn));
+		return xstrdup (RT (extname (fn)));
 	}
 	return xasprintf ("hc_%s", fn->name);
 }
@@ -144,26 +231,26 @@ static char *var_addr(Obj *v) {
 
 static const char *ld_fn(Type *ty, int size) {
 	if (ty->kind == TY_F64) {
-		return "ldf";
+		return RT ("ldf");
 	}
 	switch (size) {
-	case 1: return ty->is_unsigned? "ldu1": "lds1";
-	case 2: return ty->is_unsigned? "ldu2": "lds2";
-	case 4: return ty->is_unsigned? "ldu4": "lds4";
+	case 1: return RT (ty->is_unsigned? "ldu1": "lds1");
+	case 2: return RT (ty->is_unsigned? "ldu2": "lds2");
+	case 4: return RT (ty->is_unsigned? "ldu4": "lds4");
 	}
-	return "ld8";
+	return RT ("ld8");
 }
 
 static const char *st_fn(Type *ty, int size) {
 	if (ty->kind == TY_F64) {
-		return "stf";
+		return RT ("stf");
 	}
 	switch (size) {
-	case 1: return "st1";
-	case 2: return "st2";
-	case 4: return "st4";
+	case 1: return RT ("st1");
+	case 2: return RT ("st2");
+	case 4: return RT ("st4");
 	}
-	return "st8";
+	return RT ("st8");
 }
 
 static char *emit_val(Node *n);
@@ -228,7 +315,8 @@ static char *emit_call(Node *n) {
 			extras = ne;
 			flags = nf;
 		}
-		char *r = xasprintf ("hcVCall(%s,[%s],[%s],[%s])", nm, fixed, extras, flags);
+		char *r = xasprintf ("%s(%s,[%s],[%s],[%s])", RT ("hcVCall"),
+			nm, fixed, extras, flags);
 		if (n->ty && n->ty->kind == TY_VOID) {
 			char *w = xasprintf ("((%s),0)", r);
 			free (r);
@@ -254,9 +342,9 @@ static char *emit_call(Node *n) {
 
 static const char *wrap_fn(Type *ty) {
 	switch (ty->size) {
-	case 1: return ty->is_unsigned? "wrapu8": "wrap8";
-	case 2: return ty->is_unsigned? "wrapu16": "wrap16";
-	case 4: return ty->is_unsigned? "wrapu32": "wrap32";
+	case 1: return RT (ty->is_unsigned? "wrapu8": "wrap8");
+	case 2: return RT (ty->is_unsigned? "wrapu16": "wrap16");
+	case 4: return RT (ty->is_unsigned? "wrapu32": "wrap32");
 	}
 	return NULL;
 }
@@ -299,13 +387,14 @@ static char *emit_val(Node *n) {
 		Node *l = n->lhs;
 		char *rv = emit_val (n->rhs);
 		if (l->ty && l->ty->kind == TY_CLASS) {
-			return xasprintf ("MemCpy(%s,%s,%d)", emit_addr (l), rv, l->ty->size);
+			return xasprintf ("%s(%s,%s,%d)", RT ("MemCpy"),
+				emit_addr (l), rv, l->ty->size);
 		}
 		if (l->kind == ND_VAR && l->var->is_param && l->ty->kind != TY_F64 &&
 		    l->ty->size && l->ty->size < 8) {
 			/* narrow declared type in a 64-bit param slot */
-			return xasprintf ("st8(%s,%s(%s))", var_addr (l->var),
-				wrap_fn (l->ty), rv);
+			return xasprintf ("%s(%s,%s(%s))", RT ("st8"),
+				var_addr (l->var), wrap_fn (l->ty), rv);
 		}
 		int sz = l->kind == ND_VAR? store_size (l->var):
 			(l->ty->size? l->ty->size: 8);
@@ -340,7 +429,8 @@ static char *emit_val(Node *n) {
 		char *a = emit_val (n->lhs);
 		char *b = emit_val (n->rhs);
 		if (lp && rp && n->kind == ND_SUB) {
-			return xasprintf ("divi((%s)-(%s),%d)", a, b, elem_size (lt));
+			return xasprintf ("%s((%s)-(%s),%d)", RT ("divi"), a, b,
+				elem_size (lt));
 		}
 		if (lp) {
 			return xasprintf ("((%s)%s(%s)*%d)", a,
@@ -354,24 +444,29 @@ static char *emit_val(Node *n) {
 		if (n->ty->kind == TY_F64) {
 			return xasprintf ("((%s)/(%s))", emit_val (n->lhs), emit_val (n->rhs));
 		}
-		return xasprintf ("%s(%s,%s)", n->ty->is_unsigned? "divu": "divi",
+		return xasprintf ("%s(%s,%s)", RT (n->ty->is_unsigned? "divu": "divi"),
 			emit_val (n->lhs), emit_val (n->rhs));
 	case ND_MOD:
 		if (n->ty->kind == TY_INT && n->ty->is_unsigned) {
-			return xasprintf ("remu(%s,%s)", emit_val (n->lhs), emit_val (n->rhs));
+			return xasprintf ("%s(%s,%s)", RT ("remu"),
+				emit_val (n->lhs), emit_val (n->rhs));
 		}
 		return xasprintf ("((%s)%%(%s))", emit_val (n->lhs), emit_val (n->rhs));
 	case ND_AND:
-		return xasprintf ("and64(%s,%s)", emit_val (n->lhs), emit_val (n->rhs));
+		return xasprintf ("%s(%s,%s)", RT ("and64"),
+			emit_val (n->lhs), emit_val (n->rhs));
 	case ND_OR:
-		return xasprintf ("or64(%s,%s)", emit_val (n->lhs), emit_val (n->rhs));
+		return xasprintf ("%s(%s,%s)", RT ("or64"),
+			emit_val (n->lhs), emit_val (n->rhs));
 	case ND_XOR:
-		return xasprintf ("xor64(%s,%s)", emit_val (n->lhs), emit_val (n->rhs));
+		return xasprintf ("%s(%s,%s)", RT ("xor64"),
+			emit_val (n->lhs), emit_val (n->rhs));
 	case ND_SHL:
-		return xasprintf ("shl64(%s,%s)", emit_val (n->lhs), emit_val (n->rhs));
+		return xasprintf ("%s(%s,%s)", RT ("shl64"),
+			emit_val (n->lhs), emit_val (n->rhs));
 	case ND_SHR:
 		return xasprintf ("%s(%s,%s)",
-			n->ty->kind == TY_INT && n->ty->is_unsigned? "lshr64": "ashr64",
+			RT (n->ty->kind == TY_INT && n->ty->is_unsigned? "lshr64": "ashr64"),
 			emit_val (n->lhs), emit_val (n->rhs));
 	case ND_POW:
 		return xasprintf ("Math.pow(%s,%s)", emit_val (n->lhs), emit_val (n->rhs));
@@ -381,7 +476,8 @@ static char *emit_val(Node *n) {
 		char *a = emit_val (n->lhs);
 		char *b = emit_val (n->rhs);
 		if (unsig && (n->kind == ND_LT || n->kind == ND_LE)) {
-			return xasprintf ("%s(%s,%s)", n->kind == ND_LT? "ltu": "leu", a, b);
+			return xasprintf ("%s(%s,%s)",
+				RT (n->kind == ND_LT? "ltu": "leu"), a, b);
 		}
 		const char *op = n->kind == ND_EQ? "===": n->kind == ND_NE? "!==":
 			n->kind == ND_LT? "<": "<=";
@@ -399,7 +495,7 @@ static char *emit_val(Node *n) {
 	case ND_NOT:
 		return xasprintf ("((%s)===0?1:0)", emit_val (n->lhs));
 	case ND_BITNOT:
-		return xasprintf ("not64(%s)", emit_val (n->lhs));
+		return xasprintf ("%s(%s)", RT ("not64"), emit_val (n->lhs));
 	case ND_NEG:
 		return xasprintf ("(-(%s))", emit_val (n->lhs));
 	case ND_COMMA:
@@ -551,7 +647,7 @@ static void emit_stmt(Node *n) {
 		cur_blk = catchb;
 		emit_stmt (n->els);
 		if (!blocks[cur_blk].term) {
-			EMIT ("if(ld8(TASK+8)===0)hcThrowFn(ld8(TASK));\n");
+			EMIT ("if(ld8(TASK+8)===0)%s(ld8(TASK));\n", RT ("hcThrowFn"));
 			jump_to (db);
 		}
 		cur_blk = db;
@@ -608,7 +704,7 @@ static void emit_func(Obj *fn) {
 	np = 0;
 	for (Obj *p = fn->params; p; p = p->next, np++) {
 		fprintf (o, " %s(fp+%ld,a%d);\n",
-			p->ty->kind == TY_F64? "stf": "st8", uid_get (p->uid), np);
+			RT (p->ty->kind == TY_F64? "stf": "st8"), uid_get (p->uid), np);
 	}
 	fprintf (o, " const __tries=[];let pc=%d;\n", entry);
 	fprintf (o, " try{for(;;){try{switch(pc){\n");
@@ -624,11 +720,9 @@ static void emit_func(Obj *fn) {
 /* ---------------------------------------------------------------- emit */
 
 static void js_emit(Program *prog, FILE *out) {
-	o = out;
 	cur_prog = prog;
 	numap = 0;
-	fprintf (o, "#!/usr/bin/env node\n");
-	fputs (rt_js_src, o);
+	parse_rt_chunks ();
 
 	/* data layout: strings then globals, from address 64 */
 	long addr = 64;
@@ -656,7 +750,15 @@ static void js_emit(Program *prog, FILE *out) {
 		uid_set (f->uid, ++fidx); /* FT index + 1 */
 	}
 
-	/* functions */
+	/* emit functions into memory first: this records which runtime
+	 * helpers are used, so only those chunks are shipped */
+	char *fbuf = NULL;
+	size_t fsize = 0;
+	FILE *fo = open_memstream (&fbuf, &fsize);
+	if (!fo) {
+		error ("js backend: open_memstream failed");
+	}
+	o = fo;
 	for (Obj *f = prog->funcs; f; f = f->next) {
 		if (f->is_extern || !f->body) {
 			continue;
@@ -664,6 +766,21 @@ static void js_emit(Program *prog, FILE *out) {
 		emit_func (f);
 	}
 	emit_func (prog->startup);
+	fclose (fo);
+
+	/* the unhandled-exception wrapper needs chstr (ld8 is core) */
+	RT ("chstr");
+
+	o = out;
+	fprintf (o, "#!/usr/bin/env node\n");
+	fputs (core_src, o);
+	for (int i = 0; i < nchunks; i++) {
+		if (chunks[i].inc && chunks[i].src) {
+			fputs (chunks[i].src, o);
+		}
+	}
+	fwrite (fbuf, 1, fsize, o);
+	free (fbuf);
 
 	/* function table */
 	fprintf (o, "const FT=[");
