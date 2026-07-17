@@ -74,6 +74,29 @@ if [ -f tests/out/libhctest.a ]; then
 	done
 fi
 
+# Native runtime exception state is TLS.  Synchronizing inside both try and
+# catch makes a shared Fs or handler stack fail deterministically.
+if cc -pthread -c tests/tls_threads.c -o tests/out/tls_threads.o 2>/dev/null; then
+	for b in $backends; do
+		[ "$b" = js ] && continue
+		if ./mhc -b "$b" tests/tls_threads.HC tests/out/tls_threads.o -lpthread \
+			-o "tests/out/tls_threads-$b" 2>"tests/out/tls_threads-$b.err"; then
+			"tests/out/tls_threads-$b" >"tests/out/tls_threads-$b.txt" 2>&1
+			if [ "$(cat "tests/out/tls_threads-$b.txt")" = "tls exceptions: 1" ]; then
+				echo "ok   $b/exceptions(TLS)"
+			else
+				echo "FAIL $b/exceptions(TLS) output"
+				cat "tests/out/tls_threads-$b.txt"
+				fail=1
+			fi
+		else
+			echo "FAIL build $b/exceptions(TLS)"
+			head -5 "tests/out/tls_threads-$b.err"
+			fail=1
+		fi
+	done
+fi
+
 if [ "$fail" = 0 ]; then
 	echo "all tests passed"
 fi

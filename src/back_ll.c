@@ -58,6 +58,10 @@ static bool is_agg(Type *ty) {
 	return ty && (ty->kind == TY_CLASS || ty->kind == TY_ARRAY);
 }
 
+static bool is_fs_obj(Obj *v) {
+	return v->is_extern && v->from_prelude && !strcmp (v->name, "Fs");
+}
+
 static bool value_unsig(Type *ty) {
 	return ty->kind == TY_INT && ty->is_unsigned;
 }
@@ -413,6 +417,14 @@ static char *emit_val(Node *n) {
 		return xasprintf ("ptrtoint (ptr @hcs%d to i64)", n->str_id);
 	case ND_VAR: {
 		Obj *v = n->var;
+		if (is_fs_obj (v)) {
+			ensure_block ();
+			char *p = tmp_ ();
+			fprintf (o, "  %s = call ptr @__hc_fs()\n", p);
+			char *t = tmp_ ();
+			fprintf (o, "  %s = ptrtoint ptr %s to i64\n", t, p);
+			return t;
+		}
 		if (is_agg (v->ty)) {
 			return var_addr (v);
 		}
@@ -715,8 +727,10 @@ static void emit_stmt(Node *n) {
 		emit_stmt (n->els);
 		ensure_block ();
 		/* if (!Fs->catch_except) throw(Fs->except_ch) */
+		char *fsp = tmp_ ();
+		fprintf (o, "  %s = call ptr @__hc_fs()\n", fsp);
 		char *fs = tmp_ ();
-		fprintf (o, "  %s = load i64, ptr @Fs\n", fs);
+		fprintf (o, "  %s = ptrtoint ptr %s to i64\n", fs, fsp);
 		char *cea = tmp_ ();
 		fprintf (o, "  %s = add i64 %s, 8\n", cea, fs);
 		char *cep = tmp_ ();
@@ -825,7 +839,8 @@ static void ll_emit(Program *prog, FILE *out) {
 	/* globals */
 	for (Obj *g = prog->globals; g; g = g->next) {
 		if (g->is_extern) {
-			fprintf (o, "@%s = external global i64\n", g->name);
+			fprintf (o, "@%s = external %sglobal i64\n", g->name,
+				is_fs_obj (g)? "thread_local ": "");
 			continue;
 		}
 		const char *lnk = g->is_public? "": "internal ";
@@ -862,6 +877,7 @@ static void ll_emit(Program *prog, FILE *out) {
 	}
 	fprintf (o, "declare ptr @__hc_try_push()\n");
 	fprintf (o, "declare void @__hc_try_pop()\n");
+	fprintf (o, "declare ptr @__hc_fs()\n");
 	fprintf (o, "declare i32 @_setjmp(ptr) returns_twice\n");
 	fprintf (o, "declare double @__hc_pow(double, double)\n");
 	fprintf (o, "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n");

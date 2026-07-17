@@ -23,6 +23,10 @@ static bool is_agg(Type *ty) {
 	return ty && (ty->kind == TY_CLASS || ty->kind == TY_ARRAY);
 }
 
+static bool is_fs_obj(Obj *v) {
+	return v->is_extern && v->from_prelude && !strcmp (v->name, "Fs");
+}
+
 static const char *scalar_ctype(Type *ty) {
 	if (ty->kind == TY_F64) {
 		return "hc_f64";
@@ -231,7 +235,9 @@ static void emit_val(Node *n) {
 		break;
 	case ND_VAR: {
 		Obj *v = n->var;
-		if (is_agg (v->ty)) {
+		if (is_fs_obj (v)) {
+			fprintf (o, "((hc_i64)(intptr_t)__hc_fs())");
+		} else if (is_agg (v->ty)) {
 			fprintf (o, "((hc_i64)(intptr_t)%s)", objname (v));
 		} else if (v->ty->kind == TY_F64) {
 			fprintf (o, "%s", objname (v));
@@ -583,7 +589,7 @@ static void emit_stmt(Node *n, int ind) {
 		fprintf (o, "} else {\n");
 		emit_stmt (n->els, ind + 1);
 		ind_ (ind + 1);
-		fprintf (o, "if (!Fs->catch_except) throw(Fs->except_ch);\n");
+		fprintf (o, "if (!__hc_fs()->catch_except) throw(__hc_fs()->except_ch);\n");
 		ind_ (ind);
 		fprintf (o, "} }\n");
 		break;
@@ -680,11 +686,21 @@ static void emit_obj_preamble(Program *prog) {
 		"#include <stdint.h>\n"
 		"#include <string.h>\n"
 		"#include <setjmp.h>\n"
+		"#if defined(_MSC_VER)\n"
+		"#define HC_TLS __declspec(thread)\n"
+		"#elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L\n"
+		"#define HC_TLS _Thread_local\n"
+		"#elif defined(__GNUC__) || defined(__clang__)\n"
+		"#define HC_TLS __thread\n"
+		"#else\n"
+		"#error \"mhc output needs thread-local storage support\"\n"
+		"#endif\n"
 		"typedef int64_t hc_i64;\n"
 		"typedef uint64_t hc_u64;\n"
 		"typedef double hc_f64;\n"
 		"typedef struct { hc_i64 except_ch, catch_except; } HcTask;\n"
-		"extern HcTask *Fs;\n"
+		"extern HC_TLS HcTask *Fs;\n"
+		"extern HcTask *__hc_fs(void);\n"
 		"extern void *__hc_try_push(void);\n"
 		"extern void __hc_try_pop(void);\n"
 		"extern hc_f64 __hc_pow(hc_f64, hc_f64);\n");

@@ -21,17 +21,37 @@ typedef double hc_f64;
 #define HC_API
 #endif
 
+/* C11 spelling when available, compiler spelling for the C99 backend. */
+#if defined(_MSC_VER)
+#define HC_TLS __declspec(thread)
+#elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+#define HC_TLS _Thread_local
+#elif defined(__GNUC__) || defined(__clang__)
+#define HC_TLS __thread
+#else
+#error "mhc runtime needs thread-local storage support"
+#endif
+
 /* ------------------------------------------------------------------ task */
 
 typedef struct { hc_i64 except_ch; hc_i64 catch_except; } HcTask;
-static HcTask hc_task0;
-HC_API HcTask *Fs = &hc_task0;
+static HC_TLS HcTask hc_task0;
+HC_API HC_TLS HcTask *Fs;
+
+/* A TLS pointer cannot be initialized to the address of another TLS object
+ * by a constant C initializer.  Initialize it on first use in each thread. */
+HC_API HcTask *__hc_fs(void) {
+	if (!Fs) {
+		Fs = &hc_task0;
+	}
+	return Fs;
+}
 
 /* ------------------------------------------------------------ exceptions */
 
 #define HC_TRY_MAX 256
-static jmp_buf hc_frames[HC_TRY_MAX];
-static int hc_ntry;
+static HC_TLS jmp_buf hc_frames[HC_TRY_MAX];
+static HC_TLS int hc_ntry;
 
 HC_API void *__hc_try_push(void) {
 	if (hc_ntry >= HC_TRY_MAX) {
@@ -46,8 +66,9 @@ HC_API void __hc_try_pop(void) {
 }
 
 HC_API void throw(hc_i64 ch) {
-	Fs->except_ch = ch;
-	Fs->catch_except = 0;
+	HcTask *task = __hc_fs ();
+	task->except_ch = ch;
+	task->catch_except = 0;
 	if (hc_ntry > 0) {
 		hc_ntry--;
 #ifdef __APPLE__
@@ -63,10 +84,11 @@ HC_API void throw(hc_i64 ch) {
 }
 
 HC_API void PutExcept(hc_i64 catch_it) {
+	HcTask *task = __hc_fs ();
 	char buf[9] = {0};
-	memcpy (buf, &Fs->except_ch, 8);
+	memcpy (buf, &task->except_ch, 8);
 	printf ("Except:%s\n", buf);
-	Fs->catch_except = catch_it;
+	task->catch_except = catch_it;
 }
 
 /* ---------------------------------------------------------------- memory */

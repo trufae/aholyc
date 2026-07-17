@@ -174,7 +174,8 @@ and `offset(Class.member)` are compile-time constants.
 while the handler search is in progress: a catch that wants to *consume*
 the exception must say so with `Fs->catch_except = TRUE` (or call
 `PutExcept`), otherwise the search continues with the next outer handler,
-and an unconsumed exception terminates the program:
+and an unconsumed exception terminates the program. On native backends,
+`Fs` and the handler stack are local to each host thread:
 
 ```holyc
 try {

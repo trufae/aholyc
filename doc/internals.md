@@ -62,13 +62,14 @@ vararg ABI headaches and gives HolyC's `argc`/`argv` for free.
 
 ## Exceptions
 
-The runtime keeps a fixed stack of `jmp_buf` frames. `try` pushes a
-frame and `_setjmp`s; `throw(ch)` records `ch` in `Fs->except_ch`, pops
-the top frame and longjmps into its catch block. The catch code decides:
-setting `Fs->catch_except` (what `PutExcept` does) consumes the
-exception; otherwise the generated code rethrows to the next outer
-frame — exactly TempleOS's handler-search semantics. The JS backend maps
-this onto native JS exceptions instead.
+The native runtime keeps `Fs` and a fixed stack of `jmp_buf` frames in
+thread-local storage. `Fs` is lazily initialized to a private `CTask` for
+each host thread. `try` pushes a frame and `_setjmp`s; `throw(ch)` records
+`ch` in `Fs->except_ch`, pops the top frame and longjmps into its catch
+block. The catch code decides: setting `Fs->catch_except` (what
+`PutExcept` does) consumes the exception; otherwise the generated code
+rethrows to the next outer frame — exactly TempleOS's handler-search
+semantics. The JS backend maps this onto native JS exceptions instead.
 
 ## Testing
 
