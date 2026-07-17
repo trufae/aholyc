@@ -640,23 +640,11 @@ static void emit_func(Program *prog, Obj *fn) {
 	fprintf (o, "}\n\n");
 }
 
-/* -c mode: the runtime is linked separately, so declare it instead */
-static void emit_obj_preamble(Program *prog) {
-	fprintf (o,
-		"#include <stdint.h>\n"
-		"#include <string.h>\n"
-		"#include <setjmp.h>\n"
-		"typedef int64_t hc_i64;\n"
-		"typedef uint64_t hc_u64;\n"
-		"typedef double hc_f64;\n"
-		"typedef struct { hc_i64 except_ch, catch_except; } HcTask;\n"
-		"extern HcTask *Fs;\n"
-		"extern void *__hc_try_push(void);\n"
-		"extern void __hc_try_pop(void);\n"
-		"extern hc_f64 __hc_pow(hc_f64, hc_f64);\n");
-	/* runtime + user extern functions, mapped like emit_rt_arg does */
+/* declare extern symbols, mapped like emit_rt_arg does. only_user skips
+ * the runtime API (already defined when rt.c is embedded in the TU). */
+static void emit_extern_decls(Program *prog, bool only_user) {
 	for (Obj *f = prog->funcs; f; f = f->next) {
-		if (!f->is_extern) {
+		if (!f->is_extern || (only_user && f->from_prelude)) {
 			continue;
 		}
 		Type *ret = f->ty->base;
@@ -673,9 +661,9 @@ static void emit_obj_preamble(Program *prog) {
 		}
 		fprintf (o, "%s);\n", np? "": "void");
 	}
-	/* extern variables (Fs already declared above) */
 	for (Obj *g = prog->globals; g; g = g->next) {
-		if (!g->is_extern || !strcmp (g->name, "Fs")) {
+		if (!g->is_extern || !strcmp (g->name, "Fs") ||
+		    (only_user && g->from_prelude)) {
 			continue;
 		}
 		if (is_agg (g->ty)) {
@@ -686,6 +674,23 @@ static void emit_obj_preamble(Program *prog) {
 	}
 }
 
+/* -c mode: the runtime is linked separately, so declare it instead */
+static void emit_obj_preamble(Program *prog) {
+	fprintf (o,
+		"#include <stdint.h>\n"
+		"#include <string.h>\n"
+		"#include <setjmp.h>\n"
+		"typedef int64_t hc_i64;\n"
+		"typedef uint64_t hc_u64;\n"
+		"typedef double hc_f64;\n"
+		"typedef struct { hc_i64 except_ch, catch_except; } HcTask;\n"
+		"extern HcTask *Fs;\n"
+		"extern void *__hc_try_push(void);\n"
+		"extern void __hc_try_pop(void);\n"
+		"extern hc_f64 __hc_pow(hc_f64, hc_f64);\n");
+	emit_extern_decls (prog, false);
+}
+
 static void c_emit(Program *prog, FILE *out) {
 	o = out;
 	cur_prog = prog;
@@ -693,7 +698,10 @@ static void c_emit(Program *prog, FILE *out) {
 	if (mhc_obj_mode) {
 		emit_obj_preamble (prog);
 	} else {
+		/* static runtime: unused API functions get discarded */
+		fprintf (o, "#define HC_API static\n");
 		fputs (rt_c_src, o);
+		emit_extern_decls (prog, true);
 	}
 	fprintf (o, "\n/* ---- program ---- */\n");
 	fprintf (o, "static hc_i64 hc_f2b(hc_f64 d){hc_i64 v;memcpy(&v,&d,8);return v;}\n");
@@ -773,26 +781,45 @@ static const char *pick_cc(void) {
 static int c_build_obj(const char *artifact, const char *outpath,
                        const char *opt, bool verbose, bool keep) {
 	(void)keep;
-	char *argv[] = {
-		(char *)pick_cc (), (char *)opt, "-fno-strict-aliasing", "-w",
-		"-c", "-o", (char *)outpath, (char *)artifact, NULL
-	};
+	char *argv[96];
+	int i = 0;
+	argv[i++] = (char *)pick_cc ();
+	argv[i++] = (char *)opt;
+	argv[i++] = "-fno-strict-aliasing";
+	argv[i++] = "-w";
+	argv[i++] = "-c";
+	argv[i++] = "-o";
+	argv[i++] = (char *)outpath;
+	argv[i++] = (char *)artifact;
+	for (int k = 0; k < mhc_nccflags; k++) {
+		argv[i++] = mhc_ccflags[k];
+	}
+	argv[i] = NULL;
 	return run_cmd (argv, verbose);
 }
 
 static int c_build(const char *artifact, const char *outpath,
                    const char *opt, bool verbose, bool keep) {
 	(void)keep;
-	const char *cc = pick_cc ();
-	char *argv[16];
+	char *argv[96];
 	int i = 0;
-	argv[i++] = (char *)cc;
+	argv[i++] = (char *)pick_cc ();
 	argv[i++] = (char *)opt;
 	argv[i++] = "-fno-strict-aliasing";
 	argv[i++] = "-w";
+	argv[i++] = "-ffunction-sections";
+	argv[i++] = "-fdata-sections";
+#ifdef __APPLE__
+	argv[i++] = "-Wl,-dead_strip";
+#else
+	argv[i++] = "-Wl,--gc-sections";
+#endif
 	argv[i++] = "-o";
 	argv[i++] = (char *)outpath;
 	argv[i++] = (char *)artifact;
+	for (int k = 0; k < mhc_nccflags; k++) {
+		argv[i++] = mhc_ccflags[k];
+	}
 	argv[i++] = "-lm";
 	argv[i] = NULL;
 	int r = run_cmd (argv, verbose);

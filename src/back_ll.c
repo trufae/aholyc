@@ -916,10 +916,28 @@ static int ll_build(const char *artifact, const char *outpath,
 	fclose (f);
 	int r;
 	if (have_cmd ("clang")) {
-		char *argv[] = {
-			"clang", (char *)opt, "-w", "-fno-strict-aliasing",
-			"-o", (char *)outpath, (char *)artifact, rtpath, "-lm", NULL
-		};
+		char *argv[96];
+		int i = 0;
+		argv[i++] = "clang";
+		argv[i++] = (char *)opt;
+		argv[i++] = "-w";
+		argv[i++] = "-fno-strict-aliasing";
+		argv[i++] = "-ffunction-sections";
+		argv[i++] = "-fdata-sections";
+#ifdef __APPLE__
+		argv[i++] = "-Wl,-dead_strip";
+#else
+		argv[i++] = "-Wl,--gc-sections";
+#endif
+		argv[i++] = "-o";
+		argv[i++] = (char *)outpath;
+		argv[i++] = (char *)artifact;
+		argv[i++] = rtpath;
+		for (int k = 0; k < mhc_nccflags; k++) {
+			argv[i++] = mhc_ccflags[k];
+		}
+		argv[i++] = "-lm";
+		argv[i] = NULL;
 		r = run_cmd (argv, verbose);
 	} else if (have_cmd ("llc")) {
 		char *spath = xasprintf ("%s.s", artifact);
@@ -930,10 +948,21 @@ static int ll_build(const char *artifact, const char *outpath,
 			if (!cc || !*cc) {
 				cc = "cc";
 			}
-			char *cargv[] = {
-				(char *)cc, (char *)opt, "-w", "-fno-strict-aliasing",
-				"-o", (char *)outpath, spath, rtpath, "-lm", NULL
-			};
+			char *cargv[96];
+			int i = 0;
+			cargv[i++] = (char *)cc;
+			cargv[i++] = (char *)opt;
+			cargv[i++] = "-w";
+			cargv[i++] = "-fno-strict-aliasing";
+			cargv[i++] = "-o";
+			cargv[i++] = (char *)outpath;
+			cargv[i++] = spath;
+			cargv[i++] = rtpath;
+			for (int k = 0; k < mhc_nccflags; k++) {
+				cargv[i++] = mhc_ccflags[k];
+			}
+			cargv[i++] = "-lm";
+			cargv[i] = NULL;
 			r = run_cmd (cargv, verbose);
 		}
 		if (!keep) {

@@ -29,6 +29,11 @@ The output of `-S -b c` compiles anywhere with
 This backend is the reference implementation and works on any machine
 with a C compiler — no LLVM needed.
 
+In whole-program mode the runtime is injected with `#define HC_API
+static`, so the C compiler discards every runtime function the program
+never uses; combined with `--gc-sections` (both native backends) a
+hello world carries ~3 KB of code instead of the full runtime.
+
 ## js
 
 Emits a complete node script. Memory is one `ArrayBuffer`; pointers are

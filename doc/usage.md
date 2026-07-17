@@ -22,7 +22,9 @@ $ mhc main.HC module.o -o prog   # .o/.a inputs are linked in
 | `-c` | compile to a relocatable object (`.o`), do not link |
 | `-S` | stop after emitting the backend source artifact |
 | `-O0..-O3, -Os, -Oz` | optimization for the native toolchain (default `-Os`) |
-| `-I dir` | add an `#include` search directory |
+| `-I dir` | add an `#include` search directory (also forwarded to the C toolchain) |
+| `-L dir` | add a library search directory for the linker |
+| `-l name` | link against a library (e.g. `-lz`) |
 | `-D name[=value]` | predefine a macro |
 | `-r`, `--run` | run the program after a successful build |
 | `-k` | keep intermediate files (`.ll`, `.c`, runtime copies) |
@@ -94,6 +96,35 @@ The rules, HolyC-style:
 
 If no backend is given, mhc uses `llvm` when clang or llc is installed,
 falling back to `c` otherwise.
+
+## Calling C libraries
+
+Declare foreign functions and globals with `extern` and link with
+`-L`/`-l` (native backends only):
+
+```holyc
+// zdemo.HC
+extern U64 crc32(U64 crc, U8 *buf, U32 len);
+"%X\n", crc32(0, "hello", 5);
+```
+
+```console
+$ mhc zdemo.HC -lz -o zdemo
+```
+
+mhc emits matching declarations for every `extern` symbol your source
+declares that the runtime doesn't provide. All HolyC integers are 64-bit,
+so prefer C functions with pointer/`long long`/`double`-shaped
+signatures; mask narrower return values yourself (e.g. `x(I32)`), and
+avoid C-variadic functions like `printf` (HolyC varargs use the
+`argc`/`argv` convention instead).
+
+## Dead code elimination
+
+The runtime is embedded as `static` in whole-program C builds and the
+build always uses `-ffunction-sections -fdata-sections` with linker
+section GC, so runtime functions your program never calls do not reach
+the final binary.
 
 ## Exit status and errors
 

@@ -13,11 +13,19 @@ typedef int64_t hc_i64;
 typedef uint64_t hc_u64;
 typedef double hc_f64;
 
+/* HC_API marks the public runtime API. The C backend defines it as
+ * 'static' when embedding this file into a whole-program build, so the
+ * C compiler discards every runtime function the program never calls.
+ * Compiled standalone (LLVM backend, object linking) it stays extern. */
+#ifndef HC_API
+#define HC_API
+#endif
+
 /* ------------------------------------------------------------------ task */
 
 typedef struct { hc_i64 except_ch; hc_i64 catch_except; } HcTask;
 static HcTask hc_task0;
-HcTask *Fs = &hc_task0;
+HC_API HcTask *Fs = &hc_task0;
 
 /* ------------------------------------------------------------ exceptions */
 
@@ -25,7 +33,7 @@ HcTask *Fs = &hc_task0;
 static jmp_buf hc_frames[HC_TRY_MAX];
 static int hc_ntry;
 
-void *__hc_try_push(void) {
+HC_API void *__hc_try_push(void) {
 	if (hc_ntry >= HC_TRY_MAX) {
 		fprintf (stderr, "mhc-rt: try nesting too deep\n");
 		exit (1);
@@ -33,11 +41,11 @@ void *__hc_try_push(void) {
 	return hc_frames[hc_ntry++];
 }
 
-void __hc_try_pop(void) {
+HC_API void __hc_try_pop(void) {
 	hc_ntry--;
 }
 
-void throw(hc_i64 ch) {
+HC_API void throw(hc_i64 ch) {
 	Fs->except_ch = ch;
 	Fs->catch_except = 0;
 	if (hc_ntry > 0) {
@@ -54,7 +62,7 @@ void throw(hc_i64 ch) {
 	exit (1);
 }
 
-void PutExcept(hc_i64 catch_it) {
+HC_API void PutExcept(hc_i64 catch_it) {
 	char buf[9] = {0};
 	memcpy (buf, &Fs->except_ch, 8);
 	printf ("Except:%s\n", buf);
@@ -64,7 +72,7 @@ void PutExcept(hc_i64 catch_it) {
 /* ---------------------------------------------------------------- memory */
 
 /* MAlloc keeps the size in a 16-byte header so MSize works */
-void *MAlloc(hc_i64 size) {
+HC_API void *MAlloc(hc_i64 size) {
 	if (size < 0) {
 		size = 0;
 	}
@@ -76,53 +84,53 @@ void *MAlloc(hc_i64 size) {
 	return p + 16;
 }
 
-void *CAlloc(hc_i64 size) {
+HC_API void *CAlloc(hc_i64 size) {
 	void *p = MAlloc (size);
 	memset (p, 0, (size_t)size);
 	return p;
 }
 
-void Free(void *p) {
+HC_API void Free(void *p) {
 	if (p) {
 		free ((char *)p - 16);
 	}
 }
 
-hc_i64 MSize(void *p) {
+HC_API hc_i64 MSize(void *p) {
 	return p? *(hc_i64 *)((char *)p - 16): 0;
 }
 
-void *MemCpy(void *dst, void *src, hc_i64 n) {
+HC_API void *MemCpy(void *dst, void *src, hc_i64 n) {
 	return memcpy (dst, src, (size_t)n);
 }
 
-void *MemSet(void *dst, hc_i64 val, hc_i64 n) {
+HC_API void *MemSet(void *dst, hc_i64 val, hc_i64 n) {
 	return memset (dst, (int)val, (size_t)n);
 }
 
-hc_i64 MemCmp(void *a, void *b, hc_i64 n) {
+HC_API hc_i64 MemCmp(void *a, void *b, hc_i64 n) {
 	return memcmp (a, b, (size_t)n);
 }
 
 /* --------------------------------------------------------------- strings */
 
-hc_i64 StrLen(char *s) {
+HC_API hc_i64 StrLen(char *s) {
 	return s? (hc_i64)strlen (s): 0;
 }
 
-char *StrCpy(char *dst, char *src) {
+HC_API char *StrCpy(char *dst, char *src) {
 	return strcpy (dst, src? src: "");
 }
 
-char *StrCat(char *dst, char *src) {
+HC_API char *StrCat(char *dst, char *src) {
 	return strcat (dst, src? src: "");
 }
 
-hc_i64 StrCmp(char *a, char *b) {
+HC_API hc_i64 StrCmp(char *a, char *b) {
 	return strcmp (a? a: "", b? b: "");
 }
 
-char *StrNew(char *s) {
+HC_API char *StrNew(char *s) {
 	if (!s) {
 		s = "";
 	}
@@ -260,13 +268,13 @@ static void hc_format(HcOut *o, char *fmt, hc_i64 argc, hc_i64 *argv) {
 	}
 }
 
-void Print(char *fmt, hc_i64 argc, hc_i64 *argv) {
+HC_API void Print(char *fmt, hc_i64 argc, hc_i64 *argv) {
 	HcOut o = {0};
 	hc_format (&o, fmt, argc, argv);
 	fflush (stdout);
 }
 
-char *StrPrint(char *dst, char *fmt, hc_i64 argc, hc_i64 *argv) {
+HC_API char *StrPrint(char *dst, char *fmt, hc_i64 argc, hc_i64 *argv) {
 	HcOut o = { dst, 0, (size_t)-1 };
 	if (dst) {
 		dst[0] = 0;
@@ -275,7 +283,7 @@ char *StrPrint(char *dst, char *fmt, hc_i64 argc, hc_i64 *argv) {
 	return dst;
 }
 
-char *MStrPrint(char *fmt, hc_i64 argc, hc_i64 *argv) {
+HC_API char *MStrPrint(char *fmt, hc_i64 argc, hc_i64 *argv) {
 	HcOut o = {0};
 	o.cap = 64;
 	o.buf = malloc (o.cap);
@@ -286,7 +294,7 @@ char *MStrPrint(char *fmt, hc_i64 argc, hc_i64 *argv) {
 	return res;
 }
 
-void PutChars(hc_i64 ch) {
+HC_API void PutChars(hc_i64 ch) {
 	char out[9];
 	int n = 0;
 	hc_u64 v = (hc_u64)ch;
@@ -298,7 +306,7 @@ void PutChars(hc_i64 ch) {
 	fflush (stdout);
 }
 
-void PutS(char *s) {
+HC_API void PutS(char *s) {
 	if (s) {
 		fputs (s, stdout);
 		fflush (stdout);
@@ -307,11 +315,11 @@ void PutS(char *s) {
 
 /* ------------------------------------------------------------------- io */
 
-hc_i64 GetChar(void) {
+HC_API hc_i64 GetChar(void) {
 	return getchar ();
 }
 
-char *GetStr(char *prompt) {
+HC_API char *GetStr(char *prompt) {
 	if (prompt) {
 		Print (prompt, 0, NULL);
 	}
@@ -328,46 +336,46 @@ char *GetStr(char *prompt) {
 
 /* ----------------------------------------------------------------- math */
 
-hc_f64 __hc_pow(hc_f64 a, hc_f64 b) { return pow (a, b); }
-hc_f64 Sqrt(hc_f64 x) { return sqrt (x); }
-hc_f64 Sin(hc_f64 x) { return sin (x); }
-hc_f64 Cos(hc_f64 x) { return cos (x); }
-hc_f64 Tan(hc_f64 x) { return tan (x); }
-hc_f64 ASin(hc_f64 x) { return asin (x); }
-hc_f64 ACos(hc_f64 x) { return acos (x); }
-hc_f64 ATan(hc_f64 x) { return atan (x); }
-hc_f64 Exp(hc_f64 x) { return exp (x); }
-hc_f64 Ln(hc_f64 x) { return log (x); }
-hc_f64 Log10(hc_f64 x) { return log10 (x); }
-hc_f64 Log2(hc_f64 x) { return log2 (x); }
-hc_f64 Ceil(hc_f64 x) { return ceil (x); }
-hc_f64 Floor(hc_f64 x) { return floor (x); }
-hc_f64 Abs(hc_f64 x) { return fabs (x); }
-hc_i64 AbsI64(hc_i64 x) { return x < 0? -x: x; }
-hc_i64 Round(hc_f64 x) { return (hc_i64)llround (x); }
-hc_i64 ToI64(hc_f64 x) { return (hc_i64)x; }
-hc_f64 ToF64(hc_i64 x) { return (hc_f64)x; }
-hc_i64 ToBool(hc_i64 x) { return x != 0; }
-hc_i64 MinI64(hc_i64 a, hc_i64 b) { return a < b? a: b; }
-hc_i64 MaxI64(hc_i64 a, hc_i64 b) { return a > b? a: b; }
+HC_API hc_f64 __hc_pow(hc_f64 a, hc_f64 b) { return pow (a, b); }
+HC_API hc_f64 Sqrt(hc_f64 x) { return sqrt (x); }
+HC_API hc_f64 Sin(hc_f64 x) { return sin (x); }
+HC_API hc_f64 Cos(hc_f64 x) { return cos (x); }
+HC_API hc_f64 Tan(hc_f64 x) { return tan (x); }
+HC_API hc_f64 ASin(hc_f64 x) { return asin (x); }
+HC_API hc_f64 ACos(hc_f64 x) { return acos (x); }
+HC_API hc_f64 ATan(hc_f64 x) { return atan (x); }
+HC_API hc_f64 Exp(hc_f64 x) { return exp (x); }
+HC_API hc_f64 Ln(hc_f64 x) { return log (x); }
+HC_API hc_f64 Log10(hc_f64 x) { return log10 (x); }
+HC_API hc_f64 Log2(hc_f64 x) { return log2 (x); }
+HC_API hc_f64 Ceil(hc_f64 x) { return ceil (x); }
+HC_API hc_f64 Floor(hc_f64 x) { return floor (x); }
+HC_API hc_f64 Abs(hc_f64 x) { return fabs (x); }
+HC_API hc_i64 AbsI64(hc_i64 x) { return x < 0? -x: x; }
+HC_API hc_i64 Round(hc_f64 x) { return (hc_i64)llround (x); }
+HC_API hc_i64 ToI64(hc_f64 x) { return (hc_i64)x; }
+HC_API hc_f64 ToF64(hc_i64 x) { return (hc_f64)x; }
+HC_API hc_i64 ToBool(hc_i64 x) { return x != 0; }
+HC_API hc_i64 MinI64(hc_i64 a, hc_i64 b) { return a < b? a: b; }
+HC_API hc_i64 MaxI64(hc_i64 a, hc_i64 b) { return a > b? a: b; }
 
 static hc_u64 hc_seed = 0x5DEECE66DULL;
-void Seed(hc_i64 seed) {
+HC_API void Seed(hc_i64 seed) {
 	hc_seed = (hc_u64)seed;
 }
 
-hc_i64 RandI64(void) {
+HC_API hc_i64 RandI64(void) {
 	hc_seed = hc_seed * 6364136223846793005ULL + 1442695040888963407ULL;
 	return (hc_i64)(hc_seed >> 1);
 }
 
-hc_f64 Rand(void) {
+HC_API hc_f64 Rand(void) {
 	return (hc_f64)((hc_u64)RandI64 () >> 11) / 9007199254740992.0;
 }
 
 /* ----------------------------------------------------------------- misc */
 
-void Exit(hc_i64 code) {
+HC_API void Exit(hc_i64 code) {
 	exit ((int)code);
 }
 

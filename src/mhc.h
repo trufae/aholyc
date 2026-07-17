@@ -154,6 +154,7 @@ struct Obj {
 	bool is_static_dur; /* global storage */
 	bool is_param;     /* function parameter: stored full-width (64-bit) */
 	bool is_public;    /* HolyC 'public': exported, unmangled symbol */
+	bool from_prelude; /* extern declared by the prelude (runtime API) */
 	/* functions */
 	Obj *params;       /* chain via next (separate list from locals) */
 	int nparams;
@@ -224,6 +225,10 @@ typedef struct Backend {
 /* -c / object emission: startup code becomes a constructor, the runtime
  * is declared instead of embedded, 'public' symbols are exported. */
 extern bool mhc_obj_mode;
+
+/* pass-through toolchain flags (-I/-L/-l), appended to cc invocations */
+extern char *mhc_ccflags[64];
+extern int mhc_nccflags;
 
 extern const Backend backend_ll;
 extern const Backend backend_c;

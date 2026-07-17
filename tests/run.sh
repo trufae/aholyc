@@ -50,6 +50,30 @@ for b in $backends; do
 	fi
 done
 
+# linking against a C library with -L/-l
+cc -c tests/clib.c -o tests/out/clib.o 2>/dev/null &&
+	ar rcs tests/out/libhctest.a tests/out/clib.o 2>/dev/null
+if [ -f tests/out/libhctest.a ]; then
+	for b in $backends; do
+		[ "$b" = js ] && continue
+		if ./mhc -b "$b" tests/uselib.HC -L tests/out -lhctest \
+			-o "tests/out/uselib-$b" 2>"tests/out/uselib-$b.err"; then
+			"./tests/out/uselib-$b" >"tests/out/uselib-$b.txt" 2>&1
+			if [ "$(cat "tests/out/uselib-$b.txt")" = "quad(7)=28" ]; then
+				echo "ok   $b/clib(-L/-l)"
+			else
+				echo "FAIL $b/clib(-L/-l) output"
+				cat "tests/out/uselib-$b.txt"
+				fail=1
+			fi
+		else
+			echo "FAIL build $b/clib(-L/-l)"
+			head -5 "tests/out/uselib-$b.err"
+			fail=1
+		fi
+	done
+fi
+
 if [ "$fail" = 0 ]; then
 	echo "all tests passed"
 fi

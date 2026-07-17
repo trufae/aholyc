@@ -1999,6 +1999,9 @@ static void parse_func(Type *ret, char *name, bool is_extern, bool is_public) {
 	fnty->base = ret;
 	fn->ty = fnty;
 	fn->is_extern = is_extern;
+	if (is_extern && tk->file && !strcmp (tk->file, "<prelude>")) {
+		fn->from_prelude = true;
+	}
 	if (is_public) {
 		fn->is_public = true;
 	}
@@ -2094,6 +2097,9 @@ static Node *global_decl(Type *base, bool is_extern, bool is_public) {
 		Obj *var = new_global (name, ty);
 		var->is_extern = is_extern;
 		var->is_public = is_public;
+		if (is_extern && nt->file && !strcmp (nt->file, "<prelude>")) {
+			var->from_prelude = true;
+		}
 		if (eat ("=")) {
 			if (is_punct ("{")) {
 				if (ty->kind != TY_ARRAY) {

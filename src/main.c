@@ -8,6 +8,15 @@
 #define MHC_VERSION "0.1.0"
 
 bool mhc_obj_mode = false;
+char *mhc_ccflags[64];
+int mhc_nccflags = 0;
+
+static void add_ccflag(char *flag) {
+	if (mhc_nccflags >= 64) {
+		error ("too many -I/-L/-l flags");
+	}
+	mhc_ccflags[mhc_nccflags++] = flag;
+}
 
 static const Backend *backends[] = {
 	&backend_ll,
@@ -25,7 +34,9 @@ static void usage(int code) {
 		"  -c            compile into a relocatable object (.o), do not link\n"
 		"  -S            emit backend source only, do not build an executable\n"
 		"  -O<level>     optimization level passed to the toolchain (default -Os)\n"
-		"  -I <dir>      add #include search directory\n"
+		"  -I <dir>      add #include search directory (also passed to cc)\n"
+		"  -L <dir>      add library search directory for the linker\n"
+		"  -l <name>     link against a library (e.g. -lz)\n"
 		"  -D name[=v]   predefine a macro\n"
 		"  -r            run the program after building it\n"
 		"  -k            keep intermediate files\n"
@@ -95,8 +106,17 @@ int main(int argc, char **argv) {
 				error ("-I needs an argument");
 			}
 			lex_add_include_dir (argv[i]);
+			add_ccflag (xasprintf ("-I%s", argv[i]));
 		} else if (!strncmp (a, "-I", 2)) {
 			lex_add_include_dir (a + 2);
+			add_ccflag (a);
+		} else if (!strcmp (a, "-L") || !strcmp (a, "-l")) {
+			if (++i >= argc) {
+				error ("%s needs an argument", a);
+			}
+			add_ccflag (xasprintf ("%s%s", a, argv[i]));
+		} else if (!strncmp (a, "-L", 2) || !strncmp (a, "-l", 2)) {
+			add_ccflag (a);
 		} else if (!strcmp (a, "-D")) {
 			if (++i >= argc) {
 				error ("-D needs an argument");
@@ -292,6 +312,9 @@ def:		{
 			argv[n++] = (char *)objects[i];
 		}
 		argv[n++] = rtpath;
+		for (int i = 0; i < mhc_nccflags && n < 78; i++) {
+			argv[n++] = mhc_ccflags[i];
+		}
 		argv[n++] = "-lm";
 		argv[n] = NULL;
 		r = run_cmd (argv, verbose);
