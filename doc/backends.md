@@ -51,7 +51,8 @@ for (;;) switch (pc) {
 ```
 
 HolyC exceptions map onto JS exceptions with a per-invocation try stack.
-Caveat: `I64` is a JS number — exact to 53 bits only.
+Caveat: `I64` is a JS number — exact to 53 bits only. The address-space
+layout is documented in [memory.md](memory.md).
 
 The JS runtime gets the same dead-code treatment as the C runtime:
 `runtime/rt.js` is split into chunks by `//@ name dep...` markers, the

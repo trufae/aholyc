@@ -175,7 +175,8 @@ while the handler search is in progress: a catch that wants to *consume*
 the exception must say so with `Fs->catch_except = TRUE` (or call
 `PutExcept`), otherwise the search continues with the next outer handler,
 and an unconsumed exception terminates the program. On native backends,
-`Fs` and the handler stack are local to each host thread:
+`Fs` and the handler stack are local to each host thread (see
+[memory.md](memory.md) for the full thread-local story):
 
 ```holyc
 try {
