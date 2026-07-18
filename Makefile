@@ -10,14 +10,14 @@ SRC = src/main.c src/lex.c src/parse.c src/util.c src/exe.c src/fmt.c \
       src/back_c.c src/back_ll.c src/back_js.c
 OBJ = $(SRC:.c=.o)
 
-all: ahc
+all: aholyc
 
 # -rdynamic: #exe blocks are dlopened libraries that resolve their
-# compiler-API symbols (src/exe.c) against the ahc binary itself.
-ahc: $(OBJ) src/embed.o
+# compiler-API symbols (src/exe.c) against the aholyc binary itself.
+aholyc: $(OBJ) src/embed.o
 	$(CC) $(CFLAGS) $(LDFLAGS) -rdynamic -o $@ $(OBJ) src/embed.o -ldl
 
-$(OBJ): src/ahc.h
+$(OBJ): src/aholyc.h
 
 # embedded runtime + prelude sources
 src/embed.c: tools/file2c runtime/rt.c runtime/rt.js runtime/prelude.hc runtime/exe.hc
@@ -29,27 +29,27 @@ src/embed.c: tools/file2c runtime/rt.c runtime/rt.js runtime/prelude.hc runtime/
 tools/file2c: tools/file2c.c
 	$(CC) -O2 -o $@ tools/file2c.c
 
-test: ahc
+test: aholyc
 	sh tests/run.sh
 
 # normalize all HolyC sources in the repo (doc/format.md)
-fmt: ahc
-	./ahc fmt -w examples/*.HC tests/*.HC runtime/*.hc
+fmt: aholyc
+	./aholyc fmt -w examples/*.HC tests/*.HC runtime/*.hc
 
 clean:
-	rm -f ahc $(OBJ) src/embed.o src/embed.c tools/file2c
+	rm -f aholyc $(OBJ) src/embed.o src/embed.c tools/file2c
 	rm -rf tests/out
 
-install: ahc
+install: aholyc
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
-	cp ahc $(DESTDIR)$(PREFIX)/bin/ahc
+	cp aholyc $(DESTDIR)$(PREFIX)/bin/aholyc
 
-symstall: ahc
+symstall: aholyc
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
-	rm -f $(DESTDIR)$(PREFIX)/bin/ahc
-	ln -fs $(CWD)/ahc $(DESTDIR)$(PREFIX)/bin/ahc
+	rm -f $(DESTDIR)$(PREFIX)/bin/aholyc
+	ln -fs $(CWD)/aholyc $(DESTDIR)$(PREFIX)/bin/aholyc
 
 uninstall:
-	rm -f $(DESTDIR)$(PREFIX)/bin/ahc
+	rm -f $(DESTDIR)$(PREFIX)/bin/aholyc
 
 .PHONY: all test clean install uninstall

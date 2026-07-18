@@ -18,7 +18,7 @@ public I64i union I64   // "I64i" is intrinsic.  We are defining "I64".
 };
 ```
 
-ahc builds the same views into the compiler instead of declaring
+aholyc builds the same views into the compiler instead of declaring
 unions: any `TY_INT` lvalue accepts `.i8 .u8 .i16 .u16 .i32 .u32`, each
 a view **strictly smaller** than the int it is applied to. The view
 covers exactly the int's bytes, so the index ranges over
@@ -32,7 +32,7 @@ covers exactly the int's bytes, so the index ranges over
 
 ## Semantics
 
-Byte order is little-endian, matching x86-64 and every ahc backend
+Byte order is little-endian, matching x86-64 and every aholyc backend
 (the JS backend's linear memory is an explicitly little-endian
 `DataView`):
 

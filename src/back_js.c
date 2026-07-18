@@ -1,9 +1,9 @@
-/* ahc JavaScript backend: linear-memory model on one ArrayBuffer.
- * JS has no goto, and ahc lowers switch/break into gotos, so each function
+/* aholyc JavaScript backend: linear-memory model on one ArrayBuffer.
+ * JS has no goto, and aholyc lowers switch/break into gotos, so each function
  * becomes a program-counter state machine: for(;;) switch(pc){...}.
  * Exceptions ride JS exceptions with a per-invocation try-stack.
  */
-#include "ahc.h"
+#include "aholyc.h"
 #include <unistd.h>
 #include <sys/stat.h>
 
@@ -831,10 +831,10 @@ static int js_build(const char *artifact, const char *outpath,
 	fclose (outf);
 	chmod (outpath, 0755);
 	if (verbose) {
-		fprintf (stderr, "ahc: wrote node script %s\n", outpath);
+		fprintf (stderr, "aholyc: wrote node script %s\n", outpath);
 	}
 	if (!have_cmd ("node")) {
-		fprintf (stderr, "ahc: warning: 'node' not found in PATH; "
+		fprintf (stderr, "aholyc: warning: 'node' not found in PATH; "
 			"%s needs a JavaScript runtime\n", outpath);
 	}
 	return 0;

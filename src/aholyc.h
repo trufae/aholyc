@@ -2,8 +2,8 @@
  * Public domain, in the spirit of TempleOS.
  * Single shared header: lexer, types, AST, symbols, backend interface.
  */
-#ifndef AHC_H
-#define AHC_H
+#ifndef AHOLYC_H
+#define AHOLYC_H
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -232,14 +232,14 @@ typedef struct Backend {
 
 /* -c / object emission: startup code becomes a constructor, the runtime
  * is declared instead of embedded, 'public' symbols are exported. */
-extern bool ahc_obj_mode;
+extern bool aholyc_obj_mode;
 
 /* -v / -k driver flags, also honored by #exe builds */
-extern bool ahc_verbose, ahc_keep;
+extern bool aholyc_verbose, aholyc_keep;
 
 /* pass-through toolchain flags (-I/-L/-l), appended to cc invocations */
-extern char *ahc_ccflags[64];
-extern int ahc_nccflags;
+extern char *aholyc_ccflags[64];
+extern int aholyc_nccflags;
 
 extern const Backend backend_ll;
 extern const Backend backend_c;
@@ -255,7 +255,7 @@ extern const char exe_hc[];
 int run_cmd(char *const argv[], bool verbose);
 bool have_cmd(const char *name);
 
-/* 'ahc fmt' source formatter (fmt.c, self-contained; doc/format.md) */
+/* 'aholyc fmt' source formatter (fmt.c, self-contained; doc/format.md) */
 int fmt_main(int argc, char **argv);
 
 /* misc */

@@ -1,8 +1,8 @@
-/* ahc parser: HolyC grammar -> core AST.
+/* aholyc parser: HolyC grammar -> core AST.
  * Sugar (default args, implicit Print, switch, range comparisons, ++/--,
  * compound assignment) is lowered here so backends stay small.
  */
-#include "ahc.h"
+#include "aholyc.h"
 
 /* ------------------------------------------------------------- type pool */
 
@@ -1826,7 +1826,7 @@ static Node *stmt(void) {
 		return new_node (ND_NOP, t);
 	}
 	if (is_kw ("asm")) {
-		error_tok (t, "inline asm is not supported by ahc (portable backends only)");
+		error_tok (t, "inline asm is not supported by aholyc (portable backends only)");
 	}
 	if (is_kw ("lock")) {
 		/* compile the block without lock semantics */

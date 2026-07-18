@@ -1,16 +1,16 @@
-# ahc backends
+# aholyc backends
 
 A backend turns the parsed program into a *source artifact* (never object
 code) and knows how to build an executable from it using external tools
-only. That keeps ahc dependency-free: the LLVM toolchain, the system C
-compiler, or node are used at *your* build time, never linked into ahc.
+only. That keeps aholyc dependency-free: the LLVM toolchain, the system C
+compiler, or node are used at *your* build time, never linked into aholyc.
 
 ## llvm (default)
 
 Emits textual LLVM-IR (`.ll`). Every local is an `alloca`, every scalar
 is `i64` or `double`, addresses are `i64` and become pointers at each
 load/store — LLVM's mem2reg and the usual pipeline turn this into proper
-registerized code, so ahc stays simple and the optimizer does the heavy
+registerized code, so aholyc stays simple and the optimizer does the heavy
 lifting (this is the TempleOS way: let one big hammer do the work).
 
 Build: `clang -Os prog.ll runtime.c -o prog`, or if clang is missing,
@@ -43,7 +43,7 @@ Emits a complete node script. Memory is one `ArrayBuffer`; pointers are
 byte addresses; a `DataView` does typed loads/stores, so pointer tricks,
 classes and `MAlloc` behave exactly like the native backends.
 
-JavaScript has no `goto` (and ahc lowers `switch` into gotos), so each
+JavaScript has no `goto` (and aholyc lowers `switch` into gotos), so each
 function is compiled into a program-counter state machine:
 
 ```js
@@ -68,7 +68,7 @@ lives in its own chunk that its users depend on.
 
 ## Adding a backend
 
-Backends are a vtable in `src/ahc.h`:
+Backends are a vtable in `src/aholyc.h`:
 
 ```c
 typedef struct Backend {
@@ -83,7 +83,7 @@ typedef struct Backend {
 } Backend;
 ```
 
-When the global `ahc_obj_mode` is set (`-c`, or `.o` inputs mixed with
+When the global `aholyc_obj_mode` is set (`-c`, or `.o` inputs mixed with
 sources), `emit` must produce a linkable object source: the runtime is
 *declared* instead of embedded, startup code becomes a constructor, and
 `public` symbols keep their unmangled names with external linkage.

@@ -1,16 +1,16 @@
-/* ahc #exe{} — compile-time execution via dlopen (see doc/exe.md).
+/* aholyc #exe{} — compile-time execution via dlopen (see doc/exe.md).
  *
  * A #exe block is compiled by the same lexer/parser/codegen as any
  * program, using the C backend, into a shared library that is
  * dlopened into the compiler process and run. Because it lives in
  * the compiler's address space it sees the compiler's internals
- * directly: the shim functions below are exported from the ahc
+ * directly: the shim functions below are exported from the aholyc
  * binary (linked -rdynamic) and resolve at dlopen time, and the
  * Token class declared in runtime/exe.hc mirrors struct Token from
- * ahc.h byte for byte, so blocks can inspect and mutate the live
+ * aholyc.h byte for byte, so blocks can inspect and mutate the live
  * token stream in place.
  */
-#include "ahc.h"
+#include "aholyc.h"
 #include <dlfcn.h>
 #include <unistd.h>
 #include <time.h>
@@ -69,8 +69,8 @@ int64_t Now(void) {
  * block may advance. Returns the text to splice into the stream. */
 char *exe_run(Token *block, Token **rest) {
 	static int seq;
-	bool save_obj = ahc_obj_mode;
-	ahc_obj_mode = false;
+	bool save_obj = aholyc_obj_mode;
+	aholyc_obj_mode = false;
 
 	/* a stand-alone program: runtime prelude, exe API, block body.
 	 * The body is preprocessed last so the exe API macros apply. */
@@ -85,14 +85,14 @@ char *exe_run(Token *block, Token **rest) {
 	}
 
 	Program *p = parse (toks);
-	ahc_obj_mode = save_obj;
+	aholyc_obj_mode = save_obj;
 
 	const char *tmp = getenv ("TMPDIR");
 	if (!tmp || !*tmp) {
 		tmp = "/tmp";
 	}
-	char *cpath = xasprintf ("%s/ahc-exe-%d-%d.c", tmp, (int)getpid (), seq);
-	char *sopath = xasprintf ("%s/ahc-exe-%d-%d.so", tmp, (int)getpid (), seq);
+	char *cpath = xasprintf ("%s/aholyc-exe-%d-%d.c", tmp, (int)getpid (), seq);
+	char *sopath = xasprintf ("%s/aholyc-exe-%d-%d.so", tmp, (int)getpid (), seq);
 	seq++;
 	FILE *f = fopen (cpath, "w");
 	if (!f) {
@@ -114,12 +114,12 @@ char *exe_run(Token *block, Token **rest) {
 #endif
 		"-o", sopath, cpath, "-lm", NULL
 	};
-	if (run_cmd (argv, ahc_verbose) != 0) {
+	if (run_cmd (argv, aholyc_verbose) != 0) {
 		error ("#exe: failed to build %s (kept for inspection)", cpath);
 	}
 	void *h = dlopen (sopath, RTLD_NOW | RTLD_LOCAL);
 	if (!h) {
-		error ("#exe: dlopen: %s (is ahc linked with -rdynamic?)", dlerror ());
+		error ("#exe: dlopen: %s (is aholyc linked with -rdynamic?)", dlerror ());
 	}
 	void (*entry)(void) = (void (*)(void))(intptr_t)dlsym (h, "__hc_start");
 	if (!entry) {
@@ -127,7 +127,7 @@ char *exe_run(Token *block, Token **rest) {
 	}
 	entry ();
 	dlclose (h);
-	if (!ahc_keep) {
+	if (!aholyc_keep) {
 		unlink (cpath);
 		unlink (sopath);
 	}

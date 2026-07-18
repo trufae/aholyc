@@ -1,6 +1,6 @@
 # Classes, unions and the `$$` offset
 
-How ahc lays out `class` and `union` types, what `sizeof` and `offset`
+How aholyc lays out `class` and `union` types, what `sizeof` and `offset`
 report, and how `$$` lets you place members at explicit offsets — all
 faithful to the TempleOS compiler (`Compiler/PrsVar.HC`), which treats a
 class as a byte map you draw yourself, not something the compiler is
@@ -47,7 +47,7 @@ $$ = expression;
 moves that cursor: the expression is any compile-time constant, and it
 may itself read `$$`. This is the TempleOS idiom for matching a layout
 that some external thing already fixed — a file header, a packet, a
-foreign struct. ahc itself uses it in `runtime/exe.hc` to pin the HolyC
+foreign struct. aholyc itself uses it in `runtime/exe.hc` to pin the HolyC
 `Token` class to the C compiler's aligned `struct Token`.
 
 ```holyc
@@ -138,7 +138,7 @@ the wide member last or re-advance `$$` before the closing brace.
 ## `$$` outside a class
 
 In ordinary expression context `$$` is the **current code address** —
-the TempleOS instruction pointer. ahc compiles it to a tiny runtime call
+the TempleOS instruction pointer. aholyc compiles it to a tiny runtime call
 (`__hc_rip`) whose return address is the generated code right after the
 point of use:
 
@@ -153,5 +153,5 @@ U8 *here = $$;
   ordering still behave.
 
 TempleOS gives `$$` a third meaning inside `asm { }` blocks (the
-instruction's own address); ahc has no inline assembler, so that meaning
+instruction's own address); aholyc has no inline assembler, so that meaning
 does not apply.

@@ -1,22 +1,22 @@
-# ahc internals
+# aholyc internals
 
 ## Design ideas borrowed from TempleOS
 
 TempleOS's compiler is ~20k lines of HolyC that lexes, parses and emits
-x86-64 in basically one pass, with no external anything. ahc keeps the
+x86-64 in basically one pass, with no external anything. aholyc keeps the
 values that made that possible:
 
-* **Zero dependencies.** Building ahc needs `cc` and `make`. The runtime
+* **Zero dependencies.** Building aholyc needs `cc` and `make`. The runtime
   and prelude are embedded into the binary at build time (`tools/file2c`),
   so the installed compiler is one self-contained file.
-* **One shared header.** `src/ahc.h` holds every structure: tokens,
+* **One shared header.** `src/aholyc.h` holds every structure: tokens,
   types, AST, symbols, the backend vtable. No abstraction layers, no
   visitor patterns — plain switch statements over node kinds.
 * **Lower early, keep backends dumb.** TempleOS pushed complexity into
-  the front of the compiler; ahc's parser desugars everything HolyC-
+  the front of the compiler; aholyc's parser desugars everything HolyC-
   specific (default args, implicit prints, sub_switch, `++`, chained
   comparisons) so each backend is a straightforward tree-walker.
-* **Let the big hammer swing.** TempleOS trusted its own passes; ahc
+* **Let the big hammer swing.** TempleOS trusted its own passes; aholyc
   emits naive alloca-style IR and trusts LLVM/cc `-Os`. Simple emitter,
   good code anyway.
 * **Small binaries.** `-Os`, dead-code elimination, and one tiny runtime.

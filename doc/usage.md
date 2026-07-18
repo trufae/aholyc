@@ -1,20 +1,20 @@
-# Using ahc
+# Using aholyc
 
-ahc behaves like a normal C compiler:
+aholyc behaves like a normal C compiler:
 
 ```console
-$ ahc program.HC                 # build ./a.out with the default backend
-$ ahc program.HC -o program      # choose the output name
-$ ahc -r program.HC              # build and run
-$ ahc -b c program.HC            # pick a backend: llvm, c, js
-$ ahc -S -b llvm program.HC      # emit program.ll only, don't build
-$ ahc -S -b js -o out.js program.HC
-$ ahc -c module.HC               # compile to module.o, like gcc -c
-$ ahc main.HC module.o -o prog   # .o/.a inputs are linked in
-$ ahc -r - < program.HC          # '-' reads source from stdin
-$ echo '"hi\n";' | ahc -r -      # compile and run a one-liner
-$ ahc -S -b js -o - - < f.HC     # '-' is stdin; '-o -' emits to stdout
-$ ahc fmt -w src.HC              # format sources in place (doc/format.md)
+$ aholyc program.HC                 # build ./a.out with the default backend
+$ aholyc program.HC -o program      # choose the output name
+$ aholyc -r program.HC              # build and run
+$ aholyc -b c program.HC            # pick a backend: llvm, c, js
+$ aholyc -S -b llvm program.HC      # emit program.ll only, don't build
+$ aholyc -S -b js -o out.js program.HC
+$ aholyc -c module.HC               # compile to module.o, like gcc -c
+$ aholyc main.HC module.o -o prog   # .o/.a inputs are linked in
+$ aholyc -r - < program.HC          # '-' reads source from stdin
+$ echo '"hi\n";' | aholyc -r -      # compile and run a one-liner
+$ aholyc -S -b js -o - - < f.HC     # '-' is stdin; '-o -' emits to stdout
+$ aholyc fmt -w src.HC              # format sources in place (doc/format.md)
 ```
 
 ## Options
@@ -41,8 +41,8 @@ translation unit, in order.
 ## Reading from stdin
 
 `-` as an input file reads HolyC source from stdin. For example,
-`ahc -r - < prog.HC` and `echo '"hi\n";' | ahc -r -` compile from stdin;
-invoking `ahc` without an input file prints usage and exits with status 1.
+`aholyc -r - < prog.HC` and `echo '"hi\n";' | aholyc -r -` compile from stdin;
+invoking `aholyc` without an input file prints usage and exits with status 1.
 With `-r` and no `-o`, a stdin build uses a scratch `./.a.out` that is
 removed after the run, leaving nothing behind (`-k` keeps it). Default
 artifact names for stdin input use the stem `stdin` (`-S` → `stdin.ll`,
@@ -52,13 +52,13 @@ current directory.
 
 ## Separate compilation (-c)
 
-`-c` produces a relocatable object, so ahc can be dropped into Makefiles
+`-c` produces a relocatable object, so aholyc can be dropped into Makefiles
 that expect a C compiler:
 
 ```console
-$ ahc -c mod_a.HC                # -> mod_a.o
-$ ahc -c mod_b.HC                # -> mod_b.o
-$ ahc mod_a.o mod_b.o -o prog    # ahc links objects + the HolyC runtime
+$ aholyc -c mod_a.HC                # -> mod_a.o
+$ aholyc -c mod_b.HC                # -> mod_b.o
+$ aholyc mod_a.o mod_b.o -o prog    # aholyc links objects + the HolyC runtime
 ```
 
 The rules, HolyC-style:
@@ -85,11 +85,11 @@ The rules, HolyC-style:
 * Top-level code (including global initializers) of an object runs as a
   constructor at program start, before `main`, in **link order** — so
   list objects whose startup code others depend on first.
-* Link with ahc (it adds the runtime); `gcc a.o b.o` alone will miss the
+* Link with aholyc (it adds the runtime); `gcc a.o b.o` alone will miss the
   HolyC runtime symbols. `.a` archives are accepted too.
 * `-c` works with the `llvm` and `c` backends; the `js` backend has no
   object format.
-* With several `.HC` files and `-c`, ahc builds **one** object from the
+* With several `.HC` files and `-c`, aholyc builds **one** object from the
   group (HolyC sources are always one translation unit); the default
   output name comes from the first file.
 
@@ -100,15 +100,15 @@ The rules, HolyC-style:
 2. Your file(s) are lexed, preprocessed, and parsed into one AST.
    Top-level statements become the startup function.
 3. The selected backend emits a source artifact next to the output
-   (`out.ahc.ll`, `out.ahc.c`, or `out.ahc.js`; removed unless `-k`).
+   (`out.aholyc.ll`, `out.aholyc.c`, or `out.aholyc.js`; removed unless `-k`).
 4. The backend builds the executable:
    * **llvm** — `clang prog.ll runtime.c -Os -o prog` (or `llc` + `cc`
-     when clang is absent). ahc never links LLVM libraries; it only
+     when clang is absent). aholyc never links LLVM libraries; it only
      drives the external tools.
    * **c** — the artifact already contains the runtime; `cc -Os` builds it.
    * **js** — the artifact is a complete node script; it is installed to
      the output path with a `#!/usr/bin/env node` shebang and `chmod +x`.
-If no backend is given, ahc uses `llvm` when clang or llc is installed,
+If no backend is given, aholyc uses `llvm` when clang or llc is installed,
 falling back to `c` otherwise.
 
 ## Calling C libraries
@@ -123,10 +123,10 @@ extern U64 crc32(U64 crc, U8 *buf, U32 len);
 ```
 
 ```console
-$ ahc zdemo.HC -lz -o zdemo
+$ aholyc zdemo.HC -lz -o zdemo
 ```
 
-ahc emits matching declarations for every `extern` symbol your source
+aholyc emits matching declarations for every `extern` symbol your source
 declares that the runtime doesn't provide. All HolyC integers are 64-bit,
 so prefer C functions with pointer/`long long`/`double`-shaped
 signatures; mask narrower return values yourself (e.g. `x(I32)`), and
@@ -143,7 +143,7 @@ the final binary.
 ## Exit status and errors
 
 Compile errors print `file:line: error: message` and exit 1. With `-r`,
-ahc exits with the program's exit code.
+aholyc exits with the program's exit code.
 
 ## Environment
 
