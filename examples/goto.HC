@@ -1,13 +1,13 @@
 // HolyC has no 'continue': Terry says use goto. Both directions work.
 I64 i = 0;
 loop:
-  i++;
-  if (i > 8)
-    goto done;
-  if (i % 2)
-    goto loop;      // backward jump, skip odd numbers
-  "%d ", i;
-  goto loop;
+i++;
+if (i > 8)
+  goto done;
+if (i % 2)
+  goto loop;      // backward jump, skip odd numbers
+"%d ", i;
+goto loop;
 done:
 "\n";
 

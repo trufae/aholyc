@@ -11,6 +11,7 @@ $ mhc -S -b llvm program.HC      # emit program.ll only, don't build
 $ mhc -S -b js -o out.js program.HC
 $ mhc -c module.HC               # compile to module.o, like gcc -c
 $ mhc main.HC module.o -o prog   # .o/.a inputs are linked in
+$ mhc fmt -w src.HC              # format sources in place (doc/format.md)
 ```
 
 ## Options

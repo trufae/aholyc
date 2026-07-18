@@ -6,7 +6,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 CWD=$(shell pwd)
 
-SRC = src/main.c src/lex.c src/parse.c src/util.c src/exe.c \
+SRC = src/main.c src/lex.c src/parse.c src/util.c src/exe.c src/fmt.c \
       src/back_c.c src/back_ll.c src/back_js.c
 OBJ = $(SRC:.c=.o)
 
@@ -32,6 +32,10 @@ tools/file2c: tools/file2c.c
 
 test: mhc
 	sh tests/run.sh
+
+# normalize all HolyC sources in the repo (doc/format.md)
+fmt: mhc
+	./mhc fmt -w examples/*.HC tests/*.HC runtime/*.hc
 
 clean:
 	rm -f mhc $(OBJ) src/embed.o src/embed.c tools/file2c

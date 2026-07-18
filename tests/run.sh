@@ -97,6 +97,33 @@ if cc -pthread -c tests/tls_threads.c -o tests/out/tls_threads.o 2>/dev/null; th
 	done
 fi
 
+# formatter: idempotent, whitespace-only, and semantics-preserving
+fmtok=1
+printf 'U0 F(I64 x) {//c\nif (x) {\n"y\\n";\n}\n}\n' > tests/out/fmt_in.HC
+printf 'U0 F(I64 x)\n{//c\n  if (x) {\n    "y\\n";\n  }\n}\n' > tests/out/fmt_exp.HC
+./mhc fmt tests/out/fmt_in.HC > tests/out/fmt_got.HC 2>/dev/null
+cmp -s tests/out/fmt_exp.HC tests/out/fmt_got.HC || fmtok=0
+./mhc fmt -q tests/out/fmt_in.HC >/dev/null && fmtok=0   # must exit 1
+./mhc fmt -q - < tests/out/fmt_got.HC || fmtok=0         # must exit 0
+for f in examples/*.HC; do
+	n=$(basename "$f" .HC)
+	./mhc fmt "$f" > "tests/out/fmt-$n.HC" || { fmtok=0; continue; }
+	./mhc fmt - < "tests/out/fmt-$n.HC" | cmp -s - "tests/out/fmt-$n.HC" || fmtok=0
+	[ -f "tests/expected/$n.out" ] || continue
+	if ./mhc -b c "tests/out/fmt-$n.HC" -o "tests/out/fmt-$n" 2>/dev/null; then
+		"./tests/out/fmt-$n" >"tests/out/fmt-$n.txt" 2>&1
+		cmp -s "tests/expected/$n.out" "tests/out/fmt-$n.txt" || fmtok=0
+	else
+		fmtok=0
+	fi
+done
+if [ "$fmtok" = 1 ]; then
+	echo "ok   fmt"
+else
+	echo "FAIL fmt"
+	fail=1
+fi
+
 if [ "$fail" = 0 ]; then
 	echo "all tests passed"
 fi

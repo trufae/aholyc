@@ -29,6 +29,7 @@ static const Backend *backends[] = {
 
 static void usage(int code) {
 	printf ("usage: mhc [options] file.HC ... [file.o ...]\n"
+		"       mhc fmt [-w | -q] [file.HC ... | -]   format sources (doc/format.md)\n"
 		"\n"
 		"options:\n"
 		"  -o <file>     output executable (default: a.out)\n"
@@ -70,6 +71,9 @@ static const Backend *find_backend(const char *name) {
 }
 
 int main(int argc, char **argv) {
+	if (argc >= 2 && !strcmp (argv[1], "fmt")) {
+		return fmt_main (argc - 2, argv + 2);
+	}
 	const char *outpath = NULL;
 	const char *bname = NULL;
 	const char *opt = "-Os";

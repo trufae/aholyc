@@ -10,8 +10,8 @@ class CPacked
   I64 d;
 };
 "packed: %d %d %d %d sizeof=%d\n",
-      offset(CPacked.a), offset(CPacked.b), offset(CPacked.c),
-      offset(CPacked.d), sizeof(CPacked);
+  offset(CPacked.a), offset(CPacked.b), offset(CPacked.c),
+  offset(CPacked.d), sizeof(CPacked);
 
 // $$ = n places the next member at an explicit offset
 class CGap
@@ -41,7 +41,7 @@ class COverlay
 COverlay o;
 o.whole = 0x04030201;
 "overlay: %d %d %d %d sizeof=%d\n",
-      o.bytes[0], o.bytes[1], o.bytes[2], o.bytes[3], sizeof(COverlay);
+  o.bytes[0], o.bytes[1], o.bytes[2], o.bytes[3], sizeof(COverlay);
 
 // trailing $$ statements set the final size; several in a row are fine
 class CFixed
@@ -80,7 +80,7 @@ r.bytes[5] = 0;
 r.bytes[6] = 0;
 r.bytes[7] = 0;
 "union: %d %d sizeof=%d hi=%d\n",
-      offset(UReg.bytes), offset(UReg.hi), sizeof(UReg), r.hi;
+  offset(UReg.bytes), offset(UReg.hi), sizeof(UReg), r.hi;
 
 // outside a class, $$ is the current address in the code
 U8 *here = $$;

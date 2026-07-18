@@ -255,6 +255,9 @@ extern const char exe_hc[];
 int run_cmd(char *const argv[], bool verbose);
 bool have_cmd(const char *name);
 
+/* 'mhc fmt' source formatter (fmt.c, self-contained; doc/format.md) */
+int fmt_main(int argc, char **argv);
+
 /* misc */
 char *xstrdup(const char *s);
 char *xasprintf(const char *fmt, ...);
