@@ -13,6 +13,10 @@ class CPacked
   offset(CPacked.a), offset(CPacked.b), offset(CPacked.c),
   offset(CPacked.d), sizeof(CPacked);
 
+// HolyC casts are postfix: cast a null pointer and take a member address.
+U8 cast_offset = &0(CPacked *)->b;
+"cast: %d %d\n", cast_offset, offset(CPacked.b);
+
 // $$ = n places the next member at an explicit offset
 class CGap
 {
