@@ -230,9 +230,9 @@ typedef struct Backend {
 	                 const char *opt, bool verbose, bool keep);
 } Backend;
 
-/* Object code uses an external runtime.  A true -c module additionally
- * runs its startup code as a constructor; source linked with .o inputs still
- * supplies the program entry point. */
+/* Object code uses an external runtime.  A true -c module additionally has a
+ * constructor that registers its startup with that runtime; source linked
+ * with .o inputs still supplies the final program entry point. */
 extern bool aholyc_obj_mode;
 extern bool aholyc_ctor_mode;
 

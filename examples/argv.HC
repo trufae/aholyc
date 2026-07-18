@@ -1,5 +1,5 @@
 // Build and run with, for example:
-//   aholyc -r examples/argv.HC -- alpha "two words" -x
+//   aholyc run examples/argv.HC alpha "two words" -x
 //
 // argc/argv belong to global startup code.  Forward the pair explicitly to
 // whichever function the program uses as its entry point.

@@ -711,7 +711,8 @@ static void emit_obj_preamble(Program *prog) {
 		"extern HcTask *__hc_fs(void);\n"
 		"extern void *__hc_try_push(void);\n"
 		"extern void __hc_try_pop(void);\n"
-		"extern hc_f64 __hc_pow(hc_f64, hc_f64);\n");
+		"extern hc_f64 __hc_pow(hc_f64, hc_f64);\n"
+		"extern void __hc_register_start(hc_i64 (*)(hc_i64, hc_i64));\n");
 	emit_extern_decls (prog, false);
 }
 
@@ -768,13 +769,12 @@ static void c_emit(Program *prog, FILE *out) {
 		}
 		emit_func (prog, f);
 	}
-	/* Startup is a normal hidden-pair function.  A -c module wraps it in a
-	 * no-argument constructor because module startup has no process entry. */
+	/* Startup is a normal hidden-pair function.  A -c module's no-argument
+	 * constructor registers it so the runtime can supply the process pair. */
 	emit_func (prog, prog->startup);
 	if (aholyc_ctor_mode) {
-		fprintf (o, "static hc_i64 __hc_empty_argv[1];\n"
-			"__attribute__((constructor)) static void __hc_ctor(void) {\n"
-			"\t__hc_ctor_body(0, (hc_i64)(intptr_t)__hc_empty_argv);\n"
+		fprintf (o, "__attribute__((constructor)) static void __hc_ctor(void) {\n"
+			"\t__hc_register_start(__hc_ctor_body);\n"
 			"}\n");
 	}
 }

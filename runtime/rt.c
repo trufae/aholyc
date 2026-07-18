@@ -542,6 +542,27 @@ HC_API void Exit(hc_i64 code) {
 	exit ((int)code);
 }
 
+/* -c modules register their synthetic startup functions from ordinary
+ * no-argument constructors.  The hosted main can then invoke them portably
+ * with process arguments, in the constructors' (link) order. */
+typedef hc_i64 (*HcStart)(hc_i64 argc, hc_i64 argv);
+static HcStart *hc_module_starts;
+static size_t hc_nmodule_starts, hc_cmodule_starts;
+
+HC_API void __hc_register_start(HcStart start) {
+	if (hc_nmodule_starts >= hc_cmodule_starts) {
+		size_t cap = hc_cmodule_starts? hc_cmodule_starts * 2: 16;
+		HcStart *starts = realloc (hc_module_starts, cap * sizeof(HcStart));
+		if (!starts) {
+			fprintf (stderr, "aholyc-rt: cannot register module startup\n");
+			exit (1);
+		}
+		hc_module_starts = starts;
+		hc_cmodule_starts = cap;
+	}
+	hc_module_starts[hc_nmodule_starts++] = start;
+}
+
 /* Whole programs receive only their user-supplied arguments: argv[0] is the
  * first argument after the executable name.  A runtime linked with source and
  * .o files has a required external start; an object-only link has constructors
@@ -553,13 +574,18 @@ hc_i64 __hc_start(hc_i64 argc, hc_i64 argv) __attribute__((weak));
 #endif
 
 int main(int sys_argc, char **sys_argv) {
-#if defined(HC_EXTERNAL_START) || !defined(HC_OBJECT_RUNTIME)
 	hc_i64 argc = sys_argc > 0? sys_argc - 1: 0;
-	char **user_argv = sys_argv;
+	char *empty_argv[] = { NULL };
+	char **user_argv = sys_argv? sys_argv: empty_argv;
 	if (user_argv && sys_argc > 0) {
 		user_argv++;
 	}
 	hc_i64 argv = (hc_i64)(intptr_t)user_argv;
+	hc_i64 status = 0;
+	for (size_t i = 0; i < hc_nmodule_starts; i++) {
+		status = hc_module_starts[i](argc, argv);
+	}
+#if defined(HC_EXTERNAL_START) || !defined(HC_OBJECT_RUNTIME)
 #if defined(HC_EXTERNAL_START)
 	return (int)__hc_start (argc, argv);
 #else
@@ -568,5 +594,5 @@ int main(int sys_argc, char **sys_argv) {
 	}
 #endif
 #endif
-	return 0;
+	return (int)status;
 }

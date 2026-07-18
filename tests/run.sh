@@ -32,7 +32,7 @@ done
 
 # AOT process arguments: the synthetic top-level entry receives only the user
 # arguments (not the executable name), then explicitly forwards argc/argv to
-# Main.  Exercise direct binaries and the compiler driver's `-r --` path; the
+# Main.  Exercise direct binaries and the compiler driver's `run` argv path; the
 # empty argument verifies that the vector is forwarded without shell-like
 # reparsing.  VarCount in the fixture also guards the ordinary variadic pair.
 for b in $backends; do
@@ -47,11 +47,11 @@ for b in $backends; do
 	else
 		argsok=0
 	fi
-	./aholyc -b "$b" -r tests/args.HC -o "tests/out/args-run-bin-$b" -- \
+	./aholyc run -b "$b" -o "tests/out/args-run-bin-$b" tests/args.HC \
 		alpha "two words" "" -x not-source.HC \
 		>"tests/out/args-run-$b.txt" 2>"tests/out/args-run-$b.err" || argsok=0
 	cmp -s tests/expected/args.out "tests/out/args-run-$b.txt" || argsok=0
-	./aholyc -b "$b" -r tests/args.HC -o "tests/out/args-run-bin-$b" -- \
+	./aholyc run -b "$b" -o "tests/out/args-run-bin-$b" tests/args.HC \
 		>"tests/out/args-run-none-$b.txt" 2>"tests/out/args-run-none-$b.err" || argsok=0
 	cmp -s tests/expected/args-none.out "tests/out/args-run-none-$b.txt" || argsok=0
 	if [ "$argsok" = 1 ]; then
@@ -84,7 +84,7 @@ else
 fi
 
 # Hosted exit status: top-level return is the normal path; Exit(code) remains
-# an immediate escape that works from any call depth.  The driver's -r status
+# an immediate escape that works from any call depth.  The driver's run status
 # must be the program status rather than merely the compiler status.
 for b in $backends; do
 	statusok=1
@@ -97,7 +97,7 @@ for b in $backends; do
 	else
 		statusok=0
 	fi
-	./aholyc -b "$b" -r tests/exit_status.HC \
+	./aholyc run -b "$b" tests/exit_status.HC \
 		>"tests/out/exit-status-run-$b.txt" 2>"tests/out/exit-status-run-$b.err"
 	[ "$?" = 37 ] || statusok=0
 	if [ "$statusok" = 1 ]; then
@@ -110,12 +110,15 @@ for b in $backends; do
 	fi
 done
 
-# -r cannot execute modes that stop at source or object output.
+# run cannot execute modes that stop at source or object output, and the old
+# -r/--run option spellings are rejected.
 runmodeok=1
-./aholyc -b c -r -S tests/exit_status.HC -o tests/out/no-run.c \
+./aholyc run -b c -S tests/exit_status.HC -o tests/out/no-run.c \
 	>/dev/null 2>&1 && runmodeok=0
-./aholyc -b c -r -c tests/exit_status.HC -o tests/out/no-run.o \
+./aholyc run -b c -c tests/exit_status.HC -o tests/out/no-run.o \
 	>/dev/null 2>&1 && runmodeok=0
+./aholyc -r tests/exit_status.HC >/dev/null 2>&1 && runmodeok=0
+./aholyc --run tests/exit_status.HC >/dev/null 2>&1 && runmodeok=0
 if [ "$runmodeok" = 1 ]; then
 	echo "ok   run-mode validation"
 else
@@ -169,6 +172,33 @@ for b in $backends; do
 		head -5 "tests/out/exe-module-$b.err"
 		fail=1
 	fi
+
+	# A program built through -c has no distinguished source at final link.
+	# Its registered module startup still receives argv and supplies status.
+	objargsok=1
+	./aholyc -c -b "$b" tests/args.HC -o "tests/out/args-object-$b.o" \
+		2>"tests/out/args-object-$b.err" || objargsok=0
+	./aholyc -b "$b" "tests/out/args-object-$b.o" \
+		-o "tests/out/args-object-$b" 2>>"tests/out/args-object-$b.err" || objargsok=0
+	"tests/out/args-object-$b" alpha "two words" "" -x not-source.HC \
+		>"tests/out/args-object-$b.txt" 2>&1 || objargsok=0
+	cmp -s tests/expected/args.out "tests/out/args-object-$b.txt" || objargsok=0
+	./aholyc -c -b "$b" tests/exit_status.HC -o "tests/out/status-object-$b.o" \
+		2>"tests/out/status-object-$b.err" || objargsok=0
+	./aholyc -b "$b" "tests/out/status-object-$b.o" \
+		-o "tests/out/status-object-$b" 2>>"tests/out/status-object-$b.err" || objargsok=0
+	"tests/out/status-object-$b" >/dev/null 2>&1
+	[ "$?" = 37 ] || objargsok=0
+	"tests/out/status-object-$b" now >/dev/null 2>&1
+	[ "$?" = 23 ] || objargsok=0
+	if [ "$objargsok" = 1 ]; then
+		echo "ok   $b/object-program(args/status)"
+	else
+		echo "FAIL $b/object-program(args/status)"
+		head -5 "tests/out/args-object-$b.err" 2>/dev/null
+		head -5 "tests/out/status-object-$b.err" 2>/dev/null
+		fail=1
+	fi
 done
 
 # linking against a C library with -L/-l
@@ -218,17 +248,17 @@ if cc -pthread -c tests/tls_threads.c -o tests/out/tls_threads.o 2>/dev/null; th
 	done
 fi
 
-# stdin as a source: aholyc -r - < prog.HC builds a scratch ./.a.out, runs it,
+# stdin as a source: aholyc run - < prog.HC builds a scratch ./.a.out, runs it,
 # and removes it — nothing is left behind in the working directory
 printf '%s\n' '"stdin ok\n";' > tests/out/stdin.HC
 rm -rf tests/out/stdin.d
 mkdir -p tests/out/stdin.d
 for b in $backends; do
-	out=$(cd tests/out/stdin.d && ../../../aholyc -b "$b" -r - < ../stdin.HC 2>"../stdin-$b.err")
+	out=$(cd tests/out/stdin.d && ../../../aholyc run -b "$b" - < ../stdin.HC 2>"../stdin-$b.err")
 	if [ "$out" = "stdin ok" ] && [ -z "$(ls -A tests/out/stdin.d)" ]; then
-		echo "ok   $b/stdin(-r)"
+		echo "ok   $b/stdin(run)"
 	else
-		echo "FAIL $b/stdin(-r)"
+		echo "FAIL $b/stdin(run)"
 		head -5 "tests/out/stdin-$b.err"
 		fail=1
 	fi

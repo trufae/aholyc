@@ -29,7 +29,8 @@ static const Backend *backends[] = {
 };
 
 static void usage(int code) {
-	printf ("usage: aholyc [options] [file.HC ... | -] [file.o ...] [-- args...]\n"
+	printf ("usage: aholyc [options] [file.HC ... | -] [file.o ...]\n"
+		"       aholyc run [options] <file.HC | -> [args...]   build and run\n"
 		"       aholyc fmt [-w | -q] [file.HC ... | -]   format sources (doc/format.md)\n"
 		"\n"
 		"options:\n"
@@ -42,14 +43,12 @@ static void usage(int code) {
 		"  -L <dir>      add library search directory for the linker\n"
 		"  -l <name>     link against a library (e.g. -lz)\n"
 		"  -D name[=v]   predefine a macro\n"
-		"  -r            run the program after building it\n"
-		"  -- <args...>  with -r, pass remaining arguments to the program\n"
 		"  -k            keep intermediate files\n"
 		"  -v            verbose: show toolchain commands\n"
 		"  -h            show this help\n"
 		"  --version     show version\n"
 		"\n"
-		"stdin: '-' reads HolyC source from stdin; -r with no -o builds a\n"
+		"stdin: '-' reads HolyC source from stdin; 'run' with no -o builds a\n"
 		"scratch ./.a.out removed after the run; with -S, '-o -' writes the\n"
 		"artifact to stdout\n"
 		"\n"
@@ -80,10 +79,12 @@ int main(int argc, char **argv) {
 	if (argc >= 2 && !strcmp (argv[1], "fmt")) {
 		return fmt_main (argc - 2, argv + 2);
 	}
+	bool run = argc >= 2 && !strcmp (argv[1], "run");
+	int argi = run? 2: 1;
 	const char *outpath = NULL;
 	const char *bname = NULL;
 	const char *opt = "-Os";
-	bool emit_only = false, keep = false, verbose = false, run = false;
+	bool emit_only = false, keep = false, verbose = false;
 	bool compile_obj = false;
 	const char *inputs[64];
 	int ninputs = 0;
@@ -91,7 +92,7 @@ int main(int argc, char **argv) {
 	int nrunargs = 0;
 	bool args_sep = false;
 
-	for (int i = 1; i < argc; i++) {
+	for (int i = argi; i < argc; i++) {
 		char *a = argv[i];
 		if (!strcmp (a, "--")) {
 			args_sep = true;
@@ -104,6 +105,11 @@ int main(int argc, char **argv) {
 				error ("too many input files");
 			}
 			inputs[ninputs++] = a;
+			if (run) {
+				run_args = argv + i + 1;
+				nrunargs = argc - i - 1;
+				break;
+			}
 			continue;
 		}
 		if (!strcmp (a, "-o")) {
@@ -156,8 +162,6 @@ def:		{
 				lex_define (a, "1");
 			}
 		}
-		} else if (!strcmp (a, "-r") || !strcmp (a, "--run")) {
-			run = true;
 		} else if (!strcmp (a, "-k")) {
 			keep = aholyc_keep = true;
 		} else if (!strcmp (a, "-v")) {
@@ -175,10 +179,10 @@ def:		{
 		usage (1);
 	}
 	if (run && (compile_obj || emit_only)) {
-		error ("-r cannot be combined with %s", compile_obj? "-c": "-S");
+		error ("run cannot be combined with %s", compile_obj? "-c": "-S");
 	}
 	if (args_sep && !run) {
-		error ("program arguments after '--' require -r");
+		error ("program arguments require 'run'");
 	}
 
 	/* classify inputs: HolyC sources vs objects/archives for the linker */
@@ -293,7 +297,7 @@ def:		{
 		return 0;
 	}
 
-	/* stdin + -r: hidden scratch binary, removed after the run */
+	/* stdin + run: hidden scratch binary, removed after the run */
 	bool tmpout = false;
 	if (!outpath) {
 		tmpout = run && src_stdin;

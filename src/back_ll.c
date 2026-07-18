@@ -992,6 +992,9 @@ static void ll_emit(Program *prog, FILE *out) {
 	fprintf (o, "declare i64 @llvm.ctlz.i64(i64, i1)\n");
 	fprintf (o, "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n");
 	fprintf (o, "declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)\n");
+	if (aholyc_ctor_mode) {
+		fprintf (o, "declare void @__hc_register_start(ptr)\n");
+	}
 	fprintf (o, "\n");
 	/* user functions */
 	for (Obj *f = prog->funcs; f; f = f->next) {
@@ -1002,14 +1005,12 @@ static void ll_emit(Program *prog, FILE *out) {
 	}
 	emit_func (prog->startup);
 	if (aholyc_ctor_mode) {
-		fprintf (o, "@__hc_empty_argv = internal global [1 x i64] zeroinitializer, align 8\n\n"
-			"define internal void @__hc_ctor() {\n"
+		fprintf (o, "define internal void @__hc_ctor() {\n"
 			"entry:\n"
-			"  %%status = call i64 @__hc_ctor_body(i64 0, "
-			"i64 ptrtoint (ptr @__hc_empty_argv to i64))\n"
+			"  call void @__hc_register_start(ptr @__hc_ctor_body)\n"
 			"  ret void\n"
 			"}\n\n");
-		/* run the object's top-level code at program start */
+		/* register the object's top-level code for program start */
 		fprintf (o, "@llvm.global_ctors = appending global "
 			"[1 x { i32, ptr, ptr }] "
 			"[{ i32, ptr, ptr } { i32 65535, ptr @__hc_ctor, ptr null }]\n");
