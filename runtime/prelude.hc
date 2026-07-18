@@ -76,3 +76,6 @@ extern U0 PutExcept(Bool catch_it=TRUE);
 
 // misc
 extern U0 Exit(I64 code=0);
+// '$$' in an expression compiles to a call to this: the address in the
+// generated code at the point of use (the TempleOS instruction pointer).
+extern U8 *__hc_rip();

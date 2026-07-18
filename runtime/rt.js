@@ -175,6 +175,12 @@ function PutExcept(catch_it) {
 	st8 (TASK + 8, catch_it);
 }
 
+//@ __hc_rip
+// '$$' outside a class body. JS has no code addresses; hand out distinct
+// monotonic fake ones so pointer-style comparisons still behave.
+let hcRip = 0x400000;
+function __hc_rip() { return hcRip += 16; }
+
 //@ MAlloc st8 hcThrow
 // ----------------------------------------------------------------- memory
 function MAlloc(size) {

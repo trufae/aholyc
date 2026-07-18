@@ -82,6 +82,11 @@ typedef struct ClassEnt ClassEnt;
 struct ClassEnt { ClassEnt *next; char *name; Type *ty; };
 static ClassEnt *classes;
 
+/* '$$' inside a class/union body is the offset where the next member will
+ * land (TempleOS class_dol_offset); outside it is the current code address. */
+static bool in_class_body;
+static int class_dol_offset;
+
 typedef struct LabelRef LabelRef;
 struct LabelRef { LabelRef *next; char *name; Token *tok; bool defined; };
 static LabelRef *fn_labels;
@@ -712,6 +717,18 @@ static Node *primary(void) {
 		tk = tk->next;
 		expect (")");
 		return new_num (m->offset, t);
+	}
+	if (is_punct ("$$")) {
+		tk = tk->next;
+		if (in_class_body) {
+			return new_num (class_dol_offset, t);
+		}
+		/* current address in the generated code (TempleOS RIP) */
+		Obj *fn = find_func ("__hc_rip");
+		if (!fn) {
+			error_tok (t, "'$$' needs the runtime prelude");
+		}
+		return make_call (fn, NULL, 0, t);
 	}
 	if (t->kind == TK_ID) {
 		Obj *var = find_var (t->str);
@@ -1917,11 +1934,37 @@ static void parse_class(bool is_union) {
 		tk = tk->next;
 	}
 	expect ("{");
+	/* TempleOS layout: members are packed back to back, no alignment or
+	 * padding.  "$$ = expr;" moves the offset for the next member; the
+	 * most negative offset grows the class like TempleOS neg_offset. */
 	int off = ty->parent? ty->parent->size: 0;
 	int align = ty->parent? ty->parent->align: 1;
+	int neg = 0;
+	int union_base = 0;
+	bool save_in_class = in_class_body;
+	in_class_body = true;
 	Member head = {0};
 	Member *cur = &head;
 	while (!is_punct ("}")) {
+		class_dol_offset = is_union? union_base: off;
+		if (eat (";")) {
+			continue;
+		}
+		if (is_punct ("$$")) {
+			tk = tk->next;
+			expect ("=");
+			int v = (int)eval_const (expr ());
+			expect (";");
+			if (-v > neg) {
+				neg = -v;
+			}
+			if (is_union) {
+				union_base = v;
+			} else {
+				off = v;
+			}
+			continue;
+		}
 		if (!is_type_start (tk)) {
 			error_tok (tk, "expected member type");
 		}
@@ -1957,12 +2000,11 @@ static void parse_class(bool is_union) {
 			m->ty = mty;
 			int a = mty->align? mty->align: 1;
 			if (is_union) {
-				m->offset = 0;
-				if (mty->size > off) {
-					off = mty->size;
+				m->offset = union_base;
+				if (union_base + mty->size > off) {
+					off = union_base + mty->size;
 				}
 			} else {
-				off = (off + a - 1) & ~(a - 1);
 				m->offset = off;
 				off += mty->size;
 			}
@@ -1971,6 +2013,7 @@ static void parse_class(bool is_union) {
 			}
 			cur->next = m;
 			cur = m;
+			class_dol_offset = is_union? union_base: off;
 			if (!eat (",")) {
 				break;
 			}
@@ -1979,12 +2022,10 @@ static void parse_class(bool is_union) {
 	}
 	expect ("}");
 	eat (";");
+	in_class_body = save_in_class;
 	ty->members = head.next;
 	ty->align = align;
-	ty->size = (off + align - 1) & ~(align - 1);
-	if (ty->size == 0) {
-		ty->size = 0; /* empty class */
-	}
+	ty->size = off + neg;
 }
 
 /* function definition or declaration after type+name(  */

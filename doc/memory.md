@@ -22,15 +22,16 @@ can.
 
 * `I8/U8` take 1 byte, `I16/U16` 2, `I32/U32` 4, `I64/U64/F64` and
   pointers 8. `U0` is size **zero**.
-* Class members are laid out in declaration order, each aligned to its
-  natural alignment; the class size is rounded up to the largest member
-  alignment. `offset(Class.member)` and `sizeof()` are compile-time
-  constants over exactly this layout.
+* Class members are laid out in declaration order, packed back to back
+  with **no alignment and no padding**, exactly like TempleOS; `$$ = n;`
+  places the next member at an explicit offset (see `doc/struct.md`).
+  `offset(Class.member)` and `sizeof()` are compile-time constants over
+  exactly this layout.
 * Single inheritance places the parent's members first: a child's first
   own member starts at `sizeof(parent)`. A `CDog*` therefore *is* a
   valid `CAnimal*` at the byte level — no adjustments, ever.
-* `union` members all start at offset 0; the union takes the size of
-  its widest member.
+* `union` members all start at the union base (offset 0, movable with
+  `$$ = n;`); the union takes the size of its widest member.
 * Strings are NUL-terminated `U8*` byte runs. String *literals* should
   be treated as read-only: the LLVM backend puts them in constant data,
   so writing into one may fault there while silently working elsewhere.

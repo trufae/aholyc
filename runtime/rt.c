@@ -91,6 +91,20 @@ HC_API void PutExcept(hc_i64 catch_it) {
 	task->catch_except = catch_it;
 }
 
+/* '$$' outside a class body: the address in the generated code at the
+ * point of use, taken as the return address of this call.  noinline so
+ * the whole-program C backend build cannot fold the call away. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline))
+#endif
+HC_API void *__hc_rip(void) {
+#if defined(__GNUC__) || defined(__clang__)
+	return __builtin_return_address (0);
+#else
+	return (void *)(size_t)&__hc_rip;
+#endif
+}
+
 /* ---------------------------------------------------------------- memory */
 
 /* MAlloc keeps the size in a 16-byte header so MSize works */

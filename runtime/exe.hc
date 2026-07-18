@@ -13,20 +13,24 @@
 
 // Mirror of struct Token in src/mhc.h: same names, same offsets.
 // ExeStream() points at the compiler's live tokens, so writes here
-// mutate the program being compiled.
+// mutate the program being compiled.  HolyC classes are packed while
+// the C struct is aligned, so '$$' pins the C compiler's padding.
 class Token
 {
   I32 kind;
+  $$ = 8;
   Token *next;
   I64 ival;       // TK_NUM, TK_CHR
   F64 fval;       // TK_FNUM
   U8 *str;        // TK_STR bytes; TK_ID/TK_PUNCT text
   I32 len;
+  $$ = 48;
   U8 *file;
   I32 line;
   Bool at_bol;
   Bool has_space;
   Bool no_expand;
+  $$ = 64;        // sizeof matches the C struct
 };
 
 // compiler shim, exported by the mhc binary itself
