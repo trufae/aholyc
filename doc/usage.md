@@ -11,8 +11,8 @@ $ ahc -S -b llvm program.HC      # emit program.ll only, don't build
 $ ahc -S -b js -o out.js program.HC
 $ ahc -c module.HC               # compile to module.o, like gcc -c
 $ ahc main.HC module.o -o prog   # .o/.a inputs are linked in
-$ ahc -r < program.HC            # no file args: source comes from stdin
-$ echo '"hi\n";' | ahc -r        # compile and run a one-liner
+$ ahc -r - < program.HC          # '-' reads source from stdin
+$ echo '"hi\n";' | ahc -r -      # compile and run a one-liner
 $ ahc -S -b js -o - - < f.HC     # '-' is stdin; '-o -' emits to stdout
 $ ahc fmt -w src.HC              # format sources in place (doc/format.md)
 ```
@@ -40,16 +40,15 @@ translation unit, in order.
 
 ## Reading from stdin
 
-`-` as an input file reads HolyC source from stdin, and when no files are
-given and stdin is a non-empty pipe or redirect, ahc reads stdin
-automatically — so `ahc -r < prog.HC` and `echo '"hi\n";' | ahc -r` just
-work (an empty or closed stdin is a usage error, so bare `ahc` in a
-script still fails loudly). With `-r` and no `-o`, a stdin build uses a
-scratch `./.a.out` that is removed after the run, leaving nothing behind
-(`-k` keeps it). Default artifact names for stdin input use the stem
-`stdin` (`-S` → `stdin.ll`, `-c` → `stdin.o`), `-o -` with `-S` writes
-the artifact to stdout (and is rejected without `-S`), and `#include`
-directives resolve relative to the current directory.
+`-` as an input file reads HolyC source from stdin. For example,
+`ahc -r - < prog.HC` and `echo '"hi\n";' | ahc -r -` compile from stdin;
+invoking `ahc` without an input file prints usage and exits with status 1.
+With `-r` and no `-o`, a stdin build uses a scratch `./.a.out` that is
+removed after the run, leaving nothing behind (`-k` keeps it). Default
+artifact names for stdin input use the stem `stdin` (`-S` → `stdin.ll`,
+`-c` → `stdin.o`), `-o -` with `-S` writes the artifact to stdout (and is
+rejected without `-S`), and `#include` directives resolve relative to the
+current directory.
 
 ## Separate compilation (-c)
 

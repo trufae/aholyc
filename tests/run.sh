@@ -97,13 +97,13 @@ if cc -pthread -c tests/tls_threads.c -o tests/out/tls_threads.o 2>/dev/null; th
 	done
 fi
 
-# stdin as a source: ahc -r < prog.HC builds a scratch ./.a.out, runs it,
+# stdin as a source: ahc -r - < prog.HC builds a scratch ./.a.out, runs it,
 # and removes it — nothing is left behind in the working directory
 printf '%s\n' '"stdin ok\n";' > tests/out/stdin.HC
 rm -rf tests/out/stdin.d
 mkdir -p tests/out/stdin.d
 for b in $backends; do
-	out=$(cd tests/out/stdin.d && ../../../ahc -b "$b" -r < ../stdin.HC 2>"../stdin-$b.err")
+	out=$(cd tests/out/stdin.d && ../../../ahc -b "$b" -r - < ../stdin.HC 2>"../stdin-$b.err")
 	if [ "$out" = "stdin ok" ] && [ -z "$(ls -A tests/out/stdin.d)" ]; then
 		echo "ok   $b/stdin(-r)"
 	else
@@ -115,11 +115,11 @@ done
 stdinok=1
 # explicit '-' input and -S -o -: backend source artifact on stdout
 ./ahc -S -b c -o - - < tests/out/stdin.HC 2>/dev/null | grep -q __hc_start || stdinok=0
-# empty stdin (no file args) is a usage error, not a silent empty a.out
-(cd tests/out/stdin.d && ../../../ahc < /dev/null) >/dev/null 2>&1 && stdinok=0
+# No input argument is a usage error, even when stdin has data.
+echo '"x";' | (cd tests/out/stdin.d && ../../../ahc) >/dev/null 2>&1 && stdinok=0
 [ -z "$(ls -A tests/out/stdin.d)" ] || stdinok=0
 # -o - only means stdout with -S
-echo '"x";' | ./ahc -o - >/dev/null 2>&1 && stdinok=0
+echo '"x";' | ./ahc -o - - >/dev/null 2>&1 && stdinok=0
 if [ "$stdinok" = 1 ]; then
 	echo "ok   stdin(edge cases)"
 else

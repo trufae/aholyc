@@ -47,9 +47,9 @@ static void usage(int code) {
 		"  -h            show this help\n"
 		"  --version     show version\n"
 		"\n"
-		"stdin: '-' (or no files with stdin piped) reads HolyC source from\n"
-		"stdin; -r with no -o then builds a scratch ./.a.out removed after\n"
-		"the run; with -S, '-o -' writes the artifact to stdout\n"
+		"stdin: '-' reads HolyC source from stdin; -r with no -o builds a\n"
+		"scratch ./.a.out removed after the run; with -S, '-o -' writes the\n"
+		"artifact to stdout\n"
 		"\n"
 		"backends:\n");
 	for (int i = 0; backends[i]; i++) {
@@ -161,15 +161,7 @@ def:		{
 		}
 	}
 	if (ninputs == 0) {
-		/* piped stdin is an implicit source: ahc -r < prog.HC.  A tty
-		 * or empty stream (/dev/null, closed fd) is a usage error, not
-		 * a silent empty program. */
-		int c;
-		if (isatty (0) || (c = fgetc (stdin)) == EOF) {
-			usage (1);
-		}
-		ungetc (c, stdin);
-		inputs[ninputs++] = "-";
+		usage (1);
 	}
 
 	/* classify inputs: HolyC sources vs objects/archives for the linker */
