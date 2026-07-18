@@ -399,6 +399,9 @@ static Node *new_assign(Node *lhs, Node *rhs, Token *tok) {
 	if (!is_lvalue (lhs)) {
 		error_tok (tok, "not an assignable expression");
 	}
+	if (lhs->ty->kind == TY_ARRAY) {
+		error_tok (tok, "cannot assign to an array");
+	}
 	rhs = rvalize (rhs);
 	/* implicit conversion to stored type */
 	if (lhs->ty->kind == TY_F64 && rhs->ty->kind != TY_F64) {
@@ -823,6 +826,48 @@ static Node *incdec(Node *lval, int delta, bool post, Token *t) {
 	return val;
 }
 
+static Type *subint_view_type(const char *name) {
+	if (!strcmp (name, "i8")) return ty_i8;
+	if (!strcmp (name, "u8")) return ty_u8;
+	if (!strcmp (name, "i16")) return ty_i16;
+	if (!strcmp (name, "u16")) return ty_u16;
+	if (!strcmp (name, "i32")) return ty_i32;
+	if (!strcmp (name, "u32")) return ty_u32;
+	return NULL;
+}
+
+/* TempleOS sub-int access (doc/subint.md): an integer lvalue doubles as a
+ * little-endian array of any strictly smaller int, so q.u8[5] reads byte 5
+ * of q, q.u8[0] = x stores one byte, and views chain: q.i32[1].u8[2].
+ * Lowered to *(view(*)[n])&base so the regular subscript, assignment and
+ * decay machinery does the rest. */
+static Node *subint_access(Node *base, Token *t) {
+	Type *view = subint_view_type (tk->str);
+	if (!view) {
+		error_tok (tk, "no member '%s' in an integer", tk->str);
+	}
+	if (view->size >= base->ty->size) {
+		error_tok (tk, "sub-int view '%s' needs a wider int than %s",
+			tk->str, base->ty->size == 1? "a byte":
+			base->ty->size == 2? "U16": "U32");
+	}
+	if (!is_lvalue (base)) {
+		error_tok (t, "sub-int access needs an addressable value");
+	}
+	/* narrow params live sign-extended in a full 64-bit slot; a store
+	 * through a view would leave the slot badly extended */
+	if (base->kind == ND_VAR && base->var->is_param && base->ty->size < 8) {
+		error_tok (t, "sub-int access on a narrow parameter; copy it to a local");
+	}
+	Type *arr = array_of (view, base->ty->size / view->size);
+	Node *a = new_unary (ND_ADDR, base, t);
+	a->ty = ptr_to (base->ty);
+	Node *d = new_unary (ND_DEREF, new_cast (a, ptr_to (arr)), t);
+	d->ty = arr;
+	tk = tk->next;
+	return d;
+}
+
 static Node *postfix(void) {
 	Node *n = primary ();
 	for (;;) {
@@ -871,6 +916,10 @@ static Node *postfix(void) {
 				Node *d = new_unary (ND_DEREF, base, t);
 				d->ty = base->ty->base;
 				base = d;
+			}
+			if (base->ty->kind == TY_INT) {
+				n = subint_access (base, t);
+				continue;
 			}
 			if (base->ty->kind != TY_CLASS) {
 				error_tok (t, "member access on a non-class value");

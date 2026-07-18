@@ -29,6 +29,10 @@ j1 = i1 = 0x12345678;   // i1 is 0x5678 but j1 is 0x12345678
 Pointers (`U8 *p`) are 8 bytes. Pointer arithmetic is scaled by the element
 size, and fixed-size arrays (`I64 a[10]`) decay to pointers in expressions.
 
+Integer lvalues also expose their bytes and words as little-endian
+arrays of smaller ints — `q.u8[5]`, `q.i16[2]`, chained as
+`q.i32[1].u8[2]` — exactly like TempleOS. See `doc/subint.md`.
+
 ## No main()
 
 Code outside functions executes at startup, in order:
@@ -269,8 +273,7 @@ ahc targets normal OSes with portable backends, so:
   own guidelines say don't use `U0 *`).
 * `reg`/`noreg` are parsed but have no effect; there are no register
   variables.
-* Sub-int access on plain integers (`i.u8[3]`) and class member
-  metadata are not supported.
+* Class member metadata is not supported.
 * `lock{}` compiles its body without atomicity.
 * Graphics, tasks, and everything tied to the TempleOS kernel are absent;
   the runtime is a small portable console library.
