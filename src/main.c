@@ -28,7 +28,7 @@ static const Backend *backends[] = {
 };
 
 static void usage(int code) {
-	printf ("usage: mhc [options] file.HC ... [file.o ...]\n"
+	printf ("usage: mhc [options] [file.HC ... | -] [file.o ...]\n"
 		"       mhc fmt [-w | -q] [file.HC ... | -]   format sources (doc/format.md)\n"
 		"\n"
 		"options:\n"
@@ -46,6 +46,10 @@ static void usage(int code) {
 		"  -v            verbose: show toolchain commands\n"
 		"  -h            show this help\n"
 		"  --version     show version\n"
+		"\n"
+		"stdin: '-' (or no files with stdin piped) reads HolyC source from\n"
+		"stdin; -r with no -o then builds a scratch ./.a.out removed after\n"
+		"the run; with -S, '-o -' writes the artifact to stdout\n"
 		"\n"
 		"backends:\n");
 	for (int i = 0; backends[i]; i++) {
@@ -84,7 +88,7 @@ int main(int argc, char **argv) {
 
 	for (int i = 1; i < argc; i++) {
 		char *a = argv[i];
-		if (a[0] != '-') {
+		if (a[0] != '-' || !a[1]) {   /* bare '-' is stdin, not an option */
 			if (ninputs >= 64) {
 				error ("too many input files");
 			}
@@ -157,7 +161,15 @@ def:		{
 		}
 	}
 	if (ninputs == 0) {
-		usage (1);
+		/* piped stdin is an implicit source: mhc -r < prog.HC.  A tty
+		 * or empty stream (/dev/null, closed fd) is a usage error, not
+		 * a silent empty program. */
+		int c;
+		if (isatty (0) || (c = fgetc (stdin)) == EOF) {
+			usage (1);
+		}
+		ungetc (c, stdin);
+		inputs[ninputs++] = "-";
 	}
 
 	/* classify inputs: HolyC sources vs objects/archives for the linker */
@@ -192,6 +204,9 @@ def:		{
 	if (nsrc == 0 && (compile_obj || emit_only)) {
 		error ("no source files");
 	}
+	if (outpath && !strcmp (outpath, "-") && !emit_only) {
+		error ("-o '-' (stdout) requires -S");
+	}
 
 	Program *prog = NULL;
 	if (nsrc > 0) {
@@ -204,11 +219,19 @@ def:		{
 		prog = parse (toks);
 	}
 
+	bool src_stdin = false;
+	for (int i = 0; i < nsrc; i++) {
+		src_stdin |= !strcmp (sources[i], "-");
+	}
+
 	/* stem of first source, for default -c/-S output names */
 	char *stem = NULL;
 	if (nsrc > 0) {
 		const char *base = strrchr (sources[0], '/');
 		base = base? base + 1: sources[0];
+		if (!strcmp (base, "-")) {
+			base = "stdin";
+		}
 		stem = xstrdup (base);
 		char *dot = strrchr (stem, '.');
 		if (dot && dot != stem) {
@@ -217,6 +240,13 @@ def:		{
 	}
 
 	if (emit_only) {
+		if (outpath && !strcmp (outpath, "-")) {
+			be->emit (prog, stdout);
+			if (fflush (stdout) != 0 || ferror (stdout)) {
+				error ("writing to stdout failed");
+			}
+			return 0;
+		}
 		char *artifact = outpath? xstrdup (outpath):
 			xasprintf ("%s%s", stem, be->ext);
 		FILE *f = fopen (artifact, "w");
@@ -253,8 +283,11 @@ def:		{
 		return 0;
 	}
 
+	/* stdin + -r: hidden scratch binary, removed after the run */
+	bool tmpout = false;
 	if (!outpath) {
-		outpath = "a.out";
+		tmpout = run && src_stdin;
+		outpath = tmpout? ".a.out": "a.out";
 	}
 	int r;
 	char *tmpobj = NULL;
@@ -344,7 +377,11 @@ def:		{
 			xasprintf ("./%s", outpath);
 		rargv[0] = abspath;
 		rargv[1] = NULL;
-		return run_cmd (rargv, verbose);
+		r = run_cmd (rargv, verbose);
+		if (tmpout && !keep) {
+			unlink (outpath);
+		}
+		return r;
 	}
 	return 0;
 }

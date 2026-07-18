@@ -259,6 +259,7 @@ bool have_cmd(const char *name);
 int fmt_main(int argc, char **argv);
 
 /* misc */
+char *read_source(const char *path);
 char *xstrdup(const char *s);
 char *xasprintf(const char *fmt, ...);
 void *xmalloc(size_t n);

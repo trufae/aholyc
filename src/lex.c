@@ -246,25 +246,6 @@ static bool tok_is(Token *t, const char *s) {
 	return (t->kind == TK_ID || t->kind == TK_PUNCT) && t->str && !strcmp (t->str, s);
 }
 
-static char *read_whole_file(const char *path) {
-	FILE *f = fopen (path, "rb");
-	if (!f) {
-		return NULL;
-	}
-	fseek (f, 0, SEEK_END);
-	long sz = ftell (f);
-	fseek (f, 0, SEEK_SET);
-	char *buf = xmalloc (sz + 1);
-	if (fread (buf, 1, sz, f) != (size_t)sz) {
-		fclose (f);
-		free (buf);
-		return NULL;
-	}
-	buf[sz] = 0;
-	fclose (f);
-	return buf;
-}
-
 static char *search_include(const char *name, const char *from_file) {
 	/* relative to including file first */
 	const char *slash = from_file? strrchr (from_file, '/'): NULL;
@@ -352,7 +333,7 @@ static Token *preprocess(Token *tok) {
 				if (!path) {
 					error_tok (f, "cannot find include file \"%s\"", f->str);
 				}
-				char *src = read_whole_file (path);
+				char *src = read_source (path);
 				if (!src) {
 					error_tok (f, "cannot read \"%s\"", path);
 				}
@@ -554,11 +535,12 @@ void lex_define(const char *name, const char *value) {
 }
 
 Token *lex_file(const char *path) {
-	char *src = read_whole_file (path);
+	char *src = read_source (path);
 	if (!src) {
 		error ("cannot open '%s'", path);
 	}
-	Token *t = tokenize (src, xstrdup (path));
+	const char *name = strcmp (path, "-")? path: "<stdin>";
+	Token *t = tokenize (src, xstrdup (name));
 	free (src);
 	return preprocess (t);
 }

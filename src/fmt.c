@@ -460,24 +460,6 @@ static bool ws_equal(const char *a, const char *b) {
 
 /* ----------------------------------------------------------- driver */
 
-static char *read_stream(FILE *f) {
-	size_t cap = 1 << 16, len = 0;
-	char *buf = xmalloc (cap);
-	size_t n;
-	while ((n = fread (buf + len, 1, cap - len - 1, f)) > 0) {
-		len += n;
-		if (cap - len < 2) {
-			cap *= 2;
-			buf = realloc (buf, cap);
-			if (!buf) {
-				error ("out of memory");
-			}
-		}
-	}
-	buf[len] = 0;
-	return buf;
-}
-
 int fmt_main(int argc, char **argv) {
 	bool write = false, quiet = false;
 	const char *files[256];
@@ -518,18 +500,11 @@ int fmt_main(int argc, char **argv) {
 	int rc = 0;
 	for (int i = 0; i < nfiles; i++) {
 		bool is_stdin = !strcmp (files[i], "-");
-		char *src;
-		if (is_stdin) {
-			src = read_stream (stdin);
-		} else {
-			FILE *f = fopen (files[i], "rb");
-			if (!f) {
-				fprintf (stderr, "mhc fmt: cannot open '%s'\n", files[i]);
-				rc = 1;
-				continue;
-			}
-			src = read_stream (f);
-			fclose (f);
+		char *src = read_source (files[i]);
+		if (!src) {
+			fprintf (stderr, "mhc fmt: cannot open '%s'\n", files[i]);
+			rc = 1;
+			continue;
 		}
 		char *out = fmt_run (src);
 		if (!out || !ws_equal (src, out)) {

@@ -71,6 +71,33 @@ char *xasprintf(const char *fmt, ...) {
 	return xstrdup (buf);
 }
 
+/* slurp an entire source: a file path, or stdin when path is "-".
+ * fread-based so pipes work too; returns NULL if the file cannot be opened. */
+char *read_source(const char *path) {
+	FILE *f = strcmp (path, "-")? fopen (path, "rb"): stdin;
+	if (!f) {
+		return NULL;
+	}
+	size_t cap = 1 << 16, len = 0;
+	char *buf = xmalloc (cap);
+	size_t n;
+	while ((n = fread (buf + len, 1, cap - len - 1, f)) > 0) {
+		len += n;
+		if (cap - len < 2) {
+			cap *= 2;
+			buf = realloc (buf, cap);
+			if (!buf) {
+				error ("out of memory");
+			}
+		}
+	}
+	buf[len] = 0;
+	if (f != stdin) {
+		fclose (f);
+	}
+	return buf;
+}
+
 int run_cmd(char *const argv[], bool verbose) {
 	if (verbose) {
 		fprintf (stderr, "mhc: exec:");

@@ -11,6 +11,9 @@ $ mhc -S -b llvm program.HC      # emit program.ll only, don't build
 $ mhc -S -b js -o out.js program.HC
 $ mhc -c module.HC               # compile to module.o, like gcc -c
 $ mhc main.HC module.o -o prog   # .o/.a inputs are linked in
+$ mhc -r < program.HC            # no file args: source comes from stdin
+$ echo '"hi\n";' | mhc -r        # compile and run a one-liner
+$ mhc -S -b js -o - - < f.HC     # '-' is stdin; '-o -' emits to stdout
 $ mhc fmt -w src.HC              # format sources in place (doc/format.md)
 ```
 
@@ -18,7 +21,7 @@ $ mhc fmt -w src.HC              # format sources in place (doc/format.md)
 
 | option | meaning |
 |--------|---------|
-| `-o file` | output executable (default `a.out`) |
+| `-o file` | output executable (default `a.out`); with `-S`, `-o -` writes to stdout |
 | `-b name` | backend: `llvm` (default), `c`, `js` |
 | `-c` | compile to a relocatable object (`.o`), do not link |
 | `-S` | stop after emitting the backend source artifact |
@@ -34,6 +37,19 @@ $ mhc fmt -w src.HC              # format sources in place (doc/format.md)
 
 Multiple `.HC` input files are concatenated and compiled as one
 translation unit, in order.
+
+## Reading from stdin
+
+`-` as an input file reads HolyC source from stdin, and when no files are
+given and stdin is a non-empty pipe or redirect, mhc reads stdin
+automatically — so `mhc -r < prog.HC` and `echo '"hi\n";' | mhc -r` just
+work (an empty or closed stdin is a usage error, so bare `mhc` in a
+script still fails loudly). With `-r` and no `-o`, a stdin build uses a
+scratch `./.a.out` that is removed after the run, leaving nothing behind
+(`-k` keeps it). Default artifact names for stdin input use the stem
+`stdin` (`-S` → `stdin.ll`, `-c` → `stdin.o`), `-o -` with `-S` writes
+the artifact to stdout (and is rejected without `-S`), and `#include`
+directives resolve relative to the current directory.
 
 ## Separate compilation (-c)
 
