@@ -56,6 +56,18 @@ Test;        // error: j has no default
 
 * Default arguments may appear in **any** position; empty argument slots
   (`f(,3)`) select the default.
+* `=lastclass` as a default passes the class name of the previous
+  argument as a string, pointer levels stripped (`I64`, `F64`, `U0` for
+  non-class types):
+
+```holyc
+U0 StructName(U8 *d, U8 *class_name=lastclass)
+{
+  "it is a \"%s\".\n", class_name;
+}
+CDog rex;
+StructName(&rex);  // it is a "CDog".
+```
 * A call with no needed parentheses can drop them: `Dir;` calls `Dir()`.
   Any use of a function name without `(` calls it — except after `&`,
   which yields the function's address for callbacks.
@@ -257,8 +269,8 @@ mhc targets normal OSes with portable backends, so:
   own guidelines say don't use `U0 *`).
 * `reg`/`noreg` are parsed but have no effect; there are no register
   variables.
-* Sub-int access on plain integers (`i.u8[3]`), `lastclass`, and class
-  member metadata are not supported.
+* Sub-int access on plain integers (`i.u8[3]`) and class member
+  metadata are not supported.
 * `lock{}` compiles its body without atomicity.
 * Graphics, tasks, and everything tied to the TempleOS kernel are absent;
   the runtime is a small portable console library.

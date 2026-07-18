@@ -522,6 +522,30 @@ static Node *new_str_node(char *data, int len, Token *tok) {
 
 static Node *make_call(Obj *fn, Node *args, int nargs, Token *tok);
 
+/* sentinel default for `=lastclass` params, resolved per call site */
+static Node nd_lastclass;
+
+/* HolyC name of a type with pointer/array levels stripped (for lastclass) */
+static char *holyc_type_name(Type *ty) {
+	while (ty->kind == TY_PTR || ty->kind == TY_ARRAY) {
+		ty = ty->base;
+	}
+	switch (ty->kind) {
+	case TY_CLASS: return ty->name;
+	case TY_F64: return "F64";
+	case TY_VOID: return "U0";
+	case TY_INT: {
+		static char *names[2][4] = {
+			{ "I8", "I16", "I32", "I64" },
+			{ "U8", "U16", "U32", "U64" },
+		};
+		int i = ty->size == 1? 0: ty->size == 2? 1: ty->size == 4? 2: 3;
+		return names[ty->is_unsigned? 1: 0][i];
+	}
+	default: return "U0";
+	}
+}
+
 /* Build a direct call to a runtime/prelude function by name. */
 static Node *call_named(const char *name, Node *args, int nargs, Token *tok) {
 	Obj *fn = find_func (name);
@@ -552,6 +576,7 @@ static Node *make_call(Obj *fn, Node *args, int nargs, Token *tok) {
 	}
 	int nfixed = fn->nparams < argc? fn->nparams: argc;
 	Obj *p = fn->params;
+	Type *prev_ty = NULL;
 	for (i = 0; i < fn->nparams; i++, p = p->next) {
 		Node *a = i < argc? argv[i]: NULL;
 		if (a && a->kind == ND_NOP) { /* hole */
@@ -562,8 +587,16 @@ static Node *make_call(Obj *fn, Node *args, int nargs, Token *tok) {
 				error_tok (tok, "missing argument %d in call to %s() and no default", i + 1, fn->name);
 			}
 			a = fn->defaults[i];
+			if (a == &nd_lastclass) {
+				if (!prev_ty) {
+					error_tok (tok, "lastclass argument %d in call to %s() has no previous argument", i + 1, fn->name);
+				}
+				char *nm = holyc_type_name (prev_ty);
+				a = new_str_node (xstrdup (nm), strlen (nm), tok);
+			}
 		}
 		a = rvalize (a);
+		prev_ty = a->ty; /* lastclass sees the arg's own type, pre-conversion */
 		/* convert to param type */
 		if (p->ty->kind == TY_F64 && a->ty->kind != TY_F64) {
 			a = new_cast (a, ty_f64);
@@ -1860,11 +1893,15 @@ static void parse_params(Obj *fn) {
 		Obj *p = new_obj (name? name: xasprintf ("arg%d", n), ty);
 		defaults[n] = NULL;
 		if (eat ("=")) {
-			defaults[n] = rvalize (expr ());
-			if (ty->kind == TY_F64) {
-				defaults[n] = to_f64 (defaults[n]);
-			} else if (defaults[n]->ty->kind == TY_F64) {
-				defaults[n] = to_int (defaults[n]);
+			if (eat ("lastclass")) {
+				defaults[n] = &nd_lastclass;
+			} else {
+				defaults[n] = rvalize (expr ());
+				if (ty->kind == TY_F64) {
+					defaults[n] = to_f64 (defaults[n]);
+				} else if (defaults[n]->ty->kind == TY_F64) {
+					defaults[n] = to_int (defaults[n]);
+				}
 			}
 		}
 		n++;
