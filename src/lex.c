@@ -539,8 +539,7 @@ Token *lex_file(const char *path) {
 	if (!src) {
 		error ("cannot open '%s'", path);
 	}
-	const char *name = strcmp (path, "-")? path: "<stdin>";
-	Token *t = tokenize (src, xstrdup (name));
+	Token *t = tokenize (src, xstrdup (path));
 	free (src);
 	return preprocess (t);
 }

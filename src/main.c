@@ -322,6 +322,7 @@ def:		{
 		if (!f) {
 			error ("cannot write '%s'", rtpath);
 		}
+		fputs ("#define HC_OBJECT_RUNTIME 1\n", f);
 		fputs (rt_c_src, f);
 		fclose (f);
 		const char *cc = getenv ("CC");
@@ -354,10 +355,6 @@ def:		{
 			if (tmpobj) {
 				unlink (tmpobj);
 			}
-		}
-		if (r == 0 && have_cmd ("strip")) {
-			char *sargv[] = { "strip", (char *)outpath, NULL };
-			run_cmd (sargv, verbose);
 		}
 	}
 	if (r != 0) {

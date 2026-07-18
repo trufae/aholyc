@@ -106,8 +106,13 @@ char *exe_run(Token *block, Token **rest) {
 		cc = have_cmd ("cc")? "cc": have_cmd ("clang")? "clang": "gcc";
 	}
 	char *argv[] = {
-		(char *)cc, "-O0", "-w", "-fno-strict-aliasing", "-shared",
-		"-fPIC", "-o", sopath, cpath, "-lm", NULL
+		(char *)cc, "-O0", "-w", "-fno-strict-aliasing",
+#ifdef __APPLE__
+		"-bundle", "-Wl,-undefined,dynamic_lookup",
+#else
+		"-shared", "-fPIC",
+#endif
+		"-o", sopath, cpath, "-lm", NULL
 	};
 	if (run_cmd (argv, ahc_verbose) != 0) {
 		error ("#exe: failed to build %s (kept for inspection)", cpath);

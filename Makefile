@@ -16,7 +16,6 @@ all: ahc
 # compiler-API symbols (src/exe.c) against the ahc binary itself.
 ahc: $(OBJ) src/embed.o
 	$(CC) $(CFLAGS) $(LDFLAGS) -rdynamic -o $@ $(OBJ) src/embed.o -ldl
-	-strip $@ 2>/dev/null || true
 
 $(OBJ): src/ahc.h
 

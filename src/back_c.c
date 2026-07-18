@@ -142,6 +142,10 @@ static void emit_call(Node *n) {
 				fprintf (o, ",");
 			}
 			fprintf (o, "%d,", extras);
+			if (!fn->is_extern) {
+				/* Internal pointers use HolyC's integer-address ABI. */
+				fprintf (o, "(hc_i64)(intptr_t)(");
+			}
 			if (extras == 0) {
 				fprintf (o, "(hc_i64*)0");
 			} else {
@@ -163,8 +167,7 @@ static void emit_call(Node *n) {
 				fprintf (o, "}");
 			}
 			if (!fn->is_extern) {
-				/* user variadic: argv param is an hc_i64 address */
-				/* emitted as pointer literal; implicit conversion ok */
+				fprintf (o, ")");
 			}
 		}
 		fprintf (o, ")");
@@ -838,12 +841,7 @@ static int c_build(const char *artifact, const char *outpath,
 	}
 	argv[i++] = "-lm";
 	argv[i] = NULL;
-	int r = run_cmd (argv, verbose);
-	if (r == 0 && have_cmd ("strip")) {
-		char *sargv[] = { "strip", (char *)outpath, NULL };
-		run_cmd (sargv, verbose);
-	}
-	return r;
+	return run_cmd (argv, verbose);
 }
 
 const Backend backend_c = {

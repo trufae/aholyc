@@ -108,8 +108,6 @@ The rules, HolyC-style:
    * **c** — the artifact already contains the runtime; `cc -Os` builds it.
    * **js** — the artifact is a complete node script; it is installed to
      the output path with a `#!/usr/bin/env node` shebang and `chmod +x`.
-5. The binary is stripped for size.
-
 If no backend is given, ahc uses `llvm` when clang or llc is installed,
 falling back to `c` otherwise.
 

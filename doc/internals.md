@@ -19,7 +19,7 @@ values that made that possible:
 * **Let the big hammer swing.** TempleOS trusted its own passes; ahc
   emits naive alloca-style IR and trusts LLVM/cc `-Os`. Simple emitter,
   good code anyway.
-* **Small binaries.** `-Os` and `strip` by default, one tiny runtime.
+* **Small binaries.** `-Os`, dead-code elimination, and one tiny runtime.
 
 ## Pipeline
 

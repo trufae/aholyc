@@ -542,13 +542,18 @@ HC_API void Exit(hc_i64 code) {
 	exit ((int)code);
 }
 
-/* Whole-program builds define __hc_start; objects built with -c run their
- * top-level code from constructors instead, so the symbol may be absent. */
+/* Whole-program builds define __hc_start.  Objects built with -c run their
+ * top-level code from constructors, so their separately emitted runtime must
+ * not reference a symbol that Darwin's linker cannot treat as weak-undefined. */
+#ifndef HC_OBJECT_RUNTIME
 void __hc_start(void) __attribute__((weak));
+#endif
 
 int main(void) {
+#ifndef HC_OBJECT_RUNTIME
 	if (__hc_start) {
 		__hc_start ();
 	}
+#endif
 	return 0;
 }

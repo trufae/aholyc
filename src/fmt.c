@@ -61,14 +61,32 @@ static bool word_is(const char *s, const char *w) {
 	         (c >= '0' && c <= '9') || c == '_');
 }
 
+static bool ident_start(char c) {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+}
+
+static bool ident_char(char c) {
+	return ident_start (c) || (c >= '0' && c <= '9');
+}
+
+static bool space_char(char c) {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
+static const char *skip_space(const char *s) {
+	while (space_char (*s)) {
+		s++;
+	}
+	return s;
+}
+
 /* 'name:' alone (goto label): TempleOS puts these at column 0 */
 static bool is_label_line(const char *s) {
 	int i = 0;
-	if (!((s[0] >= 'a' && s[0] <= 'z') || (s[0] >= 'A' && s[0] <= 'Z') || s[0] == '_')) {
+	if (!ident_start (s[0])) {
 		return false;
 	}
-	while ((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z') ||
-	       (s[i] >= '0' && s[i] <= '9') || s[i] == '_') {
+	while (ident_char (s[i])) {
 		i++;
 	}
 	if (s[i] != ':') {
@@ -152,13 +170,12 @@ static void scan_line(FState *st, const char *s) {
 			i++;
 			continue;
 		}
-		if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_') {
+		if (ident_start (c)) {
 			int w = i;
 			if (st->paren == 0 && word_is (s + i, "switch")) {
 				st->sw_pending = true;
 			}
-			while ((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z') ||
-			       (s[i] >= '0' && s[i] <= '9') || s[i] == '_') {
+			while (ident_char (s[i])) {
 				i++;
 			}
 			note_word (st, s + w, i - w);
@@ -441,12 +458,8 @@ static char *fmt_run(const char *src) {
 /* the only allowed difference is whitespace: verify or refuse */
 static bool ws_equal(const char *a, const char *b) {
 	for (;;) {
-		while (*a == ' ' || *a == '\t' || *a == '\n' || *a == '\r') {
-			a++;
-		}
-		while (*b == ' ' || *b == '\t' || *b == '\n' || *b == '\r') {
-			b++;
-		}
+		a = skip_space (a);
+		b = skip_space (b);
 		if (*a != *b) {
 			return false;
 		}

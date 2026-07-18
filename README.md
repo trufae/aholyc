@@ -31,7 +31,8 @@ Hello World!
   any position, paren-less calls, `case` ranges and sub_switch, `try/catch/
   throw`, variadic `argc/argv`, the `` ` `` power operator, chained
   comparisons, postfix casts, classes with single inheritance.
-* Small output: `-Os` + strip by default; hello world is a few KB.
+* Small output from `-Os` and dead-code elimination, without discarding
+  symbols that are useful for debugging.
 
 ## Building
 

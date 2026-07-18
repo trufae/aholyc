@@ -1102,10 +1102,6 @@ static int ll_build(const char *artifact, const char *outpath,
 	if (!keep) {
 		unlink (rtpath);
 	}
-	if (r == 0 && have_cmd ("strip")) {
-		char *sargv[] = { "strip", (char *)outpath, NULL };
-		run_cmd (sargv, verbose);
-	}
 	return r;
 }
 
