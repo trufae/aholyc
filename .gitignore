@@ -1,9 +1,9 @@
-mhc
+ahc
 src/*.o
 src/embed.c
 tools/file2c
 tests/out/
 a.out
 *.ll
-*.mhc.c
-*.mhc.js
+*.ahc.c
+*.ahc.js

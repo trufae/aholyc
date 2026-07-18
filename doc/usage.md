@@ -1,20 +1,20 @@
-# Using mhc
+# Using ahc
 
-mhc behaves like a normal C compiler:
+ahc behaves like a normal C compiler:
 
 ```console
-$ mhc program.HC                 # build ./a.out with the default backend
-$ mhc program.HC -o program      # choose the output name
-$ mhc -r program.HC              # build and run
-$ mhc -b c program.HC            # pick a backend: llvm, c, js
-$ mhc -S -b llvm program.HC      # emit program.ll only, don't build
-$ mhc -S -b js -o out.js program.HC
-$ mhc -c module.HC               # compile to module.o, like gcc -c
-$ mhc main.HC module.o -o prog   # .o/.a inputs are linked in
-$ mhc -r < program.HC            # no file args: source comes from stdin
-$ echo '"hi\n";' | mhc -r        # compile and run a one-liner
-$ mhc -S -b js -o - - < f.HC     # '-' is stdin; '-o -' emits to stdout
-$ mhc fmt -w src.HC              # format sources in place (doc/format.md)
+$ ahc program.HC                 # build ./a.out with the default backend
+$ ahc program.HC -o program      # choose the output name
+$ ahc -r program.HC              # build and run
+$ ahc -b c program.HC            # pick a backend: llvm, c, js
+$ ahc -S -b llvm program.HC      # emit program.ll only, don't build
+$ ahc -S -b js -o out.js program.HC
+$ ahc -c module.HC               # compile to module.o, like gcc -c
+$ ahc main.HC module.o -o prog   # .o/.a inputs are linked in
+$ ahc -r < program.HC            # no file args: source comes from stdin
+$ echo '"hi\n";' | ahc -r        # compile and run a one-liner
+$ ahc -S -b js -o - - < f.HC     # '-' is stdin; '-o -' emits to stdout
+$ ahc fmt -w src.HC              # format sources in place (doc/format.md)
 ```
 
 ## Options
@@ -41,9 +41,9 @@ translation unit, in order.
 ## Reading from stdin
 
 `-` as an input file reads HolyC source from stdin, and when no files are
-given and stdin is a non-empty pipe or redirect, mhc reads stdin
-automatically — so `mhc -r < prog.HC` and `echo '"hi\n";' | mhc -r` just
-work (an empty or closed stdin is a usage error, so bare `mhc` in a
+given and stdin is a non-empty pipe or redirect, ahc reads stdin
+automatically — so `ahc -r < prog.HC` and `echo '"hi\n";' | ahc -r` just
+work (an empty or closed stdin is a usage error, so bare `ahc` in a
 script still fails loudly). With `-r` and no `-o`, a stdin build uses a
 scratch `./.a.out` that is removed after the run, leaving nothing behind
 (`-k` keeps it). Default artifact names for stdin input use the stem
@@ -53,13 +53,13 @@ directives resolve relative to the current directory.
 
 ## Separate compilation (-c)
 
-`-c` produces a relocatable object, so mhc can be dropped into Makefiles
+`-c` produces a relocatable object, so ahc can be dropped into Makefiles
 that expect a C compiler:
 
 ```console
-$ mhc -c mod_a.HC                # -> mod_a.o
-$ mhc -c mod_b.HC                # -> mod_b.o
-$ mhc mod_a.o mod_b.o -o prog    # mhc links objects + the HolyC runtime
+$ ahc -c mod_a.HC                # -> mod_a.o
+$ ahc -c mod_b.HC                # -> mod_b.o
+$ ahc mod_a.o mod_b.o -o prog    # ahc links objects + the HolyC runtime
 ```
 
 The rules, HolyC-style:
@@ -86,11 +86,11 @@ The rules, HolyC-style:
 * Top-level code (including global initializers) of an object runs as a
   constructor at program start, before `main`, in **link order** — so
   list objects whose startup code others depend on first.
-* Link with mhc (it adds the runtime); `gcc a.o b.o` alone will miss the
+* Link with ahc (it adds the runtime); `gcc a.o b.o` alone will miss the
   HolyC runtime symbols. `.a` archives are accepted too.
 * `-c` works with the `llvm` and `c` backends; the `js` backend has no
   object format.
-* With several `.HC` files and `-c`, mhc builds **one** object from the
+* With several `.HC` files and `-c`, ahc builds **one** object from the
   group (HolyC sources are always one translation unit); the default
   output name comes from the first file.
 
@@ -101,17 +101,17 @@ The rules, HolyC-style:
 2. Your file(s) are lexed, preprocessed, and parsed into one AST.
    Top-level statements become the startup function.
 3. The selected backend emits a source artifact next to the output
-   (`out.mhc.ll`, `out.mhc.c`, or `out.mhc.js`; removed unless `-k`).
+   (`out.ahc.ll`, `out.ahc.c`, or `out.ahc.js`; removed unless `-k`).
 4. The backend builds the executable:
    * **llvm** — `clang prog.ll runtime.c -Os -o prog` (or `llc` + `cc`
-     when clang is absent). mhc never links LLVM libraries; it only
+     when clang is absent). ahc never links LLVM libraries; it only
      drives the external tools.
    * **c** — the artifact already contains the runtime; `cc -Os` builds it.
    * **js** — the artifact is a complete node script; it is installed to
      the output path with a `#!/usr/bin/env node` shebang and `chmod +x`.
 5. The binary is stripped for size.
 
-If no backend is given, mhc uses `llvm` when clang or llc is installed,
+If no backend is given, ahc uses `llvm` when clang or llc is installed,
 falling back to `c` otherwise.
 
 ## Calling C libraries
@@ -126,10 +126,10 @@ extern U64 crc32(U64 crc, U8 *buf, U32 len);
 ```
 
 ```console
-$ mhc zdemo.HC -lz -o zdemo
+$ ahc zdemo.HC -lz -o zdemo
 ```
 
-mhc emits matching declarations for every `extern` symbol your source
+ahc emits matching declarations for every `extern` symbol your source
 declares that the runtime doesn't provide. All HolyC integers are 64-bit,
 so prefer C functions with pointer/`long long`/`double`-shaped
 signatures; mask narrower return values yourself (e.g. `x(I32)`), and
@@ -146,7 +146,7 @@ the final binary.
 ## Exit status and errors
 
 Compile errors print `file:line: error: message` and exit 1. With `-r`,
-mhc exits with the program's exit code.
+ahc exits with the program's exit code.
 
 ## Environment
 

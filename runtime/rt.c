@@ -1,4 +1,4 @@
-/* mhc HolyC runtime — portable C, no dependencies beyond libc/libm.
+/* ahc HolyC runtime — portable C, no dependencies beyond libc/libm.
  * Variadic HolyC functions receive (named args..., i64 argc, i64 *argv):
  * every vararg is one 8-byte slot; F64 values are bit-copied into slots.
  */
@@ -29,7 +29,7 @@ typedef double hc_f64;
 #elif defined(__GNUC__) || defined(__clang__)
 #define HC_TLS __thread
 #else
-#error "mhc runtime needs thread-local storage support"
+#error "ahc runtime needs thread-local storage support"
 #endif
 
 /* ------------------------------------------------------------------ task */
@@ -55,7 +55,7 @@ static HC_TLS int hc_ntry;
 
 HC_API void *__hc_try_push(void) {
 	if (hc_ntry >= HC_TRY_MAX) {
-		fprintf (stderr, "mhc-rt: try nesting too deep\n");
+		fprintf (stderr, "ahc-rt: try nesting too deep\n");
 		exit (1);
 	}
 	return hc_frames[hc_ntry++];

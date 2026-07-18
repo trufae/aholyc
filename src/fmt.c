@@ -1,4 +1,4 @@
-/* mhc fmt — HolyC source formatter (see doc/format.md).
+/* ahc fmt — HolyC source formatter (see doc/format.md).
  *
  * Self-contained: its own tiny scanner (the compiler's lexer drops
  * comments, a formatter must not), and whitespace-only transforms:
@@ -9,10 +9,10 @@
  * unterminated strings or comments pass through verbatim.
  *
  * Options come from the environment, not new compiler flags:
- *   MHC_FMT_INDENT  spaces per level (default 2)
- *   MHC_FMT_BRACES  0 disables moving function/class '{' to its own line
+ *   AHC_FMT_INDENT  spaces per level (default 2)
+ *   AHC_FMT_BRACES  0 disables moving function/class '{' to its own line
  */
-#include "mhc.h"
+#include "ahc.h"
 #include <unistd.h>
 
 typedef struct {
@@ -465,11 +465,11 @@ int fmt_main(int argc, char **argv) {
 	const char *files[256];
 	int nfiles = 0;
 
-	const char *env = getenv ("MHC_FMT_INDENT");
+	const char *env = getenv ("AHC_FMT_INDENT");
 	if (env && atoi (env) >= 1 && atoi (env) <= 16) {
 		fmt_indent = atoi (env);
 	}
-	env = getenv ("MHC_FMT_BRACES");
+	env = getenv ("AHC_FMT_BRACES");
 	if (env && (!strcmp (env, "0") || !strcmp (env, "off") || !strcmp (env, "no"))) {
 		fmt_braces = false;
 	}
@@ -480,16 +480,16 @@ int fmt_main(int argc, char **argv) {
 		} else if (!strcmp (argv[i], "-q")) {
 			quiet = true;
 		} else if (!strcmp (argv[i], "-h")) {
-			printf ("usage: mhc fmt [-w | -q] [file.HC ... | -]\n"
+			printf ("usage: ahc fmt [-w | -q] [file.HC ... | -]\n"
 				"  -w  rewrite files in place (only when they change)\n"
 				"  -q  no output; list files needing formatting, exit 1 if any\n"
 				"  -   read from stdin, write to stdout\n"
-				"env: MHC_FMT_INDENT=n  MHC_FMT_BRACES=0  (doc/format.md)\n");
+				"env: AHC_FMT_INDENT=n  AHC_FMT_BRACES=0  (doc/format.md)\n");
 			return 0;
 		} else if (nfiles < 256) {
 			files[nfiles++] = argv[i];
 		} else {
-			fprintf (stderr, "mhc fmt: too many files\n");
+			fprintf (stderr, "ahc fmt: too many files\n");
 			return 1;
 		}
 	}
@@ -502,14 +502,14 @@ int fmt_main(int argc, char **argv) {
 		bool is_stdin = !strcmp (files[i], "-");
 		char *src = read_source (files[i]);
 		if (!src) {
-			fprintf (stderr, "mhc fmt: cannot open '%s'\n", files[i]);
+			fprintf (stderr, "ahc fmt: cannot open '%s'\n", files[i]);
 			rc = 1;
 			continue;
 		}
 		char *out = fmt_run (src);
 		if (!out || !ws_equal (src, out)) {
 			/* never emit anything that fails verification */
-			fprintf (stderr, "mhc fmt: internal error on '%s', left untouched\n",
+			fprintf (stderr, "ahc fmt: internal error on '%s', left untouched\n",
 				is_stdin? "(stdin)": files[i]);
 			free (src);
 			free (out);
@@ -529,7 +529,7 @@ int fmt_main(int argc, char **argv) {
 				char *tmp = xasprintf ("%s.fmt.tmp", files[i]);
 				FILE *f = fopen (tmp, "wb");
 				if (!f || fwrite (out, 1, strlen (out), f) != strlen (out)) {
-					fprintf (stderr, "mhc fmt: cannot write '%s'\n", tmp);
+					fprintf (stderr, "ahc fmt: cannot write '%s'\n", tmp);
 					if (f) {
 						fclose (f);
 					}
@@ -538,7 +538,7 @@ int fmt_main(int argc, char **argv) {
 				} else {
 					fclose (f);
 					if (rename (tmp, files[i]) != 0) {
-						fprintf (stderr, "mhc fmt: cannot replace '%s'\n", files[i]);
+						fprintf (stderr, "ahc fmt: cannot replace '%s'\n", files[i]);
 						unlink (tmp);
 						rc = 1;
 					}

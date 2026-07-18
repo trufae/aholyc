@@ -1,5 +1,5 @@
-/* mhc lexer + token-level preprocessor (#include, #define, #ifdef) */
-#include "mhc.h"
+/* ahc lexer + token-level preprocessor (#include, #define, #ifdef) */
+#include "ahc.h"
 
 typedef struct IncDir IncDir;
 struct IncDir { IncDir *next; const char *dir; };

@@ -1,23 +1,23 @@
-/* mhc — modern HolyC compiler driver.
- * Usage mirrors a normal C compiler: mhc [options] file.HC ...
+/* aholyc — another Holy-C compiler driver.
+ * Usage mirrors a normal C compiler: ahc [options] file.HC ...
  */
-#include "mhc.h"
+#include "ahc.h"
 #include <unistd.h>
 #include <sys/stat.h>
 
-#define MHC_VERSION "0.1.0"
+#define AHC_VERSION "0.1.0"
 
-bool mhc_obj_mode = false;
-bool mhc_verbose = false;
-bool mhc_keep = false;
-char *mhc_ccflags[64];
-int mhc_nccflags = 0;
+bool ahc_obj_mode = false;
+bool ahc_verbose = false;
+bool ahc_keep = false;
+char *ahc_ccflags[64];
+int ahc_nccflags = 0;
 
 static void add_ccflag(char *flag) {
-	if (mhc_nccflags >= 64) {
+	if (ahc_nccflags >= 64) {
 		error ("too many -I/-L/-l flags");
 	}
-	mhc_ccflags[mhc_nccflags++] = flag;
+	ahc_ccflags[ahc_nccflags++] = flag;
 }
 
 static const Backend *backends[] = {
@@ -28,8 +28,8 @@ static const Backend *backends[] = {
 };
 
 static void usage(int code) {
-	printf ("usage: mhc [options] [file.HC ... | -] [file.o ...]\n"
-		"       mhc fmt [-w | -q] [file.HC ... | -]   format sources (doc/format.md)\n"
+	printf ("usage: ahc [options] [file.HC ... | -] [file.o ...]\n"
+		"       ahc fmt [-w | -q] [file.HC ... | -]   format sources (doc/format.md)\n"
 		"\n"
 		"options:\n"
 		"  -o <file>     output executable (default: a.out)\n"
@@ -148,20 +148,20 @@ def:		{
 		} else if (!strcmp (a, "-r") || !strcmp (a, "--run")) {
 			run = true;
 		} else if (!strcmp (a, "-k")) {
-			keep = mhc_keep = true;
+			keep = ahc_keep = true;
 		} else if (!strcmp (a, "-v")) {
-			verbose = mhc_verbose = true;
+			verbose = ahc_verbose = true;
 		} else if (!strcmp (a, "-h") || !strcmp (a, "--help")) {
 			usage (0);
 		} else if (!strcmp (a, "--version")) {
-			printf ("mhc %s — modern HolyC compiler\n", MHC_VERSION);
+			printf ("aholyc %s — another Holy-C compiler\n", AHC_VERSION);
 			return 0;
 		} else {
 			error ("unknown option '%s' (try -h)", a);
 		}
 	}
 	if (ninputs == 0) {
-		/* piped stdin is an implicit source: mhc -r < prog.HC.  A tty
+		/* piped stdin is an implicit source: ahc -r < prog.HC.  A tty
 		 * or empty stream (/dev/null, closed fd) is a usage error, not
 		 * a silent empty program. */
 		int c;
@@ -211,7 +211,7 @@ def:		{
 	Program *prog = NULL;
 	if (nsrc > 0) {
 		/* prelude first so its macros exist, then user files in order */
-		mhc_obj_mode = compile_obj || nobj > 0;
+		ahc_obj_mode = compile_obj || nobj > 0;
 		Token *toks = lex_string (prelude_hc, "<prelude>", NULL);
 		for (int i = 0; i < nsrc; i++) {
 			toks = token_join (toks, lex_file (sources[i]));
@@ -256,7 +256,7 @@ def:		{
 		be->emit (prog, f);
 		fclose (f);
 		if (verbose) {
-			fprintf (stderr, "mhc: wrote %s\n", artifact);
+			fprintf (stderr, "ahc: wrote %s\n", artifact);
 		}
 		return 0;
 	}
@@ -266,7 +266,7 @@ def:		{
 		if (!outpath) {
 			outpath = xasprintf ("%s.o", stem);
 		}
-		char *artifact = xasprintf ("%s.mhc%s", outpath, be->ext);
+		char *artifact = xasprintf ("%s.ahc%s", outpath, be->ext);
 		FILE *f = fopen (artifact, "w");
 		if (!f) {
 			error ("cannot write '%s'", artifact);
@@ -293,7 +293,7 @@ def:		{
 	char *tmpobj = NULL;
 	if (nobj == 0) {
 		/* whole-program build (single translation unit) */
-		char *artifact = xasprintf ("%s.mhc%s", outpath, be->ext);
+		char *artifact = xasprintf ("%s.ahc%s", outpath, be->ext);
 		FILE *f = fopen (artifact, "w");
 		if (!f) {
 			error ("cannot write '%s'", artifact);
@@ -308,8 +308,8 @@ def:		{
 		/* link mode: compile sources (if any) to a temp object, then
 		 * link everything with the runtime, like a C compiler would */
 		if (nsrc > 0) {
-			char *artifact = xasprintf ("%s.mhc%s", outpath, be->ext);
-			tmpobj = xasprintf ("%s.mhc.o", outpath);
+			char *artifact = xasprintf ("%s.ahc%s", outpath, be->ext);
+			tmpobj = xasprintf ("%s.ahc.o", outpath);
 			FILE *f = fopen (artifact, "w");
 			if (!f) {
 				error ("cannot write '%s'", artifact);
@@ -325,7 +325,7 @@ def:		{
 			}
 		}
 		/* write the runtime and link */
-		char *rtpath = xasprintf ("%s.mhcrt.c", outpath);
+		char *rtpath = xasprintf ("%s.ahcrt.c", outpath);
 		FILE *f = fopen (rtpath, "w");
 		if (!f) {
 			error ("cannot write '%s'", rtpath);
@@ -351,8 +351,8 @@ def:		{
 			argv[n++] = (char *)objects[i];
 		}
 		argv[n++] = rtpath;
-		for (int i = 0; i < mhc_nccflags && n < 78; i++) {
-			argv[n++] = mhc_ccflags[i];
+		for (int i = 0; i < ahc_nccflags && n < 78; i++) {
+			argv[n++] = ahc_ccflags[i];
 		}
 		argv[n++] = "-lm";
 		argv[n] = NULL;

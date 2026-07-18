@@ -1,4 +1,4 @@
-// mhc prelude: compiled before user code. Declares the runtime API.
+// ahc prelude: compiled before user code. Declares the runtime API.
 #define TRUE 1
 #define FALSE 0
 #define NULL 0

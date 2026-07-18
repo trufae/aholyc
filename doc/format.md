@@ -1,13 +1,13 @@
-# `mhc fmt` — HolyC source formatting
+# `ahc fmt` — HolyC source formatting
 
-`mhc fmt` formats and format-checks HolyC sources so a codebase can
+`ahc fmt` formats and format-checks HolyC sources so a codebase can
 follow one standard. It lives entirely in `src/fmt.c`, separate from
 the compiler proper.
 
 ## The style
 
 TempleOS never shipped a formatter, but its sources follow a
-consistent conventional style, and that is what `mhc fmt` enforces:
+consistent conventional style, and that is what `ahc fmt` enforces:
 
 * Two spaces per nesting level.
 * Opening braces generally on their own line for functions/classes.
@@ -56,11 +56,11 @@ Further rules, all taken from shapes in the TempleOS sources:
 ## Usage
 
 ```console
-$ mhc fmt file.HC ...        # print formatted source to stdout
-$ mhc fmt -w file.HC ...     # rewrite files in place (only if changed)
-$ mhc fmt -q file.HC ...     # check: list files needing formatting,
+$ ahc fmt file.HC ...        # print formatted source to stdout
+$ ahc fmt -w file.HC ...     # rewrite files in place (only if changed)
+$ ahc fmt -q file.HC ...     # check: list files needing formatting,
                              #        exit 1 if any (nothing rewritten)
-$ mhc fmt - < in > out       # filter stdin to stdout ('-' or no args)
+$ ahc fmt - < in > out       # filter stdin to stdout ('-' or no args)
 $ make fmt                   # normalize every .HC/.hc in the repo
 ```
 
@@ -68,8 +68,8 @@ Options are environment variables, so the compiler CLI stays small:
 
 | variable | meaning |
 |----------|---------|
-| `MHC_FMT_INDENT=n` | spaces per nesting level (default 2) |
-| `MHC_FMT_BRACES=0` | don't move function/class `{` to its own line |
+| `AHC_FMT_INDENT=n` | spaces per nesting level (default 2) |
+| `AHC_FMT_BRACES=0` | don't move function/class `{` to its own line |
 
 ## What it changes — and what it never touches
 

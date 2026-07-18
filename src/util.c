@@ -1,12 +1,12 @@
-/* mhc utilities: diagnostics, memory, process spawning */
-#include "mhc.h"
+/* ahc utilities: diagnostics, memory, process spawning */
+#include "ahc.h"
 #include <unistd.h>
 #include <sys/wait.h>
 
 void error(const char *fmt, ...) {
 	va_list ap;
 	va_start (ap, fmt);
-	fprintf (stderr, "mhc: error: ");
+	fprintf (stderr, "ahc: error: ");
 	vfprintf (stderr, fmt, ap);
 	fputc ('\n', stderr);
 	va_end (ap);
@@ -19,7 +19,7 @@ void error_tok(Token *tok, const char *fmt, ...) {
 	if (tok) {
 		fprintf (stderr, "%s:%d: error: ", tok->file? tok->file: "?", tok->line);
 	} else {
-		fprintf (stderr, "mhc: error: ");
+		fprintf (stderr, "ahc: error: ");
 	}
 	vfprintf (stderr, fmt, ap);
 	fputc ('\n', stderr);
@@ -33,7 +33,7 @@ void warn_tok(Token *tok, const char *fmt, ...) {
 	if (tok) {
 		fprintf (stderr, "%s:%d: warning: ", tok->file? tok->file: "?", tok->line);
 	} else {
-		fprintf (stderr, "mhc: warning: ");
+		fprintf (stderr, "ahc: warning: ");
 	}
 	vfprintf (stderr, fmt, ap);
 	fputc ('\n', stderr);
@@ -100,7 +100,7 @@ char *read_source(const char *path) {
 
 int run_cmd(char *const argv[], bool verbose) {
 	if (verbose) {
-		fprintf (stderr, "mhc: exec:");
+		fprintf (stderr, "ahc: exec:");
 		for (int i = 0; argv[i]; i++) {
 			fprintf (stderr, " %s", argv[i]);
 		}
@@ -112,7 +112,7 @@ int run_cmd(char *const argv[], bool verbose) {
 	}
 	if (pid == 0) {
 		execvp (argv[0], argv);
-		fprintf (stderr, "mhc: cannot exec %s\n", argv[0]);
+		fprintf (stderr, "ahc: cannot exec %s\n", argv[0]);
 		_exit (127);
 	}
 	int st = 0;

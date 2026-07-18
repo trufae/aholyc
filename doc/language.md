@@ -1,6 +1,6 @@
-# The HolyC language, as implemented by mhc
+# The HolyC language, as implemented by ahc
 
-This documents the language mhc accepts. It follows TempleOS HolyC
+This documents the language ahc accepts. It follows TempleOS HolyC
 (see `third_party/TempleOS/Doc/HolyC.DD`) with the deviations listed at
 the end.
 
@@ -257,7 +257,7 @@ argument, `%d` an integer.
 
 ## Deviations from TempleOS
 
-mhc targets normal OSes with portable backends, so:
+ahc targets normal OSes with portable backends, so:
 
 * **No inline `asm{}`** — rejected with an error.
 * `#exe{}` works at compile time only (`doc/exe.md`); the runtime half

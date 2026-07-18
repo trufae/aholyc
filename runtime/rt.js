@@ -1,4 +1,4 @@
-// mhc HolyC runtime for JavaScript (node).
+// ahc HolyC runtime for JavaScript (node).
 // Linear-memory model: one ArrayBuffer, pointers are byte addresses.
 // I64 values are JS numbers: exact up to 53 bits (documented limitation).
 //

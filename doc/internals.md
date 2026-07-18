@@ -1,22 +1,22 @@
-# mhc internals
+# ahc internals
 
 ## Design ideas borrowed from TempleOS
 
 TempleOS's compiler is ~20k lines of HolyC that lexes, parses and emits
-x86-64 in basically one pass, with no external anything. mhc keeps the
+x86-64 in basically one pass, with no external anything. ahc keeps the
 values that made that possible:
 
-* **Zero dependencies.** Building mhc needs `cc` and `make`. The runtime
+* **Zero dependencies.** Building ahc needs `cc` and `make`. The runtime
   and prelude are embedded into the binary at build time (`tools/file2c`),
   so the installed compiler is one self-contained file.
-* **One shared header.** `src/mhc.h` holds every structure: tokens,
+* **One shared header.** `src/ahc.h` holds every structure: tokens,
   types, AST, symbols, the backend vtable. No abstraction layers, no
   visitor patterns — plain switch statements over node kinds.
 * **Lower early, keep backends dumb.** TempleOS pushed complexity into
-  the front of the compiler; mhc's parser desugars everything HolyC-
+  the front of the compiler; ahc's parser desugars everything HolyC-
   specific (default args, implicit prints, sub_switch, `++`, chained
   comparisons) so each backend is a straightforward tree-walker.
-* **Let the big hammer swing.** TempleOS trusted its own passes; mhc
+* **Let the big hammer swing.** TempleOS trusted its own passes; ahc
   emits naive alloca-style IR and trusts LLVM/cc `-Os`. Simple emitter,
   good code anyway.
 * **Small binaries.** `-Os` and `strip` by default, one tiny runtime.

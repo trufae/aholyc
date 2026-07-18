@@ -1,9 +1,9 @@
-# mhc — modern HolyC compiler
+# aholyc — another Holy-C compiler
 
-`mhc` compiles [HolyC](https://templeos.org) — the language Terry A. Davis
+`aholyc` (invoked as `ahc`) compiles [HolyC](https://templeos.org) — the language Terry A. Davis
 created for TempleOS — into real native executables, using the LLVM
 toolchain for code generation without ever linking against LLVM libraries:
-mhc emits textual LLVM-IR and lets `clang`/`llc` do the rest.
+ahc emits textual LLVM-IR and lets `clang`/`llc` do the rest.
 
 ```holyc
 U0 Hello(U8 *who="World")
@@ -14,14 +14,14 @@ Hello;
 ```
 
 ```console
-$ mhc hello.HC -o hello
+$ ahc hello.HC -o hello
 $ ./hello
 Hello World!
 ```
 
 ## Highlights
 
-* Written in portable C99. **Zero external dependencies** — building mhc
+* Written in portable C99. **Zero external dependencies** — building ahc
   needs only `cc` and `make`.
 * **Pluggable backends** selected with `-b`:
   * `llvm` — LLVM-IR text, compiled to native by clang/llc (default)
@@ -45,7 +45,7 @@ $ sudo make install
 
 * `src/` — the compiler (lexer, parser, backends, driver)
 * `runtime/` — the HolyC runtime (C and JS) and the prelude, embedded into
-  the mhc binary at build time
+  the ahc binary at build time
 * `doc/` — [language](doc/language.md), [usage](doc/usage.md),
   [backends](doc/backends.md), [memory](doc/memory.md),
   [internals](doc/internals.md)
@@ -55,8 +55,8 @@ $ sudo make install
 ## Why
 
 TempleOS's compiler JIT-compiled HolyC into a single flat address space.
-mhc keeps the language and the spirit — simplicity, directness, no
+ahc keeps the language and the spirit — simplicity, directness, no
 dependency sprawl — but targets the world outside the temple: normal
 operating systems, normal executables, several code generators.
 
-God's temple ships with an amber screen; mhc ships with a Makefile.
+God's temple ships with an amber screen; ahc ships with a Makefile.

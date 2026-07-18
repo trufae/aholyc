@@ -1,8 +1,8 @@
 # `#exe{}` — compile-time execution
 
 TempleOS lets any program run HolyC *inside the compiler* with
-`#exe {...}`. mhc supports the same directive. This document explains
-how TempleOS uses it, the design mhc chose, and what the differences
+`#exe {...}`. ahc supports the same directive. This document explains
+how TempleOS uses it, the design ahc chose, and what the differences
 and limits are.
 
 ## What TempleOS does with it
@@ -29,11 +29,11 @@ The primitive underneath is `StreamPrint` (`Compiler/CMisc.HC`): it
 appends formatted text to the current stream block, and the lexer
 continues reading from that text when the block returns.
 
-## The design mhc chose
+## The design ahc chose
 
 TempleOS can do this trivially: the compiler is a JIT living in the
 same address space as everything else, so a `#exe` block is just one
-more JIT job. mhc is an AOT cross-compiler written in C, so the block
+more JIT job. ahc is an AOT cross-compiler written in C, so the block
 has to become native code some other way. The options were:
 
 * an **interpreter** or **bytecode VM** — a second implementation of
@@ -41,8 +41,8 @@ has to become native code some other way. The options were:
 * a **multi-stage build** (compile a helper binary, run it, restart
   the compile) — lots of process plumbing, no access to compiler
   internals;
-* a **JIT** — big, platform-specific, exactly what mhc avoids;
-* a **shared library dlopened into the compiler** — the one mhc took.
+* a **JIT** — big, platform-specific, exactly what ahc avoids;
+* a **shared library dlopened into the compiler** — the one ahc took.
 
 The block is compiled by the *same* lexer, parser and codegen as any
 program, using the C backend, into a temporary shared library that is
@@ -53,7 +53,7 @@ internals with zero marshalling. Compiler pointers are plain addresses
 in the same process, so they can be handed to HolyC code and even
 inlined into generated text.
 
-The C backend is the natural fit for the dl target: mhc's HolyC class
+The C backend is the natural fit for the dl target: ahc's HolyC class
 layout uses the same natural-alignment rules as C structs, so a HolyC
 `class` can mirror a compiler `struct` byte for byte, and the block
 manipulates live compiler data through ordinary member access.
@@ -68,7 +68,7 @@ lexer hits "#exe {"           (src/lex.c, preprocess)
     prepend runtime prelude + exe API   (runtime/exe.hc)
     parse                    (same parser, made re-entrant)
     emit C                   (same C backend, runtime embedded)
-    cc -O0 -w -shared -fPIC  -> /tmp/mhc-exe-<pid>-<n>.so
+    cc -O0 -w -shared -fPIC  -> /tmp/ahc-exe-<pid>-<n>.so
     dlopen(RTLD_NOW|RTLD_LOCAL); call __hc_start(); dlclose
     collect StreamPrint text
   re-tokenize the text as "<exe>" and splice it in before rest
@@ -81,7 +81,7 @@ that makes `parse()` re-entrant.
 
 ### The shim
 
-`mhc` is linked with `-rdynamic`, so every symbol of the compiler
+`ahc` is linked with `-rdynamic`, so every symbol of the compiler
 binary is visible to dlopened blocks. `src/exe.c` exports the small
 API the blocks' extern declarations resolve against (`__StreamPutS`,
 `ExeStream`, `ExeStreamSet`, `Cd`, `Now`); everything else in the exe
@@ -90,7 +90,7 @@ embedded runtime inside the `.so` is `static`, so blocks never collide
 with the compiler or with each other.
 
 Compiler internals keep their names on the HolyC side: `class Token`
-in `runtime/exe.hc` mirrors `struct Token` in `src/mhc.h` — same
+in `runtime/exe.hc` mirrors `struct Token` in `src/ahc.h` — same
 member names, same offsets — and `TK_*` match `TokenKind`. Since
 `-rdynamic` exports everything, an adventurous block can declare an
 extern for *any* compiler function and call it.
@@ -122,22 +122,22 @@ Semantics worth knowing:
   macros, and further `#exe` blocks.
 * Each `StreamPrint` starts on a **fresh line** in the injected text
   (TempleOS concatenates raw). This keeps injected directives valid,
-  since mhc directives must start a line.
+  since ahc directives must start a line.
 * Errors inside a block are reported with the original file/line.
 * A compile-time `Print` writes to the compiler's stdout — useful as a
   build-time trace, like TempleOS `Echo`.
 
 ## Limitations
 
-* **Compile time only.** mhc produces self-contained native binaries
+* **Compile time only.** ahc produces self-contained native binaries
   with no compiler inside, so the runtime half of the TempleOS API
   (`ExePutS`, `ExePrint`, `ExeFile`, `StreamExePrint`, `RunFile`) does
   not exist. This is by design: the payoff is blazing-fast AOT output.
   See "The runtime half on POSIX" below for how it could be added
   without giving that up.
-* **Token-level reflection, not AST.** mhc preprocesses the entire
+* **Token-level reflection, not AST.** ahc preprocesses the entire
   stream before parsing, so when a block runs, the outer program has
-  no AST yet. TempleOS interleaves lex/parse/JIT per statement; mhc
+  no AST yet. TempleOS interleaves lex/parse/JIT per statement; ahc
   deliberately does not. Blocks inspect and rewrite *tokens*.
 * `#exe` is a directive: it must be the first token on its line.
   Mid-expression `#exe` (TempleOS `StreamExePrint`) is not supported.
@@ -147,7 +147,7 @@ Semantics worth knowing:
   cwd does persist).
 * Functions and classes defined inside a block exist only during the
   block. To add them to the program, `StreamPrint` their source.
-* `Option`/`PassTrace`/`Echo` do nothing — mhc's codegen has no
+* `Option`/`PassTrace`/`Echo` do nothing — ahc's codegen has no
   equivalent knobs.
 * `Now()` returns unix seconds, not the TempleOS `CDate` 32.32 fixed
   point.
@@ -157,7 +157,7 @@ Semantics worth knowing:
 ## The runtime half on POSIX
 
 An evaluation of what it would take to offer the TempleOS *runtime*
-compiler API from mhc-built binaries on a normal POSIX system.
+compiler API from ahc-built binaries on a normal POSIX system.
 
 What TempleOS provides (`Compiler/CMain.HC`):
 
@@ -170,27 +170,27 @@ What TempleOS provides (`Compiler/CMain.HC`):
 | `I64 StreamExePrint(fmt,...)` | inside an AOT `#exe{}` block only: run text against the outer stream |
 
 `StreamPrint` needs no evaluation: it is compile-time by definition
-(it appends to the token stream being compiled) and mhc already has
+(it appends to the token stream being compiled) and ahc already has
 it inside `#exe{}`. Same for `StreamExePrint`: it only means something
 while a compile is in progress, and within a block plain `StreamPrint`
 covers the use.
 
 For the other four the options mirror the `#exe` design decision:
 
-* **Link the compiler into every binary** (a `libmhc`) — makes every
+* **Link the compiler into every binary** (a `libahc`) — makes every
   hello world carry a compiler. Violates the small-binary rule for
   programs that never eval anything; rejected.
 * **A runtime interpreter** — a second implementation of HolyC
   semantics to keep in sync; rejected for `#exe`, same verdict here.
 * **Reuse the `#exe` mechanism at runtime** — the program shells out
-  to the `mhc` on `PATH` exactly like the compiler itself does for
+  to the `ahc` on `PATH` exactly like the compiler itself does for
   `#exe` blocks: emit C, `cc -O0 -w -shared -fPIC`, `dlopen` into the
   running process, call `__hc_start`, `dlclose`. One compiler, one set
   of semantics, and the machinery already exists in `src/exe.c` — the
   runtime version is the same ~100 lines with `exe_run`'s
   StreamPrint plumbing replaced by a result slot.
 
-The third option fits mhc:
+The third option fits ahc:
 
 * **Cost when unused: zero.** The whole feature is one more section
   of `runtime/rt.c` (`fork`/`exec` + `dlopen` + the result protocol),
@@ -217,11 +217,11 @@ The third option fits mhc:
   boundary and would stay a documented difference.
 * **Errors.** A failed compile makes `ExePutS` throw `'Compiler'`,
   matching the TempleOS try/catch contract.
-* **Requirements.** The *target* machine needs `mhc`, a C compiler
+* **Requirements.** The *target* machine needs `ahc`, a C compiler
   and `dlopen` at runtime — the moral equivalent of TempleOS shipping
   its compiler in the OS image. A cross-compiled appliance without a
   toolchain cannot eval; that is inherent to AOT, not to this design.
-* **JS backend.** node could `eval` mhc-generated JS, but the chunk
+* **JS backend.** node could `eval` ahc-generated JS, but the chunk
   and host would have to negotiate one linear memory and function
   table; doable, bigger than the POSIX story, and left out of scope.
 
@@ -234,8 +234,8 @@ patches to the running image.
 
 ## Debugging
 
-`mhc -v` prints the `cc -shared` command used for each block; `-k`
-keeps the intermediates (`/tmp/mhc-exe-<pid>-<n>.c` and `.so`) for
+`ahc -v` prints the `cc -shared` command used for each block; `-k`
+keeps the intermediates (`/tmp/ahc-exe-<pid>-<n>.c` and `.so`) for
 inspection.
 
 See `examples/exe.HC` (code generation, computed macros, config

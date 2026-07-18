@@ -1,9 +1,9 @@
-# Memory in mhc
+# Memory in ahc
 
-How mhc lays out data, manages the heap, and isolates per-thread state —
+How ahc lays out data, manages the heap, and isolates per-thread state —
 across all three backends. TempleOS ran everything in one identity-mapped
 physical address space where every object had an address you could poke;
-mhc keeps that worldview and maps it onto each target as directly as it
+ahc keeps that worldview and maps it onto each target as directly as it
 can.
 
 ## The HolyC view of memory
@@ -13,7 +13,7 @@ can.
 * A pointer is a byte address. Pointer arithmetic scales by the element
   size (`I64 *p; p + 1` advances 8 bytes), `p1 - p2` yields an element
   count, and indexing is sugar for scaled deref. `U0 *` advances 1 byte
-  per step in mhc (TempleOS adds 0; Terry's guidelines say don't use it).
+  per step in ahc (TempleOS adds 0; Terry's guidelines say don't use it).
 * Everything is little-endian, so casting a `U8*` into an `I64*` and
   peeking at bytes behaves identically on every backend — including JS.
 * Multi-char constants pack little-endian: `'ABC'` == `0x434241`.
@@ -130,7 +130,7 @@ precision. See [backends.md](backends.md).
 ## Thread-local state
 
 TempleOS kept per-task state behind `Fs` — a segment register pointing
-at the current `CTask`. mhc's portable equivalent is C thread-local
+at the current `CTask`. ahc's portable equivalent is C thread-local
 storage: on native backends, `Fs` and the whole exception machinery are
 **per host thread**.
 
@@ -156,7 +156,7 @@ Mechanics worth knowing:
   right thread's task.
 * The TLS spelling is picked per compiler (`_Thread_local`, `__thread`,
   `__declspec(thread)`), see `HC_TLS` in `runtime/rt.c`.
-* mhc has no thread-spawning API of its own. The supported pattern is
+* ahc has no thread-spawning API of its own. The supported pattern is
   library interop: mark a HolyC function `public`, hand it to
   `pthread_create` from a small C shim, link with `-lpthread` — see
   `tests/tls_threads.c` / `tests/tls_threads.HC`. Each new thread gets
