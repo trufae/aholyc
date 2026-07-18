@@ -191,8 +191,10 @@ try {
 
 `#include "file"` (no `<>` form), object-like `#define NAME tokens`,
 `#undef`, `#ifdef/#ifndef/#else/#endif`. There are no function-like
-macros ("I'm not a fan" — T. Davis). `#exe{}` is rejected: it requires
-compile-time code execution, which mhc does not do.
+macros ("I'm not a fan" — T. Davis). `#exe{...}` runs the block at
+compile time inside the compiler and splices its `StreamPrint` output
+into the stream, like TempleOS; see `doc/exe.md` for the design, the
+extra API available inside blocks, and the limitations.
 
 The prelude defines `TRUE`, `FALSE`, `NULL`, `ON`, `OFF`, `Bool`,
 `I64_MAX`, `I64_MIN` and declares the runtime API (see below).
@@ -203,7 +205,8 @@ Console: `Print(fmt,...)`, `PutChars(i64)`, `PutS(s)`, `GetChar()`,
 `GetStr(prompt=NULL)`.
 Memory: `MAlloc`, `CAlloc`, `Free`, `MSize`, `MemCpy`, `MemSet`, `MemCmp`.
 Strings: `StrLen`, `StrCpy`, `StrCat`, `StrCmp`, `StrNew`,
-`StrPrint(dst,fmt,...)`, `MStrPrint(fmt,...)`.
+`StrPrint(dst,fmt,...)`, `MStrPrint(fmt,...)`,
+`StrPrintJoin(dst,fmt,argc,argv)` (varargs forwarding, TempleOS style).
 Math: `Sqrt Sin Cos Tan ASin ACos ATan Exp Ln Log10 Log2 Ceil Floor Abs
 AbsI64 Round ToI64 ToF64 ToBool MinI64 MaxI64 Seed RandI64 Rand`.
 Exceptions: `throw(ch=0)`, `PutExcept(catch_it=TRUE)`, `Fs->except_ch`,
@@ -220,7 +223,9 @@ argument, `%d` an integer.
 mhc targets normal OSes with portable backends, so:
 
 * **No inline `asm{}`** — rejected with an error.
-* **No `#exe{}`** compile-time execution.
+* `#exe{}` works at compile time only (`doc/exe.md`); the runtime half
+  of the TempleOS compiler API (`ExePrint`, `ExeFile`, `StreamExePrint`,
+  `RunFile`) is absent, since final binaries contain no compiler.
 * `U0 *` pointer arithmetic advances by 1 byte (TempleOS adds 0; Terry's
   own guidelines say don't use `U0 *`).
 * `reg`/`noreg` are parsed but have no effect; there are no register

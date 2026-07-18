@@ -27,8 +27,8 @@ $ mhc main.HC module.o -o prog   # .o/.a inputs are linked in
 | `-l name` | link against a library (e.g. `-lz`) |
 | `-D name[=value]` | predefine a macro |
 | `-r`, `--run` | run the program after a successful build |
-| `-k` | keep intermediate files (`.ll`, `.c`, runtime copies) |
-| `-v` | print the toolchain commands being executed |
+| `-k` | keep intermediate files (`.ll`, `.c`, runtime copies, `#exe` block libraries) |
+| `-v` | print the toolchain commands being executed (including `#exe` builds) |
 | `-h`, `--version` | help / version |
 
 Multiple `.HC` input files are concatenated and compiled as one

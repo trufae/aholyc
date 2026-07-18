@@ -2145,8 +2145,17 @@ static Node *global_decl(Type *base, bool is_extern, bool is_public) {
 /* ------------------------------------------------------------- top level */
 
 Program *parse(Token *tok) {
+	/* reset state: #exe blocks compile a nested program before the
+	 * outer parse runs, so parse() must be re-entrant */
 	prog = xcalloc (1, sizeof(Program));
 	tk = tok;
+	scope = NULL;
+	classes = NULL;
+	funcs_tail = globals_tail = NULL;
+	cur_fn = NULL;
+	fn_locals = NULL;
+	fn_labels = NULL;
+	break_label = NULL;
 	enter_scope (); /* global scope */
 
 	Obj *startup = new_obj (xstrdup ("__hc_start"), NULL);

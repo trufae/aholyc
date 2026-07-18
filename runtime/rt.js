@@ -360,6 +360,14 @@ function MStrPrint(fmt, argc, argv) {
 	wstr (p, s);
 	return p;
 }
+//@ StrPrintJoin hcFormat cstr MAlloc wstr Free
+function StrPrintJoin(dst, fmt, argc, argv) {
+	const s = (dst? cstr (dst): "") + hcFormat (fmt, argc, argv);
+	Free (dst);
+	const p = MAlloc (s.length + 1);
+	wstr (p, s);
+	return p;
+}
 //@ PutChars W chstr
 function PutChars(ch) { W (chstr (ch)); }
 //@ PutS W cstr

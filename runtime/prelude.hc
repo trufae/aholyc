@@ -42,6 +42,7 @@ extern I64 StrCmp(U8 *a,U8 *b);
 extern U8 *StrNew(U8 *s);
 extern U8 *StrPrint(U8 *dst,U8 *fmt,...);
 extern U8 *MStrPrint(U8 *fmt,...);
+extern U8 *StrPrintJoin(U8 *dst,U8 *fmt,I64 argc,I64 *argv);
 
 // math
 extern F64 Sqrt(F64 x);

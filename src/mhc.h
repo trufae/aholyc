@@ -188,6 +188,7 @@ typedef struct {
 
 Token *lex_file(const char *path);
 Token *lex_string(const char *src, const char *fake_name, Token *chain_after);
+Token *lex_preprocess(Token *raw);
 Token *token_join(Token *a, Token *b);
 void lex_add_include_dir(const char *dir);
 void lex_define(const char *name, const char *value);
@@ -195,6 +196,13 @@ void lex_define(const char *name, const char *value);
 /* ---------------------------------------------------------------- parser */
 
 Program *parse(Token *tok);
+
+/* ------------------------------------------------------------------ #exe
+ * Compile-time execution (exe.c): the block is compiled with the C
+ * backend into a shared library, dlopened into the compiler process
+ * and run; its StreamPrint output is returned for stream splicing.
+ * *rest is the token stream after the block; the block may advance it. */
+char *exe_run(Token *block, Token **rest);
 
 /* ------------------------------------------------------------ diagnostics */
 
@@ -226,6 +234,9 @@ typedef struct Backend {
  * is declared instead of embedded, 'public' symbols are exported. */
 extern bool mhc_obj_mode;
 
+/* -v / -k driver flags, also honored by #exe builds */
+extern bool mhc_verbose, mhc_keep;
+
 /* pass-through toolchain flags (-I/-L/-l), appended to cc invocations */
 extern char *mhc_ccflags[64];
 extern int mhc_nccflags;
@@ -238,6 +249,7 @@ extern const Backend backend_js;
 extern const char rt_c_src[];
 extern const char rt_js_src[];
 extern const char prelude_hc[];
+extern const char exe_hc[];
 
 /* driver helpers */
 int run_cmd(char *const argv[], bool verbose);

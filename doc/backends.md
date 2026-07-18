@@ -27,7 +27,10 @@ The output of `-S -b c` compiles anywhere with
 `cc -Os -fno-strict-aliasing -w out.c -lm`.
 
 This backend is the reference implementation and works on any machine
-with a C compiler — no LLVM needed.
+with a C compiler — no LLVM needed. It is also how `#exe{}` blocks run,
+whatever backend the outer program uses: each block is emitted as C,
+built into a shared library and dlopened into the compiler process
+(see `doc/exe.md`).
 
 In whole-program mode the runtime is injected with `#define HC_API
 static`, so the C compiler discards every runtime function the program

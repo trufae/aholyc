@@ -316,6 +316,22 @@ HC_API char *MStrPrint(char *fmt, hc_i64 argc, hc_i64 *argv) {
 	return res;
 }
 
+/* TempleOS varargs-forwarding formatter: returns a new string of
+ * dst + formatted text, freeing dst. dst==NULL starts empty. */
+HC_API char *StrPrintJoin(char *dst, char *fmt, hc_i64 argc, hc_i64 *argv) {
+	char *s = MStrPrint (fmt, argc, argv);
+	if (!dst) {
+		return s;
+	}
+	hc_i64 dn = StrLen (dst);
+	char *r = MAlloc (dn + StrLen (s) + 1);
+	strcpy (r, dst);
+	strcpy (r + dn, s);
+	Free (dst);
+	Free (s);
+	return r;
+}
+
 HC_API void PutChars(hc_i64 ch) {
 	char out[9];
 	int n = 0;

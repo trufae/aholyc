@@ -185,6 +185,7 @@ static Token *tokenize(const char *src, const char *fname) {
 				error ("%s:%d: unterminated string", fname, cur_line);
 			}
 			p++;
+			buf[n] = 0; /* NUL-terminate: #include and #exe read str as C string */
 			t = new_token (TK_STR);
 			t->str = buf;
 			t->len = n;
@@ -440,7 +441,53 @@ static Token *preprocess(Token *tok) {
 				continue;
 			}
 			if (!strcmp (d->str, "exe")) {
-				error_tok (d, "#exe{} (compile-time execution) is not supported by mhc");
+				/* compile-time execution: cut the {...} body out,
+				 * run it (exe.c), splice its StreamPrint output in */
+				Token *b = d->next;
+				if (!tok_is (b, "{")) {
+					error_tok (b, "#exe expects '{'");
+				}
+				Token *prev = b, *q = b->next;
+				int depth = 1;
+				while (q->kind != TK_EOF) {
+					if (tok_is (q, "{")) {
+						depth++;
+					} else if (tok_is (q, "}") && --depth == 0) {
+						break;
+					}
+					prev = q;
+					q = q->next;
+				}
+				if (q->kind == TK_EOF) {
+					error_tok (b, "unterminated #exe{}");
+				}
+				Token *rest = q->next;
+				prev->next = new_token (TK_EOF);
+				Token *body = prev == b? prev->next: b->next;
+				/* per-block location macros, TempleOS style */
+				lex_define ("__FILE__", xasprintf ("\"%s\"", d->file));
+				char *dir = xstrdup (d->file);
+				char *sl = strrchr (dir, '/');
+				if (sl) {
+					*sl = 0;
+				} else {
+					strcpy (dir, ".");
+				}
+				lex_define ("__DIR__", xasprintf ("\"%s\"", dir));
+				free (dir);
+				char *out = exe_run (body, &rest);
+				Token *inj = tokenize (out, "<exe>");
+				if (inj->kind == TK_EOF) {
+					tok = rest;
+				} else {
+					Token *e = inj;
+					while (e->next && e->next->kind != TK_EOF) {
+						e = e->next;
+					}
+					e->next = rest;
+					tok = inj;
+				}
+				continue;
 			}
 			/* TempleOS doc directives: ignore rest of line */
 			if (!strcmp (d->str, "help_index") || !strcmp (d->str, "help_file")) {
@@ -521,6 +568,12 @@ Token *lex_string(const char *src, const char *fake_name, Token *chain_after) {
 	Token *t = tokenize (src, fake_name);
 	Token *pre = preprocess (t);
 	return chain_after? token_join (pre, chain_after): pre;
+}
+
+/* Preprocess an already-tokenized list (exe.c: #exe block bodies are
+ * expanded only after the exe API macros have been defined). */
+Token *lex_preprocess(Token *raw) {
+	return preprocess (raw);
 }
 
 /* append list b after a, dropping a's EOF */

@@ -8,6 +8,8 @@
 #define MHC_VERSION "0.1.0"
 
 bool mhc_obj_mode = false;
+bool mhc_verbose = false;
+bool mhc_keep = false;
 char *mhc_ccflags[64];
 int mhc_nccflags = 0;
 
@@ -138,9 +140,9 @@ def:		{
 		} else if (!strcmp (a, "-r") || !strcmp (a, "--run")) {
 			run = true;
 		} else if (!strcmp (a, "-k")) {
-			keep = true;
+			keep = mhc_keep = true;
 		} else if (!strcmp (a, "-v")) {
-			verbose = true;
+			verbose = mhc_verbose = true;
 		} else if (!strcmp (a, "-h") || !strcmp (a, "--help")) {
 			usage (0);
 		} else if (!strcmp (a, "--version")) {
