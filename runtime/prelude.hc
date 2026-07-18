@@ -44,6 +44,21 @@ extern U8 *StrPrint(U8 *dst,U8 *fmt,...);
 extern U8 *MStrPrint(U8 *fmt,...);
 extern U8 *StrPrintJoin(U8 *dst,U8 *fmt,I64 argc,I64 *argv);
 
+// bits (TempleOS KernelB.HH: Bsf/Bsr scan values, the rest take a
+// pointer to a bit field; L* forms are atomic across threads)
+extern I64 Bsf(I64 val);
+extern I64 Bsr(I64 val);
+extern I64 BCnt(I64 val);
+extern Bool Bt(U8 *bit_field,I64 bit);
+extern Bool Btc(U8 *bit_field,I64 bit);
+extern Bool Btr(U8 *bit_field,I64 bit);
+extern Bool Bts(U8 *bit_field,I64 bit);
+extern Bool BEqu(U8 *bit_field,I64 bit,Bool val);
+extern Bool LBtc(U8 *bit_field,I64 bit);
+extern Bool LBtr(U8 *bit_field,I64 bit);
+extern Bool LBts(U8 *bit_field,I64 bit);
+extern Bool LBEqu(U8 *bit_field,I64 bit,Bool val);
+
 // math
 extern F64 Sqrt(F64 x);
 extern F64 Sin(F64 x);

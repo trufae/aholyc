@@ -386,6 +386,117 @@ HC_API char *GetStr(char *prompt) {
 	return StrNew (buf);
 }
 
+/* ----------------------------------------------------------------- bits */
+
+/* TempleOS bit fields: byte pointer + signed bit offset, like x86 BT.
+ * The LLVM backend inlines these as IR intrinsics; these definitions
+ * serve the C backend (inlined: they are static there), -c objects, and
+ * address-taken uses. */
+static unsigned char *hc_bitp(void *p, hc_i64 bit, unsigned char *m) {
+	*m = (unsigned char)(1u << (bit & 7));
+	return (unsigned char *)p + (bit >> 3);
+}
+
+HC_API hc_i64 Bsf(hc_i64 v) {
+#if defined(__GNUC__) || defined(__clang__)
+	return v? __builtin_ctzll ((hc_u64)v): -1;
+#else
+	for (int i = 0; i < 64; i++) {
+		if ((hc_u64)v >> i & 1) {
+			return i;
+		}
+	}
+	return -1;
+#endif
+}
+
+HC_API hc_i64 Bsr(hc_i64 v) {
+#if defined(__GNUC__) || defined(__clang__)
+	return v? 63 - __builtin_clzll ((hc_u64)v): -1;
+#else
+	for (int i = 63; i >= 0; i--) {
+		if ((hc_u64)v >> i & 1) {
+			return i;
+		}
+	}
+	return -1;
+#endif
+}
+
+HC_API hc_i64 BCnt(hc_i64 v) {
+#if defined(__GNUC__) || defined(__clang__)
+	return __builtin_popcountll ((hc_u64)v);
+#else
+	hc_i64 n = 0;
+	for (hc_u64 u = (hc_u64)v; u; u >>= 1) {
+		n += u & 1;
+	}
+	return n;
+#endif
+}
+
+HC_API hc_i64 Bt(void *p, hc_i64 bit) {
+	unsigned char m, *b = hc_bitp (p, bit, &m);
+	return (*b & m)? 1: 0;
+}
+
+HC_API hc_i64 Bts(void *p, hc_i64 bit) {
+	unsigned char m, *b = hc_bitp (p, bit, &m);
+	hc_i64 r = (*b & m)? 1: 0;
+	*b |= m;
+	return r;
+}
+
+HC_API hc_i64 Btr(void *p, hc_i64 bit) {
+	unsigned char m, *b = hc_bitp (p, bit, &m);
+	hc_i64 r = (*b & m)? 1: 0;
+	*b &= (unsigned char)~m;
+	return r;
+}
+
+HC_API hc_i64 Btc(void *p, hc_i64 bit) {
+	unsigned char m, *b = hc_bitp (p, bit, &m);
+	hc_i64 r = (*b & m)? 1: 0;
+	*b ^= m;
+	return r;
+}
+
+HC_API hc_i64 BEqu(void *p, hc_i64 bit, hc_i64 val) {
+	return val? Bts (p, bit): Btr (p, bit);
+}
+
+/* L* forms are atomic across host threads (TempleOS: across cores) */
+HC_API hc_i64 LBts(void *p, hc_i64 bit) {
+	unsigned char m, *b = hc_bitp (p, bit, &m);
+#if defined(__GNUC__) || defined(__clang__)
+	return (__atomic_fetch_or (b, m, __ATOMIC_SEQ_CST) & m)? 1: 0;
+#else
+	return Bts (p, bit);
+#endif
+}
+
+HC_API hc_i64 LBtr(void *p, hc_i64 bit) {
+	unsigned char m, *b = hc_bitp (p, bit, &m);
+#if defined(__GNUC__) || defined(__clang__)
+	return (__atomic_fetch_and (b, (unsigned char)~m, __ATOMIC_SEQ_CST) & m)? 1: 0;
+#else
+	return Btr (p, bit);
+#endif
+}
+
+HC_API hc_i64 LBtc(void *p, hc_i64 bit) {
+	unsigned char m, *b = hc_bitp (p, bit, &m);
+#if defined(__GNUC__) || defined(__clang__)
+	return (__atomic_fetch_xor (b, m, __ATOMIC_SEQ_CST) & m)? 1: 0;
+#else
+	return Btc (p, bit);
+#endif
+}
+
+HC_API hc_i64 LBEqu(void *p, hc_i64 bit, hc_i64 val) {
+	return val? LBts (p, bit): LBtr (p, bit);
+}
+
 /* ----------------------------------------------------------------- math */
 
 HC_API hc_f64 __hc_pow(hc_f64 a, hc_f64 b) { return pow (a, b); }

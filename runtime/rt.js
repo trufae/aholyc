@@ -417,6 +417,79 @@ function GetStr(prompt) {
 	return p;
 }
 
+//@ hcBitA
+// ------------------------------------------------------------------- bits
+// byte address / mask of a signed bit offset, like x86 BT
+function hcBitA(p, bit) { return p + Math.floor (bit / 8); }
+//@ hcBitM
+function hcBitM(bit) { return 1 << (((bit % 8) + 8) % 8); }
+//@ Bsf B
+function Bsf(v) {
+	let u = BigInt.asUintN (64, B (v));
+	if (!u) {
+		return -1;
+	}
+	let i = 0;
+	while (!(u & 1n)) {
+		u >>= 1n;
+		i++;
+	}
+	return i;
+}
+//@ Bsr B
+function Bsr(v) {
+	let u = BigInt.asUintN (64, B (v)), i = -1;
+	while (u) {
+		u >>= 1n;
+		i++;
+	}
+	return i;
+}
+//@ BCnt B
+function BCnt(v) {
+	let u = BigInt.asUintN (64, B (v)), n = 0;
+	while (u) {
+		n += Number (u & 1n);
+		u >>= 1n;
+	}
+	return n;
+}
+//@ Bt hcBitA hcBitM
+function Bt(p, bit) {
+	return U8A[hcBitA (p, bit)] & hcBitM (bit)? 1: 0;
+}
+//@ Btc hcBitA hcBitM
+function Btc(p, bit) {
+	const a = hcBitA (p, bit), m = hcBitM (bit);
+	const r = U8A[a] & m? 1: 0;
+	U8A[a] ^= m;
+	return r;
+}
+//@ Btr hcBitA hcBitM
+function Btr(p, bit) {
+	const a = hcBitA (p, bit), m = hcBitM (bit);
+	const r = U8A[a] & m? 1: 0;
+	U8A[a] &= ~m;
+	return r;
+}
+//@ Bts hcBitA hcBitM
+function Bts(p, bit) {
+	const a = hcBitA (p, bit), m = hcBitM (bit);
+	const r = U8A[a] & m? 1: 0;
+	U8A[a] |= m;
+	return r;
+}
+//@ BEqu Bts Btr
+function BEqu(p, bit, val) { return val? Bts (p, bit): Btr (p, bit); }
+//@ LBtc Btc
+const LBtc = Btc; // node is single-threaded: locked == plain
+//@ LBtr Btr
+const LBtr = Btr;
+//@ LBts Bts
+const LBts = Bts;
+//@ LBEqu BEqu
+const LBEqu = BEqu;
+
 //@ __hc_pow
 // ------------------------------------------------------------------- math
 function __hc_pow(a, b) { return Math.pow (a, b); }

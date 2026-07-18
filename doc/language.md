@@ -191,10 +191,27 @@ try {
 
 `#include "file"` (no `<>` form), object-like `#define NAME tokens`,
 `#undef`, `#ifdef/#ifndef/#else/#endif`. There are no function-like
-macros ("I'm not a fan" — T. Davis). `#exe{...}` runs the block at
-compile time inside the compiler and splices its `StreamPrint` output
-into the stream, like TempleOS; see `doc/exe.md` for the design, the
-extra API available inside blocks, and the limitations.
+macros ("I'm not a fan" — T. Davis).
+
+### `#exe{}` — compile-time execution
+
+`#exe {...}` runs the block *inside the compiler* at compile time and
+splices its `StreamPrint` output into the source stream, like TempleOS:
+
+```holyc
+#exe {StreamPrint("#define BUILT_AT %d\n", Now);}
+"compiled at %d\n", BUILT_AT;
+```
+
+Blocks share the macro table with the program, may inject any source
+(including further directives), and can inspect and rewrite the token
+stream after them through `ExeStream`/`ExeStreamSet`. `Cd`, `Now`,
+`__FILE__` and `__DIR__` are available; the whole runtime prelude
+works inside a block. `#exe` must start its line, and blocks run on
+the build machine even when cross-compiling. See [exe.md](exe.md) for
+the design, the full API, the limitations, and how the runtime half of
+the TempleOS compiler API (`ExePrint`, `ExeFile`, `RunFile`) could be
+provided on POSIX.
 
 The prelude defines `TRUE`, `FALSE`, `NULL`, `ON`, `OFF`, `Bool`,
 `I64_MAX`, `I64_MIN` and declares the runtime API (see below).
@@ -207,6 +224,14 @@ Memory: `MAlloc`, `CAlloc`, `Free`, `MSize`, `MemCpy`, `MemSet`, `MemCmp`.
 Strings: `StrLen`, `StrCpy`, `StrCat`, `StrCmp`, `StrNew`,
 `StrPrint(dst,fmt,...)`, `MStrPrint(fmt,...)`,
 `StrPrintJoin(dst,fmt,argc,argv)` (varargs forwarding, TempleOS style).
+Bits: `Bsf(val)`/`Bsr(val)` scan a value for the lowest/highest set bit
+(-1 if none), `BCnt(val)` counts set bits; `Bt`, `Btc`, `Btr`, `Bts`
+and `BEqu(bit_field,bit,val)` test/complement/reset/set a bit in a bit
+field through a byte pointer (signed bit offsets, like x86 `BT`), and
+return the old bit; `LBtc`, `LBtr`, `LBts`, `LBEqu` are the same but
+atomic across threads (TempleOS "locked" forms). These compile to the
+native bit instructions: the LLVM backend emits them as intrinsics and
+the C backend inlines them via the C compiler.
 Math: `Sqrt Sin Cos Tan ASin ACos ATan Exp Ln Log10 Log2 Ceil Floor Abs
 AbsI64 Round ToI64 ToF64 ToBool MinI64 MaxI64 Seed RandI64 Rand`.
 Exceptions: `throw(ch=0)`, `PutExcept(catch_it=TRUE)`, `Fs->except_ch`,
@@ -226,6 +251,8 @@ mhc targets normal OSes with portable backends, so:
 * `#exe{}` works at compile time only (`doc/exe.md`); the runtime half
   of the TempleOS compiler API (`ExePrint`, `ExeFile`, `StreamExePrint`,
   `RunFile`) is absent, since final binaries contain no compiler.
+  `doc/exe.md` evaluates how it could be provided on POSIX without
+  giving up small binaries.
 * `U0 *` pointer arithmetic advances by 1 byte (TempleOS adds 0; Terry's
   own guidelines say don't use `U0 *`).
 * `reg`/`noreg` are parsed but have no effect; there are no register

@@ -206,8 +206,115 @@ static char *emit_addr(Node *n) {
 	}
 }
 
+/* runtime bit API emitted as LLVM intrinsics / inline IR so it compiles
+ * to single instructions (popcnt, tzcnt, bts, lock bts, ...). The rmw op
+ * for the mutating forms; NULL means plain Bt (load only). */
+static const char *bit_rmw_op(const char *nm) {
+	nm += nm[0] == 'L';
+	if (!strcmp (nm, "Bts")) {
+		return "or";
+	}
+	if (!strcmp (nm, "Btr")) {
+		return "and";
+	}
+	if (!strcmp (nm, "Btc")) {
+		return "xor";
+	}
+	return NULL;
+}
+
+static char *emit_bit_intrin(Node *n) {
+	const char *nm = n->func->name;
+	Node *a = n->args;
+	if (!strcmp (nm, "BCnt") || !strcmp (nm, "Bsf") || !strcmp (nm, "Bsr")) {
+		char *v = emit_val (a);
+		ensure_block ();
+		char *t = tmp_ ();
+		if (!strcmp (nm, "BCnt")) {
+			fprintf (o, "  %s = call i64 @llvm.ctpop.i64(i64 %s)\n", t, v);
+			return t;
+		}
+		bool fwd = !strcmp (nm, "Bsf");
+		fprintf (o, "  %s = call i64 @llvm.%s.i64(i64 %s, i1 false)\n", t,
+			fwd? "cttz": "ctlz", v);
+		char *pos = t;
+		if (!fwd) {
+			pos = tmp_ ();
+			fprintf (o, "  %s = sub i64 63, %s\n", pos, t);
+		}
+		char *c = tmp_ ();
+		fprintf (o, "  %s = icmp eq i64 %s, 0\n", c, v);
+		char *r = tmp_ ();
+		fprintf (o, "  %s = select i1 %s, i64 -1, i64 %s\n", r, c, pos);
+		return r;
+	}
+	/* Bt/Btc/Btr/Bts/LBtc/LBtr/LBts(bit_field, bit): x86 BT addressing,
+	 * byte p[bit>>3] bit (bit&7), signed so negative offsets work */
+	char *p = emit_val (a);
+	char *bit = emit_val (a->next);
+	ensure_block ();
+	char *off = tmp_ ();
+	fprintf (o, "  %s = ashr i64 %s, 3\n", off, bit);
+	char *ba = tmp_ ();
+	fprintf (o, "  %s = add i64 %s, %s\n", ba, p, off);
+	char *ptr = tmp_ ();
+	fprintf (o, "  %s = inttoptr i64 %s to ptr\n", ptr, ba);
+	char *sh = tmp_ ();
+	fprintf (o, "  %s = and i64 %s, 7\n", sh, bit);
+	const char *op = bit_rmw_op (nm);
+	char *old = tmp_ ();
+	if (!op) {
+		fprintf (o, "  %s = load i8, ptr %s\n", old, ptr);
+	} else {
+		char *m = tmp_ ();
+		fprintf (o, "  %s = shl i64 1, %s\n", m, sh);
+		if (!strcmp (op, "and")) {
+			char *inv = tmp_ ();
+			fprintf (o, "  %s = xor i64 %s, -1\n", inv, m);
+			m = inv;
+		}
+		char *m8 = tmp_ ();
+		fprintf (o, "  %s = trunc i64 %s to i8\n", m8, m);
+		if (nm[0] == 'L') {
+			fprintf (o, "  %s = atomicrmw %s ptr %s, i8 %s seq_cst\n",
+				old, op, ptr, m8);
+		} else {
+			fprintf (o, "  %s = load i8, ptr %s\n", old, ptr);
+			char *nw = tmp_ ();
+			fprintf (o, "  %s = %s i8 %s, %s\n", nw, op, old, m8);
+			fprintf (o, "  store i8 %s, ptr %s\n", nw, ptr);
+		}
+	}
+	char *w = tmp_ ();
+	fprintf (o, "  %s = zext i8 %s to i64\n", w, old);
+	char *sv = tmp_ ();
+	fprintf (o, "  %s = lshr i64 %s, %s\n", sv, w, sh);
+	char *r = tmp_ ();
+	fprintf (o, "  %s = and i64 %s, 1\n", r, sv);
+	return r;
+}
+
+static bool is_bit_intrin(Obj *fn) {
+	static const char *names[] = {
+		"Bsf", "Bsr", "BCnt", "Bt", "Btc", "Btr", "Bts",
+		"LBtc", "LBtr", "LBts", NULL
+	};
+	if (!fn || !fn->is_extern || !fn->from_prelude) {
+		return false;
+	}
+	for (int i = 0; names[i]; i++) {
+		if (!strcmp (fn->name, names[i])) {
+			return true;
+		}
+	}
+	return false;
+}
+
 static char *emit_call(Node *n) {
 	Obj *fn = n->func;
+	if (is_bit_intrin (fn)) {
+		return emit_bit_intrin (n);
+	}
 	char *args[300];
 	bool argf[300];
 	int nargs = 0;
@@ -880,6 +987,9 @@ static void ll_emit(Program *prog, FILE *out) {
 	fprintf (o, "declare ptr @__hc_fs()\n");
 	fprintf (o, "declare i32 @_setjmp(ptr) returns_twice\n");
 	fprintf (o, "declare double @__hc_pow(double, double)\n");
+	fprintf (o, "declare i64 @llvm.ctpop.i64(i64)\n");
+	fprintf (o, "declare i64 @llvm.cttz.i64(i64, i1)\n");
+	fprintf (o, "declare i64 @llvm.ctlz.i64(i64, i1)\n");
 	fprintf (o, "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n");
 	fprintf (o, "declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)\n");
 	fprintf (o, "\n");

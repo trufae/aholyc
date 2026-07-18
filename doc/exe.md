@@ -133,6 +133,8 @@ Semantics worth knowing:
   with no compiler inside, so the runtime half of the TempleOS API
   (`ExePutS`, `ExePrint`, `ExeFile`, `StreamExePrint`, `RunFile`) does
   not exist. This is by design: the payoff is blazing-fast AOT output.
+  See "The runtime half on POSIX" below for how it could be added
+  without giving that up.
 * **Token-level reflection, not AST.** mhc preprocesses the entire
   stream before parsing, so when a block runs, the outer program has
   no AST yet. TempleOS interleaves lex/parse/JIT per statement; mhc
@@ -151,6 +153,84 @@ Semantics worth knowing:
   point.
 * The build machine needs a C compiler and `dlopen` at compile time.
   When cross-compiling, blocks still run on the build machine.
+
+## The runtime half on POSIX
+
+An evaluation of what it would take to offer the TempleOS *runtime*
+compiler API from mhc-built binaries on a normal POSIX system.
+
+What TempleOS provides (`Compiler/CMain.HC`):
+
+| name | semantics |
+|------|-----------|
+| `I64 ExePutS(buf)` | JIT compile + run HolyC text, return the last expression's value |
+| `I64 ExePrint(fmt,...)` | `ExePutS(MStrPrint(fmt,...))` |
+| `I64 ExeFile(name)` | `ExePutS("#include \"name\";")` |
+| `I64 RunFile(name,flags,...)` | `ExeFile(name)`, then call the file's last-defined function with the extra args (`LastFun`) |
+| `I64 StreamExePrint(fmt,...)` | inside an AOT `#exe{}` block only: run text against the outer stream |
+
+`StreamPrint` needs no evaluation: it is compile-time by definition
+(it appends to the token stream being compiled) and mhc already has
+it inside `#exe{}`. Same for `StreamExePrint`: it only means something
+while a compile is in progress, and within a block plain `StreamPrint`
+covers the use.
+
+For the other four the options mirror the `#exe` design decision:
+
+* **Link the compiler into every binary** (a `libmhc`) — makes every
+  hello world carry a compiler. Violates the small-binary rule for
+  programs that never eval anything; rejected.
+* **A runtime interpreter** — a second implementation of HolyC
+  semantics to keep in sync; rejected for `#exe`, same verdict here.
+* **Reuse the `#exe` mechanism at runtime** — the program shells out
+  to the `mhc` on `PATH` exactly like the compiler itself does for
+  `#exe` blocks: emit C, `cc -O0 -w -shared -fPIC`, `dlopen` into the
+  running process, call `__hc_start`, `dlclose`. One compiler, one set
+  of semantics, and the machinery already exists in `src/exe.c` — the
+  runtime version is the same ~100 lines with `exe_run`'s
+  StreamPrint plumbing replaced by a result slot.
+
+The third option fits mhc:
+
+* **Cost when unused: zero.** The whole feature is one more section
+  of `runtime/rt.c` (`fork`/`exec` + `dlopen` + the result protocol),
+  `HC_API static` like everything else, so a program that never calls
+  `ExePrint` produces a byte-identical binary. The extra link flags
+  (`-ldl`, and `-rdynamic` so chunks can call the host's `public`
+  symbols) would be added by the driver only when the program
+  references the API, keeping the exported-symbol table lean too.
+* **Return value.** TempleOS returns the last expression's value. The
+  chunk build would compile in a "chunk mode" where the synthesized
+  startup function stores the value of its last top-level expression
+  statement into an exported `I64 __hc_result`, read after
+  `__hc_start` returns.
+* **`RunFile` args.** Chunk mode also exports the address of the last
+  *defined* function as `__hc_lastfun`; `RunFile` calls it through a
+  function pointer with the forwarded varargs — `LastFun` semantics
+  without a symbol table.
+* **Shared state.** Like `#exe` blocks, a chunk carries its own static
+  runtime: its `Fs`, exception stack and allocator are separate from
+  the host's, and its globals die with `dlclose`. It can call the
+  host's `public` functions (via `-rdynamic`), which is also the
+  channel for sharing data. TempleOS shares the task's whole symbol
+  table; that looseness is not reproducible across a static AOT
+  boundary and would stay a documented difference.
+* **Errors.** A failed compile makes `ExePutS` throw `'Compiler'`,
+  matching the TempleOS try/catch contract.
+* **Requirements.** The *target* machine needs `mhc`, a C compiler
+  and `dlopen` at runtime — the moral equivalent of TempleOS shipping
+  its compiler in the OS image. A cross-compiled appliance without a
+  toolchain cannot eval; that is inherent to AOT, not to this design.
+* **JS backend.** node could `eval` mhc-generated JS, but the chunk
+  and host would have to negotiate one linear memory and function
+  table; doable, bigger than the POSIX story, and left out of scope.
+
+Verdict: `ExePutS`/`ExePrint`/`ExeFile`/`RunFile` are implementable
+today as a thin opt-in runtime section plus a small chunk-mode tweak
+to the driver (exporting `__hc_result`/`__hc_lastfun`), with zero cost
+to programs that do not use them. What cannot be reproduced is
+TempleOS's shared symbol table — chunks are separate libraries, not
+patches to the running image.
 
 ## Debugging
 
