@@ -802,8 +802,19 @@ static void js_emit(Program *prog, FILE *out) {
 	}
 	fprintf (o, "setLayout(%ld);\n", addr);
 
-	/* run */
-	fprintf (o, "try{__hc_start();}catch(e){if(e===HCEXC){"
+	/* Node has [node, script, ...user] while HolyC startup sees only user
+	 * arguments.  Copy strings and their pointer vector into linear memory. */
+	fprintf (o, "try{const __hc_args=process.argv.slice(2);"
+		"const __hc_argv=HP;HP+=(__hc_args.length+1)*8;"
+		"if(HP>HEAP_END)throw new Error('argument vector exceeds memory');"
+		"for(let i=0;i<__hc_args.length;i++){"
+		"const b=Buffer.from(__hc_args[i],'utf8');"
+		"if(HP+b.length+1>HEAP_END)throw new Error('argument data exceeds memory');"
+		"st8(__hc_argv+i*8,HP);U8A.set(b,HP);HP+=b.length;U8A[HP++]=0;}"
+		"st8(__hc_argv+__hc_args.length*8,0);"
+		"const __hc_status=__hc_start(__hc_args.length,__hc_argv);"
+		"process.exitCode=((Math.trunc(__hc_status)%%256)+256)%%256;"
+		"}catch(e){if(e===HCEXC){"
 		"process.stderr.write(\"Unhandled Exception '\"+chstr(ld8(TASK))+\"'\\n\");"
 		"process.exit(1);}throw e;}\n");
 }

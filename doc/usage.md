@@ -6,6 +6,7 @@ aholyc behaves like a normal C compiler:
 $ aholyc program.HC                 # build ./a.out with the default backend
 $ aholyc program.HC -o program      # choose the output name
 $ aholyc -r program.HC              # build and run
+$ aholyc -r program.HC -- one -x    # build, run, and pass program arguments
 $ aholyc -b c program.HC            # pick a backend: llvm, c, js
 $ aholyc -S -b llvm program.HC      # emit program.ll only, don't build
 $ aholyc -S -b js -o out.js program.HC
@@ -31,12 +32,38 @@ $ aholyc fmt -w src.HC              # format sources in place (doc/format.md)
 | `-l name` | link against a library (e.g. `-lz`) |
 | `-D name[=value]` | predefine a macro |
 | `-r`, `--run` | run the program after a successful build |
+| `-- args...` | with `-r`, stop compiler options and pass the rest to the program |
 | `-k` | keep intermediate files (`.ll`, `.c`, runtime copies, `#exe` block libraries) |
 | `-v` | print the toolchain commands being executed (including `#exe` builds) |
 | `-h`, `--version` | help / version |
 
 Multiple `.HC` input files are concatenated and compiled as one
 translation unit, in order.
+
+## Program arguments
+
+A built program receives only its user-supplied arguments: the executable
+name is excluded, so the first argument is `argv[0]` and a run with no
+arguments has `argc == 0`. The synthetic top-level entry exposes these as
+`I64 argc` and `I64 *argv`; `argv[argc]` is `NULL`. See
+[language.md](language.md#no-main) for how to forward them explicitly to a
+user-defined `Main` function.
+
+When using `-r`, put `--` after all sources and compiler options. Every token
+after it is passed verbatim to the built program, including tokens beginning
+with `-`, empty arguments, and names ending in `.HC`:
+
+```console
+$ aholyc args.HC -o args
+$ ./args alpha "two words" -x
+$ aholyc -r args.HC -- alpha "two words" -x
+$ aholyc -r - -- alpha < args.HC
+```
+
+Without `-r`, run the output executable directly to supply arguments. The
+`--` forwarding form is for the compiler's build-and-run path; it is unrelated
+to TempleOS `RunFile`/`LastFun`, which forward typed HolyC call arguments
+rather than command-line strings.
 
 ## Reading from stdin
 
@@ -85,6 +112,9 @@ The rules, HolyC-style:
 * Top-level code (including global initializers) of an object runs as a
   constructor at program start, before `main`, in **link order** — so
   list objects whose startup code others depend on first.
+  When source is linked alongside those objects, their constructors run first
+  and the source group's top-level entry runs afterward with the process
+  arguments.
 * Link with aholyc (it adds the runtime); `gcc a.o b.o` alone will miss the
   HolyC runtime symbols. `.a` archives are accepted too.
 * `-c` works with the `llvm` and `c` backends; the `js` backend has no
@@ -143,7 +173,9 @@ the final binary.
 ## Exit status and errors
 
 Compile errors print `file:line: error: message` and exit 1. With `-r`,
-aholyc exits with the program's exit code.
+aholyc exits with the program's exit code. A top-level `return n;` sets that
+code (falling off the end returns zero); `Exit(n)` terminates immediately with
+the same hosted process-status semantics.
 
 ## Environment
 

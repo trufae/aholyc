@@ -14,6 +14,7 @@ static void emit_addr(Node *n);
 static void emit_stmt(Node *n, int ind);
 
 static bool cur_retf; /* current function returns F64 */
+static bool cur_retv; /* current function returns U0 */
 
 static bool value_unsig(Type *ty) {
 	return ty->kind == TY_INT && ty->is_unsigned;
@@ -47,7 +48,8 @@ static char *objname(Obj *v) {
 		snprintf (buf, sizeof(buf), "%s", v->name);
 	} else if (v->is_func) {
 		if (cur_prog && v == cur_prog->startup) {
-			snprintf (buf, sizeof(buf), "__hc_start");
+			snprintf (buf, sizeof(buf), "%s",
+				aholyc_ctor_mode? "__hc_ctor_body": "__hc_start");
 		} else {
 			snprintf (buf, sizeof(buf), "hc_%s", v->name);
 		}
@@ -567,7 +569,7 @@ static void emit_stmt(Node *n, int ind) {
 			emit_val (n->lhs);
 			fprintf (o, ");\n");
 		} else {
-			fprintf (o, "return;\n");
+			fprintf (o, "%s\n", cur_retv? "return;": "return 0;");
 		}
 		break;
 	case ND_GOTO:
@@ -610,7 +612,9 @@ static void emit_func_sig(Obj *fn) {
 	Type *ret = fn->ty->base;
 	const char *rc = ret->kind == TY_F64? "hc_f64":
 		ret->kind == TY_VOID? "void": "hc_i64";
-	fprintf (o, "%s%s %s(", fn->is_public? "": "static ", rc, objname (fn));
+	bool exported = fn->is_public ||
+		(cur_prog && fn == cur_prog->startup && !aholyc_ctor_mode);
+	fprintf (o, "%s%s %s(", exported? "": "static ", rc, objname (fn));
 	bool first = true;
 	for (Obj *p = fn->params; p; p = p->next) {
 		if (!first) {
@@ -629,6 +633,7 @@ static void emit_func_sig(Obj *fn) {
 static void emit_func(Program *prog, Obj *fn) {
 	(void)prog;
 	cur_retf = fn->ty->base && fn->ty->base->kind == TY_F64;
+	cur_retv = fn->ty->base && fn->ty->base->kind == TY_VOID;
 	emit_func_sig (fn);
 	fprintf (o, " {\n");
 	for (Obj *v = fn->locals; v; v = v->next) {
@@ -763,30 +768,15 @@ static void c_emit(Program *prog, FILE *out) {
 		}
 		emit_func (prog, f);
 	}
-	/* startup last: whole programs define __hc_start (called by the
-	 * runtime's main); objects run their top-level code as a constructor */
-	if (aholyc_obj_mode) {
-		fprintf (o, "__attribute__((constructor)) static void __hc_ctor(void) {\n");
-	} else {
-		fprintf (o, "void __hc_start(void) {\n");
+	/* Startup is a normal hidden-pair function.  A -c module wraps it in a
+	 * no-argument constructor because module startup has no process entry. */
+	emit_func (prog, prog->startup);
+	if (aholyc_ctor_mode) {
+		fprintf (o, "static hc_i64 __hc_empty_argv[1];\n"
+			"__attribute__((constructor)) static void __hc_ctor(void) {\n"
+			"\t__hc_ctor_body(0, (hc_i64)(intptr_t)__hc_empty_argv);\n"
+			"}\n");
 	}
-	{
-		Obj *fn = prog->startup;
-		cur_retf = false;
-		for (Obj *v = fn->locals; v; v = v->next) {
-			if (is_agg (v->ty)) {
-				fprintf (o, "\thc_i64 %s[%d] = {0};\n", objname (v),
-					(v->ty->size + 7) / 8? (v->ty->size + 7) / 8: 1);
-			} else if (v->ty->kind == TY_F64) {
-				fprintf (o, "\thc_f64 %s = 0;\n", objname (v));
-			} else {
-				fprintf (o, "\t%s %s = 0;\n", scalar_ctype (v->ty), objname (v));
-			}
-		}
-		try_depth = 0;
-		emit_stmt (fn->body, 1);
-	}
-	fprintf (o, "}\n");
 }
 
 static const char *pick_cc(void) {

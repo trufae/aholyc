@@ -76,7 +76,7 @@ static char *objref(Obj *v) {
 	}
 	if (v->is_func) {
 		if (cur_prog && v == cur_prog->startup) {
-			return xstrdup (aholyc_obj_mode? "@__hc_ctor": "@__hc_start");
+			return xstrdup (aholyc_ctor_mode? "@__hc_ctor_body": "@__hc_start");
 		}
 		return xasprintf ("@hc_%s", v->name);
 	}
@@ -886,7 +886,7 @@ static void emit_func(Obj *fn) {
 	nlab = 0;
 	try_depth = 0;
 	bool is_start = fn == cur_prog->startup;
-	bool exported = fn->is_public || (is_start && !aholyc_obj_mode);
+	bool exported = fn->is_public || (is_start && !aholyc_ctor_mode);
 	fprintf (o, "define %s %s %s(", exported? "": "internal",
 		cur_retf? "double": cur_retv? "void": "i64", objref (fn));
 	int np = 0;
@@ -1001,7 +1001,14 @@ static void ll_emit(Program *prog, FILE *out) {
 		emit_func (f);
 	}
 	emit_func (prog->startup);
-	if (aholyc_obj_mode) {
+	if (aholyc_ctor_mode) {
+		fprintf (o, "@__hc_empty_argv = internal global [1 x i64] zeroinitializer, align 8\n\n"
+			"define internal void @__hc_ctor() {\n"
+			"entry:\n"
+			"  %%status = call i64 @__hc_ctor_body(i64 0, "
+			"i64 ptrtoint (ptr @__hc_empty_argv to i64))\n"
+			"  ret void\n"
+			"}\n\n");
 		/* run the object's top-level code at program start */
 		fprintf (o, "@llvm.global_ctors = appending global "
 			"[1 x { i32, ptr, ptr }] "

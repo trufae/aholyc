@@ -29,6 +29,100 @@ for b in $backends; do
 		fi
 	done
 done
+
+# AOT process arguments: the synthetic top-level entry receives only the user
+# arguments (not the executable name), then explicitly forwards argc/argv to
+# Main.  Exercise direct binaries and the compiler driver's `-r --` path; the
+# empty argument verifies that the vector is forwarded without shell-like
+# reparsing.  VarCount in the fixture also guards the ordinary variadic pair.
+for b in $backends; do
+	argsok=1
+	if ./aholyc -b "$b" tests/args.HC -o "tests/out/args-$b" \
+		2>"tests/out/args-$b.err"; then
+		"tests/out/args-$b" alpha "two words" "" -x not-source.HC \
+			>"tests/out/args-$b.txt" 2>&1 || argsok=0
+		cmp -s tests/expected/args.out "tests/out/args-$b.txt" || argsok=0
+		"tests/out/args-$b" >"tests/out/args-none-$b.txt" 2>&1 || argsok=0
+		cmp -s tests/expected/args-none.out "tests/out/args-none-$b.txt" || argsok=0
+	else
+		argsok=0
+	fi
+	./aholyc -b "$b" -r tests/args.HC -o "tests/out/args-run-bin-$b" -- \
+		alpha "two words" "" -x not-source.HC \
+		>"tests/out/args-run-$b.txt" 2>"tests/out/args-run-$b.err" || argsok=0
+	cmp -s tests/expected/args.out "tests/out/args-run-$b.txt" || argsok=0
+	./aholyc -b "$b" -r tests/args.HC -o "tests/out/args-run-bin-$b" -- \
+		>"tests/out/args-run-none-$b.txt" 2>"tests/out/args-run-none-$b.err" || argsok=0
+	cmp -s tests/expected/args-none.out "tests/out/args-run-none-$b.txt" || argsok=0
+	if [ "$argsok" = 1 ]; then
+		echo "ok   $b/process-args"
+	else
+		echo "FAIL $b/process-args"
+		head -5 "tests/out/args-$b.err" 2>/dev/null
+		diff tests/expected/args.out "tests/out/args-$b.txt" 2>/dev/null | head -10
+		diff tests/expected/args-none.out "tests/out/args-none-$b.txt" 2>/dev/null | head -10
+		head -5 "tests/out/args-run-$b.err" 2>/dev/null
+		diff tests/expected/args.out "tests/out/args-run-$b.txt" 2>/dev/null | head -10
+		diff tests/expected/args-none.out "tests/out/args-run-none-$b.txt" 2>/dev/null | head -10
+		fail=1
+	fi
+done
+
+# argc/argv are parameters of the synthetic startup function, not globals
+# captured by every user function.  Referencing one without forwarding it is
+# therefore a compile error.
+if ./aholyc -S -b c tests/args_scope.HC -o tests/out/args-scope.c \
+	>"tests/out/args-scope.txt" 2>"tests/out/args-scope.err"; then
+	echo "FAIL process-args(scope leak)"
+	fail=1
+elif grep -q "undefined symbol 'argc'" tests/out/args-scope.err; then
+	echo "ok   process-args(scope)"
+else
+	echo "FAIL process-args(scope error)"
+	head -5 tests/out/args-scope.err
+	fail=1
+fi
+
+# Hosted exit status: top-level return is the normal path; Exit(code) remains
+# an immediate escape that works from any call depth.  The driver's -r status
+# must be the program status rather than merely the compiler status.
+for b in $backends; do
+	statusok=1
+	if ./aholyc -b "$b" tests/exit_status.HC -o "tests/out/exit-status-$b" \
+		2>"tests/out/exit-status-$b.err"; then
+		"tests/out/exit-status-$b" >/dev/null 2>&1
+		[ "$?" = 37 ] || statusok=0
+		"tests/out/exit-status-$b" now >/dev/null 2>&1
+		[ "$?" = 23 ] || statusok=0
+	else
+		statusok=0
+	fi
+	./aholyc -b "$b" -r tests/exit_status.HC \
+		>"tests/out/exit-status-run-$b.txt" 2>"tests/out/exit-status-run-$b.err"
+	[ "$?" = 37 ] || statusok=0
+	if [ "$statusok" = 1 ]; then
+		echo "ok   $b/exit-status"
+	else
+		echo "FAIL $b/exit-status"
+		head -5 "tests/out/exit-status-$b.err" 2>/dev/null
+		head -5 "tests/out/exit-status-run-$b.err" 2>/dev/null
+		fail=1
+	fi
+done
+
+# -r cannot execute modes that stop at source or object output.
+runmodeok=1
+./aholyc -b c -r -S tests/exit_status.HC -o tests/out/no-run.c \
+	>/dev/null 2>&1 && runmodeok=0
+./aholyc -b c -r -c tests/exit_status.HC -o tests/out/no-run.o \
+	>/dev/null 2>&1 && runmodeok=0
+if [ "$runmodeok" = 1 ]; then
+	echo "ok   run-mode validation"
+else
+	echo "FAIL run-mode validation"
+	fail=1
+fi
+
 # separate compilation: -c objects + link, with public/extern symbols
 for b in $backends; do
 	[ "$b" = js ] && continue
@@ -46,6 +140,33 @@ for b in $backends; do
 	else
 		echo "FAIL build $b/modules(-c)"
 		head -5 "tests/out/mod-$b.err"
+		fail=1
+	fi
+
+	# A source group linked with a module remains the executable entry (not
+	# another constructor), so it must receive the real process arguments.
+	mixok=1
+	./aholyc -b "$b" tests/args.HC "tests/out/mod_a-$b.o" \
+		-o "tests/out/args-mixed-$b" 2>"tests/out/args-mixed-$b.err" || mixok=0
+	"tests/out/args-mixed-$b" alpha "two words" "" -x not-source.HC \
+		>"tests/out/args-mixed-$b.txt" 2>&1 || mixok=0
+	cmp -s tests/expected/args.out "tests/out/args-mixed-$b.txt" || mixok=0
+	if [ "$mixok" = 1 ]; then
+		echo "ok   $b/source+object(args)"
+	else
+		echo "FAIL $b/source+object(args)"
+		head -5 "tests/out/args-mixed-$b.err" 2>/dev/null
+		fail=1
+	fi
+
+	# #exe uses an isolated synthetic startup while the outer compilation is
+	# in constructor mode.  This catches mode restoration/signature regressions.
+	if ./aholyc -c -b "$b" examples/exe.HC -o "tests/out/exe-module-$b.o" \
+		2>"tests/out/exe-module-$b.err"; then
+		echo "ok   $b/#exe(-c)"
+	else
+		echo "FAIL $b/#exe(-c)"
+		head -5 "tests/out/exe-module-$b.err"
 		fail=1
 	fi
 done

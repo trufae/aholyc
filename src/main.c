@@ -8,6 +8,7 @@
 #define AHOLYC_VERSION "0.1.0"
 
 bool aholyc_obj_mode = false;
+bool aholyc_ctor_mode = false;
 bool aholyc_verbose = false;
 bool aholyc_keep = false;
 char *aholyc_ccflags[64];
@@ -28,7 +29,7 @@ static const Backend *backends[] = {
 };
 
 static void usage(int code) {
-	printf ("usage: aholyc [options] [file.HC ... | -] [file.o ...]\n"
+	printf ("usage: aholyc [options] [file.HC ... | -] [file.o ...] [-- args...]\n"
 		"       aholyc fmt [-w | -q] [file.HC ... | -]   format sources (doc/format.md)\n"
 		"\n"
 		"options:\n"
@@ -42,6 +43,7 @@ static void usage(int code) {
 		"  -l <name>     link against a library (e.g. -lz)\n"
 		"  -D name[=v]   predefine a macro\n"
 		"  -r            run the program after building it\n"
+		"  -- <args...>  with -r, pass remaining arguments to the program\n"
 		"  -k            keep intermediate files\n"
 		"  -v            verbose: show toolchain commands\n"
 		"  -h            show this help\n"
@@ -85,9 +87,18 @@ int main(int argc, char **argv) {
 	bool compile_obj = false;
 	const char *inputs[64];
 	int ninputs = 0;
+	char **run_args = NULL;
+	int nrunargs = 0;
+	bool args_sep = false;
 
 	for (int i = 1; i < argc; i++) {
 		char *a = argv[i];
+		if (!strcmp (a, "--")) {
+			args_sep = true;
+			run_args = argv + i + 1;
+			nrunargs = argc - i - 1;
+			break;
+		}
 		if (a[0] != '-' || !a[1]) {   /* bare '-' is stdin, not an option */
 			if (ninputs >= 64) {
 				error ("too many input files");
@@ -163,6 +174,12 @@ def:		{
 	if (ninputs == 0) {
 		usage (1);
 	}
+	if (run && (compile_obj || emit_only)) {
+		error ("-r cannot be combined with %s", compile_obj? "-c": "-S");
+	}
+	if (args_sep && !run) {
+		error ("program arguments after '--' require -r");
+	}
 
 	/* classify inputs: HolyC sources vs objects/archives for the linker */
 	const char *sources[64], *objects[64];
@@ -204,6 +221,7 @@ def:		{
 	if (nsrc > 0) {
 		/* prelude first so its macros exist, then user files in order */
 		aholyc_obj_mode = compile_obj || nobj > 0;
+		aholyc_ctor_mode = compile_obj;
 		Token *toks = lex_string (prelude_hc, "<prelude>", NULL);
 		for (int i = 0; i < nsrc; i++) {
 			toks = token_join (toks, lex_file (sources[i]));
@@ -323,6 +341,9 @@ def:		{
 			error ("cannot write '%s'", rtpath);
 		}
 		fputs ("#define HC_OBJECT_RUNTIME 1\n", f);
+		if (nsrc > 0) {
+			fputs ("#define HC_EXTERNAL_START 1\n", f);
+		}
 		fputs (rt_c_src, f);
 		fclose (f);
 		const char *cc = getenv ("CC");
@@ -361,11 +382,13 @@ def:		{
 		error ("failed to build %s", outpath);
 	}
 	if (run) {
-		char *rargv[3];
+		char **rargv = xcalloc ((size_t)nrunargs + 2, sizeof(char *));
 		char *abspath = strchr (outpath, '/')? xstrdup (outpath):
 			xasprintf ("./%s", outpath);
 		rargv[0] = abspath;
-		rargv[1] = NULL;
+		for (int i = 0; i < nrunargs; i++) {
+			rargv[i + 1] = run_args[i];
+		}
 		r = run_cmd (rargv, verbose);
 		if (tmpout && !keep) {
 			unlink (outpath);

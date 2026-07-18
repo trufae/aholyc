@@ -542,18 +542,31 @@ HC_API void Exit(hc_i64 code) {
 	exit ((int)code);
 }
 
-/* Whole-program builds define __hc_start.  Objects built with -c run their
- * top-level code from constructors, so their separately emitted runtime must
- * not reference a symbol that Darwin's linker cannot treat as weak-undefined. */
-#ifndef HC_OBJECT_RUNTIME
-void __hc_start(void) __attribute__((weak));
+/* Whole programs receive only their user-supplied arguments: argv[0] is the
+ * first argument after the executable name.  A runtime linked with source and
+ * .o files has a required external start; an object-only link has constructors
+ * instead and deliberately carries no start symbol. */
+#if defined(HC_EXTERNAL_START)
+hc_i64 __hc_start(hc_i64 argc, hc_i64 argv);
+#elif !defined(HC_OBJECT_RUNTIME)
+hc_i64 __hc_start(hc_i64 argc, hc_i64 argv) __attribute__((weak));
 #endif
 
-int main(void) {
-#ifndef HC_OBJECT_RUNTIME
-	if (__hc_start) {
-		__hc_start ();
+int main(int sys_argc, char **sys_argv) {
+#if defined(HC_EXTERNAL_START) || !defined(HC_OBJECT_RUNTIME)
+	hc_i64 argc = sys_argc > 0? sys_argc - 1: 0;
+	char **user_argv = sys_argv;
+	if (user_argv && sys_argc > 0) {
+		user_argv++;
 	}
+	hc_i64 argv = (hc_i64)(intptr_t)user_argv;
+#if defined(HC_EXTERNAL_START)
+	return (int)__hc_start (argc, argv);
+#else
+	if (__hc_start) {
+		return (int)__hc_start (argc, argv);
+	}
+#endif
 #endif
 	return 0;
 }

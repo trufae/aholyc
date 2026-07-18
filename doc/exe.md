@@ -69,7 +69,7 @@ lexer hits "#exe {"           (src/lex.c, preprocess)
     parse                    (same parser, made re-entrant)
     emit C                   (same C backend, runtime embedded)
     cc -O0 -w -shared -fPIC  -> /tmp/aholyc-exe-<pid>-<n>.so
-    dlopen(RTLD_NOW|RTLD_LOCAL); call __hc_start(); dlclose
+    dlopen(RTLD_NOW|RTLD_LOCAL); call __hc_start(0, empty_argv); dlclose
     collect StreamPrint text
   re-tokenize the text as "<exe>" and splice it in before rest
 ```
@@ -185,7 +185,7 @@ For the other four the options mirror the `#exe` design decision:
 * **Reuse the `#exe` mechanism at runtime** — the program shells out
   to the `aholyc` on `PATH` exactly like the compiler itself does for
   `#exe` blocks: emit C, `cc -O0 -w -shared -fPIC`, `dlopen` into the
-  running process, call `__hc_start`, `dlclose`. One compiler, one set
+  running process, call `__hc_start(0, empty_argv)`, `dlclose`. One compiler, one set
   of semantics, and the machinery already exists in `src/exe.c` — the
   runtime version is the same ~100 lines with `exe_run`'s
   StreamPrint plumbing replaced by a result slot.

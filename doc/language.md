@@ -47,6 +47,51 @@ F;
 Global variable initializers are part of that startup code and run in
 declaration order.
 
+For an AOT program launched as an ordinary command-line executable, this
+synthetic top-level entry has two implicit parameters: `I64 argc` and
+`I64 *argv`. They contain only the arguments supplied by the user; unlike C,
+the executable name is not included. `argv[0]` is the first user argument,
+`argc` is zero when there are none, and `argv[argc]` is always `NULL`. Each
+`argv` slot contains a `U8 *` pointer to a NUL-terminated argument string.
+
+The pair is in top-level scope only. aholyc does not search for or invoke a
+function named `Main`; pass the pair explicitly to the entry function you
+choose:
+
+```holyc
+U0 Main(I64 argc, I64 *argv)
+{
+  I64 i;
+  for (i = 0; i < argc; i++)
+    "arg %d: %s\n", i, argv[i];
+}
+
+Main(argc, argv);
+```
+
+Global startup returns the hosted process status. Falling off the end, or a
+bare `return;`, returns zero; use a value to report failure to the invoking
+shell:
+
+```holyc
+if (!Ready)
+  return 1;
+return 0;
+```
+
+`Exit(code)` still terminates immediately and is useful from inside nested
+functions. This is another hosted adaptation: TempleOS `Exit()` takes no
+status and terminates the current task, while `RunFile` returns the value from
+`LastFun`. aholyc maps the top-level return value to a POSIX-style process
+status instead.
+
+This is an aholyc AOT adaptation, not TempleOS `RunFile`/`LastFun` semantics.
+Those facilities call a file's last-defined function with forwarded, typed
+HolyC arguments. Process arguments here are byte strings delivered only to
+the synthetic top-level entry, which must forward them explicitly. The
+TempleOS runtime compiler facilities remain outside aholyc's AOT runtime; see
+[exe.md](exe.md#the-runtime-half-on-posix).
+
 ## Functions
 
 ```holyc

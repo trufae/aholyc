@@ -84,9 +84,12 @@ typedef struct Backend {
 ```
 
 When the global `aholyc_obj_mode` is set (`-c`, or `.o` inputs mixed with
-sources), `emit` must produce a linkable object source: the runtime is
-*declared* instead of embedded, startup code becomes a constructor, and
-`public` symbols keep their unmangled names with external linkage.
+sources), `emit` must produce linkable object source: the runtime is
+*declared* instead of embedded and `public` symbols keep their unmangled names
+with external linkage. `aholyc_ctor_mode` distinguishes a true `-c` module,
+whose startup code gets a constructor wrapper, from a source group linked with
+objects, whose startup remains the exported `__hc_start(argc,argv)` program
+entry.
 
 1. Create `src/back_foo.c`, define `const Backend backend_foo`.
 2. Add it to the `backends[]` array in `src/main.c` and to `SRC` in the

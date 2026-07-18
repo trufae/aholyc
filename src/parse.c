@@ -111,6 +111,17 @@ static Obj *find_var(const char *name) {
 			}
 		}
 	}
+	/* A whole program's top-level code is its synthetic entry function.
+	 * Its argc/argv pair is intentionally visible only there: putting these
+	 * names in global scope would let ordinary functions capture parameters
+	 * that do not belong to their frame. */
+	if (prog && cur_fn == prog->startup) {
+		for (Obj *p = prog->startup->params; p; p = p->next) {
+			if (!strcmp (p->name, name)) {
+				return p;
+			}
+		}
+	}
 	return NULL;
 }
 
@@ -2288,8 +2299,18 @@ Program *parse(Token *tok) {
 	Obj *startup = new_obj (xstrdup ("__hc_start"), NULL);
 	startup->is_func = true;
 	Type *fnty = new_type (TY_FUNC, 8, 8);
-	fnty->base = ty_u0;
+	/* Falling off global startup succeeds; an explicit top-level return
+	 * becomes the hosted process exit status. */
+	fnty->base = ty_i64;
 	startup->ty = fnty;
+	/* Like a variadic function, global-space startup receives a hidden
+	 * count/vector pair.  CLI vector elements are pointer-sized I64 slots. */
+	Obj *pargc = new_obj (xstrdup ("argc"), ty_i64);
+	Obj *pargv = new_obj (xstrdup ("argv"), ptr_to (ty_i64));
+	pargc->is_param = pargv->is_param = true;
+	pargc->next = pargv;
+	startup->params = pargc;
+	startup->is_variadic = true;
 	startup->defaults = xmalloc (sizeof(Node *));
 	prog->startup = startup;
 

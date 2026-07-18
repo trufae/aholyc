@@ -230,9 +230,11 @@ typedef struct Backend {
 	                 const char *opt, bool verbose, bool keep);
 } Backend;
 
-/* -c / object emission: startup code becomes a constructor, the runtime
- * is declared instead of embedded, 'public' symbols are exported. */
+/* Object code uses an external runtime.  A true -c module additionally
+ * runs its startup code as a constructor; source linked with .o inputs still
+ * supplies the program entry point. */
 extern bool aholyc_obj_mode;
+extern bool aholyc_ctor_mode;
 
 /* -v / -k driver flags, also honored by #exe builds */
 extern bool aholyc_verbose, aholyc_keep;

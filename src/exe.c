@@ -70,7 +70,9 @@ int64_t Now(void) {
 char *exe_run(Token *block, Token **rest) {
 	static int seq;
 	bool save_obj = aholyc_obj_mode;
+	bool save_ctor = aholyc_ctor_mode;
 	aholyc_obj_mode = false;
+	aholyc_ctor_mode = false;
 
 	/* a stand-alone program: runtime prelude, exe API, block body.
 	 * The body is preprocessed last so the exe API macros apply. */
@@ -85,7 +87,6 @@ char *exe_run(Token *block, Token **rest) {
 	}
 
 	Program *p = parse (toks);
-	aholyc_obj_mode = save_obj;
 
 	const char *tmp = getenv ("TMPDIR");
 	if (!tmp || !*tmp) {
@@ -100,6 +101,8 @@ char *exe_run(Token *block, Token **rest) {
 	}
 	backend_c.emit (p, f);
 	fclose (f);
+	aholyc_obj_mode = save_obj;
+	aholyc_ctor_mode = save_ctor;
 
 	const char *cc = getenv ("CC");
 	if (!cc || !*cc) {
@@ -121,11 +124,13 @@ char *exe_run(Token *block, Token **rest) {
 	if (!h) {
 		error ("#exe: dlopen: %s (is aholyc linked with -rdynamic?)", dlerror ());
 	}
-	void (*entry)(void) = (void (*)(void))(intptr_t)dlsym (h, "__hc_start");
+	int64_t (*entry)(int64_t, int64_t) =
+		(int64_t (*)(int64_t, int64_t))(intptr_t)dlsym (h, "__hc_start");
 	if (!entry) {
 		error ("#exe: no __hc_start in %s", sopath);
 	}
-	entry ();
+	int64_t noargs = 0;
+	entry (0, (int64_t)(intptr_t)&noargs);
 	dlclose (h);
 	if (!aholyc_keep) {
 		unlink (cpath);

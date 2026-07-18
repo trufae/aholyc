@@ -42,7 +42,8 @@ file.HC ──lex──▶ tokens ──preprocess──▶ tokens ──parse�
 * `src/parse.c` — recursive descent following TempleOS's operator
   precedence. Produces the core AST and does all lowering:
   * top-level statements + global initializers → the startup function
-    `__hc_start`, executed in source order (rt's `main` calls it);
+    `I64 __hc_start(I64 argc,I64 *argv)`, executed in source order; the
+    runtime's `main` passes user arguments and returns its result;
   * `switch` → compare/goto dispatch (sub_switch porches become a
     per-switch selector temp and a second dispatch after the porch);
   * loops get explicit end labels so `break` is just `goto`;

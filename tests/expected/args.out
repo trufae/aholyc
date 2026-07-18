@@ -1,0 +1,8 @@
+argc=5
+arg0=<alpha> len=5
+arg1=<two words> len=9
+arg2=<> len=0
+arg3=<-x> len=2
+arg4=<not-source.HC> len=13
+sentinel=1
+varargc=3
