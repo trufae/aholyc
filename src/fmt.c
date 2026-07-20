@@ -344,10 +344,7 @@ static char *fmt_run(const char *src) {
 		}
 
 		/* strip leading and trailing whitespace */
-		char *b = line;
-		while (*b == ' ' || *b == '\t') {
-			b++;
-		}
+		char *b = skip_space (line);
 		char *t = b + strlen (b);
 		while (t > b && (t[-1] == ' ' || t[-1] == '\t' || t[-1] == '\r')) {
 			*--t = 0;

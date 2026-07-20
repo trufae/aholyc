@@ -49,7 +49,7 @@ $ sudo make install
   the aholyc binary at build time
 * `doc/` — [language](doc/language.md), [usage](doc/usage.md),
   [backends](doc/backends.md), [memory](doc/memory.md),
-  [internals](doc/internals.md)
+  [hints](doc/hints.md), [internals](doc/internals.md)
 * `examples/` — small HolyC programs, used by `make test`
 * `third_party/` — reference material (TempleOS sources, holyc-lang)
 

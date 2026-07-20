@@ -31,9 +31,10 @@ $ aholyc fmt -w src.HC              # format sources in place (doc/format.md)
 | `-L dir` | add a library search directory for the linker |
 | `-l name` | link against a library (e.g. `-lz`) |
 | `-D name[=value]` | predefine a macro |
+| `-fno-hints` | ignore all source hints, treating their annotations as ordinary comments |
 | `-k` | keep intermediate files (`.ll`, `.c`, runtime copies, `#exe` block libraries) |
-| `-v` | print the toolchain commands being executed (including `#exe` builds) |
-| `-h`, `--version` | help / version |
+| `-V` | print the toolchain commands being executed (including `#exe` builds) |
+| `-h`, `-v` | help / version |
 
 Multiple `.HC` input files are concatenated and compiled as one
 translation unit, in order.

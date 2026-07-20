@@ -103,6 +103,22 @@ static const char *ityp(int size) {
 	return "i64";
 }
 
+/* Keep ordinary storage/ABI width, but expose the requested range at value
+ * boundaries for LLVM optimizations.  Signedness comes from the HolyC type. */
+static char *apply_bits_hint(char *val, Type *ty) {
+	int bits = ty->bits;
+	if (!bits || bits == 64) {
+		return val;
+	}
+	ensure_block ();
+	char *n = tmp_ ();
+	fprintf (o, "  %s = trunc i64 %s to i%d\n", n, val, bits);
+	char *w = tmp_ ();
+	fprintf (o, "  %s = %s i%d %s to i64\n", w,
+		ty->is_unsigned? "zext": "sext", bits, n);
+	return w;
+}
+
 static int elem_size(Type *ptrty) {
 	int s = ptrty->base? ptrty->base->size: 1;
 	return s? s: 1;
@@ -538,7 +554,8 @@ static char *emit_val(Node *n) {
 		ensure_block ();
 		if (v->is_global || v->is_extern) {
 			char *addr = var_addr (v);
-			return load_from (addr, v->ty, v->is_param);
+			char *val = load_from (addr, v->ty, v->is_param);
+			return apply_bits_hint (val, v->ty);
 		}
 		char *t = tmp_ ();
 		if (v->ty->kind == TY_F64) {
@@ -548,12 +565,12 @@ static char *emit_val(Node *n) {
 		int sz = store_size (v);
 		fprintf (o, "  %s = load %s, ptr %s\n", t, ityp (sz), objref (v));
 		if (sz == 8) {
-			return t;
+			return apply_bits_hint (t, v->ty);
 		}
 		char *w = tmp_ ();
 		fprintf (o, "  %s = %s %s %s to i64\n", w,
 			v->ty->is_unsigned? "zext": "sext", ityp (sz), t);
-		return w;
+		return apply_bits_hint (w, v->ty);
 	}
 	case ND_FUNCNAME:
 		return xasprintf ("ptrtoint (ptr %s to i64)", objref (n->func));
@@ -561,12 +578,12 @@ static char *emit_val(Node *n) {
 		if (is_agg (n->ty)) {
 			return emit_val (n->lhs);
 		}
-		return load_from (emit_val (n->lhs), n->ty, false);
+		return apply_bits_hint (load_from (emit_val (n->lhs), n->ty, false), n->ty);
 	case ND_MEMBER:
 		if (is_agg (n->ty)) {
 			return emit_addr (n);
 		}
-		return load_from (emit_addr (n), n->ty, false);
+		return apply_bits_hint (load_from (emit_addr (n), n->ty, false), n->ty);
 	case ND_ADDR:
 		return emit_addr (n->lhs);
 	case ND_ASSIGN: {
@@ -582,6 +599,7 @@ static char *emit_val(Node *n) {
 				lp, rp, l->ty->size);
 			return la;
 		}
+		rv = apply_bits_hint (rv, l->ty);
 		if (l->kind == ND_VAR && !l->var->is_global && !l->var->is_extern) {
 			Obj *v = l->var;
 			ensure_block ();

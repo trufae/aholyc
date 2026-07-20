@@ -54,6 +54,8 @@ for b in $backends; do
 	./aholyc run -b "$b" -o "tests/out/args-run-bin-$b" tests/args.HC \
 		>"tests/out/args-run-none-$b.txt" 2>"tests/out/args-run-none-$b.err" || argsok=0
 	cmp -s tests/expected/args-none.out "tests/out/args-run-none-$b.txt" || argsok=0
+	./aholyc run -b "$b" -o "tests/out/args-run-bin-$b" tests/args.HC -- \
+		2>/dev/null | grep -q '^arg0=<--> len=2$' || argsok=0
 	if [ "$argsok" = 1 ]; then
 		echo "ok   $b/process-args"
 	else
@@ -119,10 +121,93 @@ runmodeok=1
 	>/dev/null 2>&1 && runmodeok=0
 ./aholyc -r tests/exit_status.HC >/dev/null 2>&1 && runmodeok=0
 ./aholyc --run tests/exit_status.HC >/dev/null 2>&1 && runmodeok=0
+./aholyc -v | grep -q '^aholyc ' || runmodeok=0
+./aholyc --help >/dev/null 2>&1 && runmodeok=0
+./aholyc --version >/dev/null 2>&1 && runmodeok=0
 if [ "$runmodeok" = 1 ]; then
 	echo "ok   run-mode validation"
 else
 	echo "FAIL run-mode validation"
+	fail=1
+fi
+
+# Comment hints are declaration metadata: LLVM narrows at SSA boundaries, C
+# uses _BitInt where storage is not observable, and JS deliberately ignores
+# them.  -fno-hints must make even malformed annotations ordinary comments.
+hintsok=1
+./aholyc -S -b llvm tests/hints.HC -o tests/out/hints.ll 2>tests/out/hints-ll.err || hintsok=0
+grep -Eq 'trunc i64 .* to i1' tests/out/hints.ll || hintsok=0
+grep -Eq 'trunc i64 .* to i4' tests/out/hints.ll || hintsok=0
+grep -Eq 'sext i4 .* to i64' tests/out/hints.ll || hintsok=0
+grep -Eq 'zext i4 .* to i64' tests/out/hints.ll || hintsok=0
+grep -Eq '@g[0-9]+_global_bit = internal global i8 0' tests/out/hints.ll || hintsok=0
+
+./aholyc -S -b c tests/hints.HC -o tests/out/hints.c 2>tests/out/hints-c.err || hintsok=0
+grep -Eq 'signed _BitInt\(4\) l[0-9]+_signed_nibble = 0' tests/out/hints.c || hintsok=0
+grep -Eq 'unsigned _BitInt\(4\) l[0-9]+_unsigned_nibble = 0' tests/out/hints.c || hintsok=0
+grep -Eq 'uint8_t l[0-9]+_addressed = 0' tests/out/hints.c || hintsok=0
+grep -Eq 'unsigned _BitInt\(1\)' tests/out/hints.c || hintsok=0
+grep -Eq 'int8_t l[0-9]+_signed_bit = 0' tests/out/hints.c || hintsok=0
+grep -Eq '(^|[^[:alnum:]_])signed _BitInt\(1\)' tests/out/hints.c && hintsok=0
+
+./aholyc -fno-hints -S -b llvm tests/hints.HC -o tests/out/hints-no.ll \
+	2>tests/out/hints-no-ll.err || hintsok=0
+grep -Eq 'trunc i64 .* to i(1|3|4)' tests/out/hints-no.ll && hintsok=0
+./aholyc -fno-hints -S -b c tests/hints.HC -o tests/out/hints-no.c \
+	2>tests/out/hints-no-c.err || hintsok=0
+grep -q '_BitInt' tests/out/hints-no.c && hintsok=0
+./aholyc -S -b js tests/hints.HC -o tests/out/hints.js 2>tests/out/hints-js.err || hintsok=0
+./aholyc -fno-hints -S -b js tests/hints.HC -o tests/out/hints-no.js \
+	2>tests/out/hints-no-js.err || hintsok=0
+cmp -s tests/out/hints.js tests/out/hints-no.js || hintsok=0
+
+for b in $backends; do
+	exp=tests/expected/hints.out
+	[ "$b" = js ] && exp=tests/expected/hints-no.out
+	./aholyc -b "$b" tests/hints.HC -o "tests/out/hints-$b" \
+		2>"tests/out/hints-$b.err" || { hintsok=0; continue; }
+	"tests/out/hints-$b" >"tests/out/hints-$b.txt" 2>&1 || hintsok=0
+	cmp -s "$exp" "tests/out/hints-$b.txt" || hintsok=0
+	./aholyc -fno-hints -b "$b" tests/hints.HC -o "tests/out/hints-no-$b" \
+		2>"tests/out/hints-no-$b.err" || { hintsok=0; continue; }
+	"tests/out/hints-no-$b" >"tests/out/hints-no-$b.txt" 2>&1 || hintsok=0
+	cmp -s tests/expected/hints-no.out "tests/out/hints-no-$b.txt" || hintsok=0
+done
+
+printf '%s\n' '/* @bits=0 */ U8 bad;' > tests/out/hints-invalid.HC
+./aholyc -S -b c tests/out/hints-invalid.HC -o tests/out/hints-invalid.c \
+	>/dev/null 2>&1 && hintsok=0
+./aholyc -fno-hints -S -b c tests/out/hints-invalid.HC \
+	-o tests/out/hints-invalid-disabled.c >/dev/null 2>&1 || hintsok=0
+printf '%s\n' '/* @bits=9 */ U8 bad;' > tests/out/hints-wide.HC
+./aholyc -S -b c tests/out/hints-wide.HC -o tests/out/hints-wide.c \
+	>/dev/null 2>&1 && hintsok=0
+printf '%s\n' '/* @bits=129 */ U64 bad;' > tests/out/hints-over-max.HC
+./aholyc -S -b c tests/out/hints-over-max.HC -o tests/out/hints-over-max.c \
+	>/dev/null 2>&1 && hintsok=0
+printf '%s\n' '/* @bits=4 */ F64 bad;' > tests/out/hints-float.HC
+./aholyc -S -b c tests/out/hints-float.HC -o tests/out/hints-float.c \
+	>/dev/null 2>&1 && hintsok=0
+
+printf '%s\n' '#define N /* @bits=3 */ U8' '/* @bits=4 */ N duplicate;' \
+	> tests/out/hints-macro-duplicate.HC
+./aholyc -S -b c tests/out/hints-macro-duplicate.HC \
+	-o tests/out/hints-macro-duplicate.c >/dev/null 2>&1 && hintsok=0
+printf '%s\n' 'DECL' > tests/out/hints-define.HC
+./aholyc '-DDECL=/* @bits=0 */ U8 defined;' -fno-hints -S -b c \
+	tests/out/hints-define.HC -o tests/out/hints-define-a.c >/dev/null 2>&1 || hintsok=0
+./aholyc -fno-hints '-DDECL=/* @bits=0 */ U8 defined;' -S -b c \
+	tests/out/hints-define.HC -o tests/out/hints-define-b.c >/dev/null 2>&1 || hintsok=0
+./aholyc '-DDECL=/* @bits=0 */ U8 defined;' -S -b c \
+	tests/out/hints-define.HC -o tests/out/hints-define-bad.c >/dev/null 2>&1 && hintsok=0
+./aholyc -h | grep -q -- '-fno-hints' || hintsok=0
+
+if [ "$hintsok" = 1 ]; then
+	echo "ok   source hints"
+else
+	echo "FAIL source hints"
+	head -5 tests/out/hints-ll.err 2>/dev/null
+	head -5 tests/out/hints-c.err 2>/dev/null
 	fail=1
 fi
 

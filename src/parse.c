@@ -217,6 +217,35 @@ static void expect(const char *s) {
 	}
 }
 
+static void collect_bits_hint(Token *t, Token **hint) {
+	if (!t || !t->hint_bits) {
+		return;
+	}
+	if (*hint) {
+		error_tok (t, "duplicate @bits hint on declaration");
+	}
+	*hint = t;
+}
+
+/* Builtin types are shared, so attach declaration metadata to a shallow copy. */
+static Type *hinted_type(Type *ty, Token *hint) {
+	if (!hint) {
+		return ty;
+	}
+	if (!is_integer (ty)) {
+		error_tok (hint, "@bits requires an integer declaration");
+	}
+	int bits = hint->hint_bits;
+	if (bits > ty->size * 8) {
+		error_tok (hint, "@bits=%d exceeds the declared %d-bit integer width",
+			bits, ty->size * 8);
+	}
+	Type *t = xmalloc (sizeof(*t));
+	*t = *ty;
+	t->bits = bits;
+	return t;
+}
+
 /* ------------------------------------------------------------ AST nodes */
 
 static Node *new_node(NodeKind kind, Token *tok) {
@@ -383,6 +412,9 @@ static Node *new_binary(NodeKind kind, Node *lhs, Node *rhs, Token *tok) {
 static Node *new_unary(NodeKind kind, Node *lhs, Token *tok) {
 	Node *n = new_node (kind, tok);
 	n->lhs = lhs;
+	if (kind == ND_ADDR && lhs->kind == ND_VAR) {
+		lhs->var->address_taken = true;
+	}
 	switch (kind) {
 	case ND_NEG:
 		n->ty = lhs->ty->kind == TY_F64? ty_f64: ty_i64;
@@ -1301,6 +1333,8 @@ static Node *print_stmt(void) {
 /* variable declaration (local) starting at a type token */
 static Node *local_decl(void) {
 	Token *t = tk;
+	Token *hint = NULL;
+	collect_bits_hint (t, &hint);
 	Type *base = builtin_type (tk->str);
 	if (!base) {
 		base = find_class (tk->str);
@@ -1347,7 +1381,7 @@ static Node *local_decl(void) {
 			}
 			Type *fnty = new_type (TY_FUNC, 8, 8);
 			fnty->base = ty;
-			Obj *var = new_local (name, ptr_to (fnty));
+			Obj *var = new_local (name, hinted_type (ptr_to (fnty), hint));
 			if (eat ("=")) {
 				Node *rhs = expr ();
 				Node *a = new_assign (new_var_node (var, t), rhs, t);
@@ -1367,7 +1401,7 @@ static Node *local_decl(void) {
 			expect ("]");
 			ty = array_of (ty, (int)eval_const (len));
 		}
-		Obj *var = new_local (name, ty);
+		Obj *var = new_local (name, hinted_type (ty, hint));
 		if (eat ("=")) {
 			if (is_punct ("{")) {
 				/* brace initializer for 1-D arrays */
@@ -1929,9 +1963,12 @@ static void parse_params(Obj *fn) {
 		if (!is_type_start (tk)) {
 			error_tok (tk, "expected parameter type");
 		}
+		Token *hint = NULL;
+		collect_bits_hint (tk, &hint);
 		Type *ty = parse_typespec ();
 		/* (U0) means no params */
 		if (ty == ty_u0 && is_punct (")") && n == 0) {
+			hinted_type (ty, hint);
 			break;
 		}
 		char *name = NULL;
@@ -1950,7 +1987,8 @@ static void parse_params(Obj *fn) {
 		if (ty->kind == TY_CLASS) {
 			error_tok (tk, "class values cannot be parameters; pass a pointer");
 		}
-		Obj *p = new_obj (name? name: xasprintf ("arg%d", n), ty);
+		Obj *p = new_obj (name? name: xasprintf ("arg%d", n),
+			hinted_type (ty, hint));
 		defaults[n] = NULL;
 		if (eat ("=")) {
 			if (eat ("lastclass")) {
@@ -2065,6 +2103,8 @@ static void parse_class(bool is_union) {
 		if (!is_type_start (tk)) {
 			error_tok (tk, "expected member type");
 		}
+		Token *hint = NULL;
+		collect_bits_hint (tk, &hint);
 		Type *base = parse_typespec ();
 		/* strip stars parsed by typespec: they apply to first declarator only
 		 * in C; HolyC code in practice writes one declarator per star usage.
@@ -2094,7 +2134,7 @@ static void parse_class(bool is_union) {
 			}
 			Member *m = xcalloc (1, sizeof(Member));
 			m->name = mname;
-			m->ty = mty;
+			m->ty = hinted_type (mty, hint);
 			int a = mty->align? mty->align: 1;
 			if (is_union) {
 				m->offset = union_base;
@@ -2178,7 +2218,8 @@ static void parse_func(Type *ret, char *name, bool is_extern, bool is_public) {
 }
 
 /* global variable declaration(s); initializers become startup stmts */
-static Node *global_decl(Type *base, bool is_extern, bool is_public) {
+static Node *global_decl(Type *base, bool is_extern, bool is_public,
+                         Token *hint) {
 	Node head = {0};
 	Node *cur = &head;
 	bool first = true;
@@ -2211,7 +2252,7 @@ static Node *global_decl(Type *base, bool is_extern, bool is_public) {
 			}
 			Type *fnty = new_type (TY_FUNC, 8, 8);
 			fnty->base = ty;
-			Obj *var = new_global (name, ptr_to (fnty));
+			Obj *var = new_global (name, hinted_type (ptr_to (fnty), hint));
 			var->is_extern = is_extern;
 			var->is_public = is_public;
 			if (eat ("=")) {
@@ -2232,7 +2273,7 @@ static Node *global_decl(Type *base, bool is_extern, bool is_public) {
 			expect ("]");
 			ty = array_of (ty, (int)eval_const (len));
 		}
-		Obj *var = new_global (name, ty);
+		Obj *var = new_global (name, hinted_type (ty, hint));
 		var->is_extern = is_extern;
 		var->is_public = is_public;
 		if (is_extern && nt->file && !strcmp (nt->file, "<prelude>")) {
@@ -2318,6 +2359,8 @@ Program *parse(Token *tok) {
 	Node *top_cur = &top_head;
 
 	while (tk->kind != TK_EOF) {
+		Token *hint = NULL;
+		collect_bits_hint (tk, &hint);
 		/* function attribute keywords; 'public' exports the symbol */
 		bool is_public = false;
 		while (is_kw ("public") || is_kw ("interrupt") || is_kw ("haserrcode") ||
@@ -2326,22 +2369,31 @@ Program *parse(Token *tok) {
 				is_public = true;
 			}
 			tk = tk->next;
+			collect_bits_hint (tk, &hint);
 		}
 		bool is_extern = false;
 		if (is_kw ("extern") || is_kw ("import") || is_kw ("_extern") || is_kw ("_import")) {
 			is_extern = true;
 			tk = tk->next;
+			collect_bits_hint (tk, &hint);
 			/* _extern SYMBOL alias form: skip the symbol token */
 			if (tk->kind == TK_ID && tk->next->kind == TK_ID &&
 			    !builtin_type (tk->str) && !find_class (tk->str)) {
 				tk = tk->next;
+				collect_bits_hint (tk, &hint);
 			}
 		}
 		if (is_kw ("class")) {
+			if (hint) {
+				error_tok (hint, "@bits applies only to integer object declarations");
+			}
 			parse_class (false);
 			continue;
 		}
 		if (is_kw ("union")) {
+			if (hint) {
+				error_tok (hint, "@bits applies only to integer object declarations");
+			}
 			parse_class (true);
 			continue;
 		}
@@ -2359,6 +2411,9 @@ Program *parse(Token *tok) {
 			}
 			if (tk->kind == TK_ID && tk->next && tk->next->kind == TK_PUNCT &&
 			    !strcmp (tk->next->str, "(")) {
+				if (hint) {
+					error_tok (hint, "@bits applies only to integer object declarations");
+				}
 				char *name = tk->str;
 				tk = tk->next;
 				parse_func (ret, name, is_extern, is_public);
@@ -2371,7 +2426,7 @@ Program *parse(Token *tok) {
 			Obj *save_locals = fn_locals;
 			cur_fn = startup;
 			fn_locals = startup->locals;
-			Node *init = global_decl (base, is_extern, is_public);
+			Node *init = global_decl (base, is_extern, is_public, hint);
 			startup->locals = fn_locals;
 			fn_locals = save_locals;
 			cur_fn = save_fn;
@@ -2385,6 +2440,9 @@ Program *parse(Token *tok) {
 		}
 		if (is_extern) {
 			error_tok (tk, "expected declaration after extern");
+		}
+		if (hint) {
+			error_tok (hint, "@bits applies only to integer object declarations");
 		}
 		/* top-level statement -> startup code */
 		Obj *save_fn = cur_fn;

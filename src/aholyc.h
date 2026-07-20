@@ -37,6 +37,7 @@ struct Token {
 	bool at_bol;       /* first token on its line (for directives) */
 	bool has_space;    /* preceded by whitespace */
 	bool no_expand;    /* macro self-reference guard */
+	int hint_bits;      /* @bits=N attached by a preceding comment; 0 if none */
 };
 
 /* ----------------------------------------------------------------- types */
@@ -68,6 +69,7 @@ struct Type {
 	int size;
 	int align;
 	bool is_unsigned;
+	int bits;          /* requested integer value width; 0 if unhinted */
 	Type *base;        /* TY_PTR/TY_ARRAY element, TY_FUNC return type */
 	int array_len;
 	/* TY_CLASS */
@@ -155,6 +157,7 @@ struct Obj {
 	bool is_param;     /* function parameter: stored full-width (64-bit) */
 	bool is_public;    /* HolyC 'public': exported, unmangled symbol */
 	bool from_prelude; /* extern declared by the prelude (runtime API) */
+	bool address_taken; /* storage is observable through a pointer */
 	/* functions */
 	Obj *params;       /* chain via next (separate list from locals) */
 	int nparams;
@@ -236,8 +239,11 @@ typedef struct Backend {
 extern bool aholyc_obj_mode;
 extern bool aholyc_ctor_mode;
 
-/* -v / -k driver flags, also honored by #exe builds */
+/* -V / -k driver flags, also honored by #exe builds */
 extern bool aholyc_verbose, aholyc_keep;
+
+/* Source hints are enabled by default; -fno-hints disables their use. */
+extern bool aholyc_use_hints;
 
 /* pass-through toolchain flags (-I/-L/-l), appended to cc invocations */
 extern char *aholyc_ccflags[64];

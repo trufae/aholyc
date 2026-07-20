@@ -6,7 +6,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 CWD=$(shell pwd)
 
-SRC = src/main.c src/lex.c src/parse.c src/util.c src/exe.c src/fmt.c \
+SRC = src/main.c src/getopt.c src/lex.c src/parse.c src/util.c src/exe.c src/fmt.c \
       src/back_c.c src/back_ll.c src/back_js.c
 OBJ = $(SRC:.c=.o)
 
@@ -18,6 +18,7 @@ aholyc: $(OBJ) src/embed.o
 	$(CC) $(CFLAGS) $(LDFLAGS) -rdynamic -o $@ $(OBJ) src/embed.o -ldl
 
 $(OBJ): src/aholyc.h
+src/main.o src/getopt.o: src/getopt.h
 
 # embedded runtime + prelude sources
 src/embed.c: tools/file2c runtime/rt.c runtime/rt.js runtime/prelude.hc runtime/exe.hc

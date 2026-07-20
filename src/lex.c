@@ -38,6 +38,57 @@ static Token *new_token(TokenKind kind) {
 
 static bool ident_start(int c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }
 static bool ident_cont(int c) { return ident_start (c) || (c >= '0' && c <= '9'); }
+static bool comment_space(int c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
+
+/* Extract the one currently supported source hint from a comment.  Unknown
+ * @names remain ordinary comment text. */
+static void scan_comment_hint(const char *start, const char *end,
+                              const char *fname, int line,
+                              int *pending_bits) {
+	if (!aholyc_use_hints) {
+		return;
+	}
+	for (const char *p = start; p < end; p++) {
+		if (*p != '@' || end - p < 5 || strncmp (p, "@bits", 5)) {
+			continue;
+		}
+		/* Do not mistake @bits_suffix for the supported hint name. */
+		const char *q = p + 5;
+		if (q < end && ident_cont ((unsigned char)*q)) {
+			continue;
+		}
+		while (q < end && comment_space ((unsigned char)*q)) {
+			q++;
+		}
+		if (q == end || *q++ != '=') {
+			error ("%s:%d: malformed @bits hint (expected @bits=N)", fname, line);
+		}
+		while (q < end && comment_space ((unsigned char)*q)) {
+			q++;
+		}
+		if (q == end || *q < '0' || *q > '9') {
+			error ("%s:%d: malformed @bits hint (expected @bits=N)", fname, line);
+		}
+		int width = 0;
+		while (q < end && *q >= '0' && *q <= '9') {
+			if (width <= 128) {
+				width = width * 10 + (*q - '0');
+			}
+			q++;
+		}
+		if (q < end && !comment_space ((unsigned char)*q) && *q != '@') {
+			error ("%s:%d: malformed @bits hint (expected @bits=N)", fname, line);
+		}
+		if (width < 1 || width > 128) {
+			error ("%s:%d: @bits width must be between 1 and 128", fname, line);
+		}
+		if (*pending_bits) {
+			error ("%s:%d: duplicate @bits hint before declaration", fname, line);
+		}
+		*pending_bits = width;
+		p = q - 1;
+	}
+}
 
 static int hexval(int c) {
 	if (c >= '0' && c <= '9') return c - '0';
@@ -93,20 +144,28 @@ static Token *tokenize(const char *src, const char *fname) {
 	Token *cur = &head;
 	const char *p = src;
 	bool bol = true, space = false;
+	int pending_bits = 0;
 
 	while (*p) {
 		if (*p == '\n') { cur_line++; bol = true; space = false; p++; continue; }
 		if (*p == ' ' || *p == '\t' || *p == '\r') { space = true; p++; continue; }
 		if (p[0] == '/' && p[1] == '/') {
+			int line = cur_line;
+			const char *start = p + 2;
+			p = start;
 			while (*p && *p != '\n') p++;
+			scan_comment_hint (start, p, fname, line, &pending_bits);
 			continue;
 		}
 		if (p[0] == '/' && p[1] == '*') {
-			p += 2;
+			int line = cur_line;
+			const char *start = p + 2;
+			p = start;
 			while (*p && !(p[0] == '*' && p[1] == '/')) {
 				if (*p == '\n') cur_line++;
 				p++;
 			}
+			scan_comment_hint (start, p, fname, line, &pending_bits);
 			if (*p) p += 2;
 			space = true;
 			continue;
@@ -227,6 +286,10 @@ static Token *tokenize(const char *src, const char *fname) {
 				error ("%s:%d: stray character '%c' (0x%02x)", fname, cur_line, *p, (unsigned char)*p);
 			}
 		}
+		if (pending_bits) {
+			t->hint_bits = pending_bits;
+			pending_bits = 0;
+		}
 		t->at_bol = bol;
 		t->has_space = space;
 		bol = false;
@@ -283,6 +346,16 @@ static Token *copy_token(Token *t) {
 	*n = *t;
 	n->next = NULL;
 	return n;
+}
+
+static void inherit_hint(Token *src, Token *dst) {
+	if (!src->hint_bits || !dst) {
+		return;
+	}
+	if (dst->hint_bits) {
+		error_tok (src, "duplicate @bits hint on declaration");
+	}
+	dst->hint_bits = src->hint_bits;
 }
 
 /* skip tokens until matching #else/#endif; nest counts inner #if* */
@@ -483,6 +556,7 @@ static Token *preprocess(Token *tok) {
 			Macro *m = find_macro (tok->str);
 			if (m) {
 				if (!m->body) {
+					inherit_hint (tok, tok->next);
 					tok = tok->next;
 					continue;
 				}
@@ -499,6 +573,7 @@ static Token *preprocess(Token *tok) {
 					bc = bc->next;
 				}
 				bc->next = tok->next;
+				inherit_hint (tok, bh.next);
 				tok = bh.next;
 				continue;
 			}

@@ -234,7 +234,7 @@ patches to the running image.
 
 ## Debugging
 
-`aholyc -v` prints the `cc -shared` command used for each block; `-k`
+`aholyc -V` prints the `cc -shared` command used for each block; `-k`
 keeps the intermediates (`/tmp/aholyc-exe-<pid>-<n>.c` and `.so`) for
 inspection.
 

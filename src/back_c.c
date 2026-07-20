@@ -42,6 +42,33 @@ static const char *scalar_ctype(Type *ty) {
 	return "hc_i64"; /* I64/U64/pointers/functions */
 }
 
+static bool signed_i1(Type *ty) {
+	return ty->bits == 1 && !ty->is_unsigned;
+}
+
+static void emit_bits_begin(Type *ty) {
+	if (signed_i1 (ty)) {
+		fprintf (o, "(-((hc_i64)(");
+	} else {
+		fprintf (o, "((hc_i64)(%s _BitInt(%d))(",
+			ty->is_unsigned? "unsigned": "signed", ty->bits);
+	}
+}
+
+static void emit_bits_end(Type *ty) {
+	fprintf (o, "%s", signed_i1 (ty)? ")&1))": "))");
+}
+
+static void emit_narrowed(Node *n, Type *ty) {
+	if (ty->bits) {
+		emit_bits_begin (ty);
+		emit_val (n);
+		emit_bits_end (ty);
+		return;
+	}
+	emit_val (n);
+}
+
 static char *objname(Obj *v) {
 	static char buf[256];
 	if (v->is_extern || v->is_public) {
@@ -222,9 +249,20 @@ static void emit_load(Node *n) {
 		fprintf (o, "))");
 		return;
 	}
-	fprintf (o, "((hc_i64)*(%s*)(intptr_t)(", scalar_ctype (ty));
+	int bits = ty->bits;
+	if (bits) {
+		emit_bits_begin (ty);
+		fprintf (o, "*(%s*)(intptr_t)(", scalar_ctype (ty));
+	} else {
+		fprintf (o, "((hc_i64)*(%s*)(intptr_t)(", scalar_ctype (ty));
+	}
 	emit_addr (n);
-	fprintf (o, "))");
+	if (bits) {
+		fprintf (o, ")");
+		emit_bits_end (ty);
+	} else {
+		fprintf (o, "))");
+	}
 }
 
 static void emit_val(Node *n) {
@@ -246,6 +284,10 @@ static void emit_val(Node *n) {
 			fprintf (o, "((hc_i64)(intptr_t)%s)", objname (v));
 		} else if (v->ty->kind == TY_F64) {
 			fprintf (o, "%s", objname (v));
+		} else if (v->ty->bits) {
+			emit_bits_begin (v->ty);
+			fprintf (o, "%s", objname (v));
+			emit_bits_end (v->ty);
 		} else {
 			fprintf (o, "((hc_i64)%s)", objname (v));
 		}
@@ -278,15 +320,21 @@ static void emit_val(Node *n) {
 			break;
 		}
 		if (l->kind == ND_VAR && !is_agg (l->ty)) {
-			fprintf (o, "(%s=(%s)(", objname (l->var), scalar_ctype (l->ty));
-			emit_val (n->rhs);
-			fprintf (o, "))");
+			fprintf (o, "(%s=", objname (l->var));
+			if (l->ty->bits) {
+				emit_narrowed (n->rhs, l->ty);
+			} else {
+				fprintf (o, "(%s)(", scalar_ctype (l->ty));
+				emit_val (n->rhs);
+				fprintf (o, ")");
+			}
+			fprintf (o, ")");
 			break;
 		}
 		fprintf (o, "(*(%s*)(intptr_t)(", scalar_ctype (l->ty));
 		emit_addr (l);
 		fprintf (o, ")=(%s)(", scalar_ctype (l->ty));
-		emit_val (n->rhs);
+		emit_narrowed (n->rhs, l->ty);
 		fprintf (o, "))");
 		break;
 	}
@@ -642,6 +690,10 @@ static void emit_func(Program *prog, Obj *fn) {
 				(v->ty->size + 7) / 8? (v->ty->size + 7) / 8: 1);
 		} else if (v->ty->kind == TY_F64) {
 			fprintf (o, "\thc_f64 %s = 0;\n", objname (v));
+		} else if (v->ty->bits && !signed_i1 (v->ty) && !v->address_taken) {
+			fprintf (o, "\t%s _BitInt(%d) %s = 0;\n",
+				v->ty->is_unsigned? "unsigned": "signed", v->ty->bits,
+				objname (v));
 		} else {
 			fprintf (o, "\t%s %s = 0;\n", scalar_ctype (v->ty), objname (v));
 		}

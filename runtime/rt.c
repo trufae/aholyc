@@ -577,7 +577,7 @@ int main(int sys_argc, char **sys_argv) {
 	hc_i64 argc = sys_argc > 0? sys_argc - 1: 0;
 	char *empty_argv[] = { NULL };
 	char **user_argv = sys_argv? sys_argv: empty_argv;
-	if (user_argv && sys_argc > 0) {
+	if (sys_argv && sys_argc > 0) {
 		user_argv++;
 	}
 	hc_i64 argv = (hc_i64)(intptr_t)user_argv;

@@ -20,11 +20,16 @@ runtime.
 
 ## c
 
-Emits one self-contained C99 translation unit: the runtime source is
+Emits one self-contained C translation unit: the C99 runtime source is
 prepended, then the program as "portable assembly" C — all values are
 `hc_i64`/`hc_f64`, all memory accesses are explicit width-typed derefs.
 The output of `-S -b c` compiles anywhere with
 `cc -Os -fno-strict-aliasing -w out.c -lm`.
+
+The `@bits` source hint uses C23 `_BitInt(N)` declarations or conversions.
+Compiling hinted output therefore requires a compiler with `_BitInt` support;
+`-fno-hints` retains the ordinary portable integer types.  See
+[hints.md](hints.md).
 
 This backend is the reference implementation and works on any machine
 with a C compiler — no LLVM needed. It is also how `#exe{}` blocks run,

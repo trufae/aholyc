@@ -2,6 +2,7 @@
  * Usage mirrors a normal C compiler: aholyc [options] file.HC ...
  */
 #include "aholyc.h"
+#include "getopt.h"
 #include <unistd.h>
 #include <sys/stat.h>
 
@@ -11,6 +12,7 @@ bool aholyc_obj_mode = false;
 bool aholyc_ctor_mode = false;
 bool aholyc_verbose = false;
 bool aholyc_keep = false;
+bool aholyc_use_hints = true;
 char *aholyc_ccflags[64];
 int aholyc_nccflags = 0;
 
@@ -43,10 +45,11 @@ static void usage(int code) {
 		"  -L <dir>      add library search directory for the linker\n"
 		"  -l <name>     link against a library (e.g. -lz)\n"
 		"  -D name[=v]   predefine a macro\n"
+		"  -fno-hints    ignore all source hints\n"
 		"  -k            keep intermediate files\n"
-		"  -v            verbose: show toolchain commands\n"
+		"  -V            verbose: show toolchain commands\n"
 		"  -h            show this help\n"
-		"  --version     show version\n"
+		"  -v            show version\n"
 		"\n"
 		"stdin: '-' reads HolyC source from stdin; 'run' with no -o builds a\n"
 		"scratch ./.a.out removed after the run; with -S, '-o -' writes the\n"
@@ -88,91 +91,90 @@ int main(int argc, char **argv) {
 	bool compile_obj = false;
 	const char *inputs[64];
 	int ninputs = 0;
+	const char **defines = xcalloc ((size_t)argc, sizeof(*defines));
+	int ndefines = 0;
 	char **run_args = NULL;
 	int nrunargs = 0;
-	bool args_sep = false;
 
-	for (int i = argi; i < argc; i++) {
-		char *a = argv[i];
-		if (!strcmp (a, "--")) {
-			args_sep = true;
-			run_args = argv + i + 1;
-			nrunargs = argc - i - 1;
+	RGetopt go;
+	r_getopt_init (&go, argc, (const char **)argv, "o:b:cSO::I:L:l:D:f:kVhv");
+	go.ind = argi;
+	for (;;) {
+		int c = r_getopt_next (&go);
+		if (c < 0) {
 			break;
 		}
-		if (a[0] != '-' || !a[1]) {   /* bare '-' is stdin, not an option */
+		if (c == 1) {
 			if (ninputs >= 64) {
 				error ("too many input files");
 			}
-			inputs[ninputs++] = a;
+			inputs[ninputs++] = go.arg;
 			if (run) {
-				run_args = argv + i + 1;
-				nrunargs = argc - i - 1;
+				run_args = argv + go.ind;
+				nrunargs = argc - go.ind;
 				break;
 			}
 			continue;
 		}
-		if (!strcmp (a, "-o")) {
-			if (++i >= argc) {
-				error ("-o needs an argument");
-			}
-			outpath = argv[i];
-		} else if (!strcmp (a, "-b")) {
-			if (++i >= argc) {
-				error ("-b needs an argument");
-			}
-			bname = argv[i];
-		} else if (!strcmp (a, "-c")) {
+		switch (c) {
+		case 'o':
+			outpath = go.arg;
+			break;
+		case 'b':
+			bname = go.arg;
+			break;
+		case 'c':
 			compile_obj = true;
-		} else if (!strcmp (a, "-S")) {
+			break;
+		case 'S':
 			emit_only = true;
-		} else if (!strncmp (a, "-O", 2)) {
-			opt = a;
-		} else if (!strcmp (a, "-I")) {
-			if (++i >= argc) {
-				error ("-I needs an argument");
+			break;
+		case 'O':
+			opt = go.arg? xasprintf ("-O%s", go.arg): "-O";
+			break;
+		case 'I':
+			lex_add_include_dir (go.arg);
+			add_ccflag (xasprintf ("-I%s", go.arg));
+			break;
+		case 'L':
+		case 'l':
+			add_ccflag (xasprintf ("-%c%s", c, go.arg));
+			break;
+		case 'D':
+			defines[ndefines++] = go.arg;
+			break;
+		case 'f':
+			if (strcmp (go.arg, "no-hints")) {
+				error ("unknown option '-f%s' (try -h)", go.arg);
 			}
-			lex_add_include_dir (argv[i]);
-			add_ccflag (xasprintf ("-I%s", argv[i]));
-		} else if (!strncmp (a, "-I", 2)) {
-			lex_add_include_dir (a + 2);
-			add_ccflag (a);
-		} else if (!strcmp (a, "-L") || !strcmp (a, "-l")) {
-			if (++i >= argc) {
-				error ("%s needs an argument", a);
-			}
-			add_ccflag (xasprintf ("%s%s", a, argv[i]));
-		} else if (!strncmp (a, "-L", 2) || !strncmp (a, "-l", 2)) {
-			add_ccflag (a);
-		} else if (!strcmp (a, "-D")) {
-			if (++i >= argc) {
-				error ("-D needs an argument");
-			}
-			a = argv[i];
-			goto def;
-		} else if (!strncmp (a, "-D", 2)) {
-			a += 2;
-def:		{
-			char *eq = strchr (a, '=');
-			if (eq) {
-				char *name = xstrdup (a);
-				name[eq - a] = 0;
-				lex_define (name, eq + 1);
-			} else {
-				lex_define (a, "1");
-			}
-		}
-		} else if (!strcmp (a, "-k")) {
+			aholyc_use_hints = false;
+			break;
+		case 'k':
 			keep = aholyc_keep = true;
-		} else if (!strcmp (a, "-v")) {
+			break;
+		case 'V':
 			verbose = aholyc_verbose = true;
-		} else if (!strcmp (a, "-h") || !strcmp (a, "--help")) {
+			break;
+		case 'h':
 			usage (0);
-		} else if (!strcmp (a, "--version")) {
+		case 'v':
 			printf ("aholyc %s — another Holy-C compiler\n", AHOLYC_VERSION);
 			return 0;
+		case ':':
+			error ("-%c needs an argument", go.opt);
+		default:
+			error ("unknown option '-%c' (try -h)", go.opt);
+		}
+	}
+	for (int i = 0; i < ndefines; i++) {
+		const char *a = defines[i];
+		char *eq = strchr (a, '=');
+		if (eq) {
+			char *name = xstrdup (a);
+			name[eq - a] = 0;
+			lex_define (name, eq + 1);
 		} else {
-			error ("unknown option '%s' (try -h)", a);
+			lex_define (a, "1");
 		}
 	}
 	if (ninputs == 0) {
@@ -181,10 +183,6 @@ def:		{
 	if (run && (compile_obj || emit_only)) {
 		error ("run cannot be combined with %s", compile_obj? "-c": "-S");
 	}
-	if (args_sep && !run) {
-		error ("program arguments require 'run'");
-	}
-
 	/* classify inputs: HolyC sources vs objects/archives for the linker */
 	const char *sources[64], *objects[64];
 	int nsrc = 0, nobj = 0;
