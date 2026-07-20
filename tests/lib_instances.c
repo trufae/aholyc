@@ -174,6 +174,7 @@ int main(void) {
 	path (limitout, sizeof(limitout), root, "limit.js");
 	path (goodout, sizeof(goodout), root, "good.c");
 	path (goodbin, sizeof(goodbin), root, "good");
+	write_file (limitout, "emitter failure sentinel\n");
 	char *badargv[] = { "aholyc", "-b", "c", "-S", "-o", badout, invalid };
 	char *fmtargv[] = { "aholyc", "fmt", badout };
 	char *limitargv[] = { "aholyc", "-b", "js", "-S", "-o", limitout, limit };
@@ -187,8 +188,13 @@ int main(void) {
 	bool fmterr = fmtbad && strstr (aholyc_error (cc), "fmt: cannot open");
 	int bad = aholyc_parseargv (cc, 7, badargv);
 	int limited = aholyc_parseargv (cc, 7, limitargv);
+	size_t limitsz = 0;
+	char *limittext = slurp (limitout, &limitsz);
+	bool limit_preserved = limittext &&
+		!strcmp (limittext, "emitter failure sentinel\n");
+	free (limittext);
 	if (!fmterr || !bad || !limited || !strstr (aholyc_error (cc), "js backend: too many") ||
-		aholyc_parseargv (cc, 15, goodargv)) {
+		!limit_preserved || aholyc_parseargv (cc, 15, goodargv)) {
 		fprintf (stderr, "library error recovery failed\n");
 		return 1;
 	}

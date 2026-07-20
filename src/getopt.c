@@ -12,7 +12,7 @@
 #define	BADARG	(int)':'
 #define	EMSG	""
 
-void aholyc_i_r_getopt_init(RGetopt *opt, int argc, const char **argv, const char *ostr) {
+void r_getopt_init(RGetopt *opt, int argc, const char **argv, const char *ostr) {
 	memset (opt, 0, sizeof (RGetopt));
 	opt->ind = 1;
 	opt->argc = argc;
@@ -20,7 +20,7 @@ void aholyc_i_r_getopt_init(RGetopt *opt, int argc, const char **argv, const cha
 	opt->ostr = ostr;
 }
 
-int aholyc_i_r_getopt_next(RGetopt *opt) {
+int r_getopt_next(RGetopt *opt) {
 	const char *oli;
 
 	if (!opt->place) {
@@ -43,7 +43,7 @@ int aholyc_i_r_getopt_next(RGetopt *opt) {
 			opt->ind++;
 			opt->place = EMSG;
 			opt->done = true;
-			return aholyc_i_r_getopt_next (opt);
+			return r_getopt_next (opt);
 		}
 	}
 	/* option letter okay? */

@@ -62,7 +62,7 @@ manipulates live compiler data through ordinary member access.
 lexer hits "#exe {"           (src/lex.c, preprocess)
   cut the {...} tokens out of the stream
   preprocess them            (same macro table: one compile stream)
-  aholyc_i_exe_run(block, &rest) (src/exe.c)
+  exe_run(block, &rest) (src/exe.c)
     prepend runtime prelude + exe API   (runtime/exe.hc)
     parse                    (same parser, invocation-local state)
     emit C                   (same C backend, runtime embedded)
@@ -182,7 +182,7 @@ For the other four the options mirror the `#exe` design decision:
   `#exe` blocks: emit C, `cc -O0 -w -shared -fPIC`, `dlopen` into the
   running process, call `__hc_start(0, empty_argv)`, `dlclose`. One compiler, one set
   of semantics, and the machinery already exists in `src/exe.c` — the
-  runtime version is the same ~100 lines with `aholyc_i_exe_run`'s
+  runtime version is the same ~100 lines with `exe_run`'s
   StreamPrint plumbing replaced by a result slot.
 
 The third option fits aholyc:

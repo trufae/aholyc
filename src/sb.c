@@ -2,7 +2,7 @@
 
 static void reserve(StrBuf *sb, size_t n) {
 	if (n > SIZE_MAX - sb->len - 1) {
-		aholyc_i_error (sb->cc, "string buffer overflow");
+		error (sb->cc, "string buffer overflow");
 	}
 	size_t need = sb->len + n + 1;
 	if (need <= sb->cap) {
@@ -10,13 +10,13 @@ static void reserve(StrBuf *sb, size_t n) {
 	}
 	size_t cap = sb->cap <= SIZE_MAX / 2? sb->cap * 2: need;
 	if (cap < need) cap = need;
-	char *data = aholyc_i_xmalloc (sb->cc, cap);
+	char *data = xmalloc (sb->cc, cap);
 	memcpy (data, sb->data, sb->len + 1);
 	sb->data = data;
 	sb->cap = cap;
 }
 
-void aholyc_i_sb_init(StrBuf *sb, Aholyc *cc) {
+void sb_init(StrBuf *sb, Aholyc *cc) {
 	sb->cc = cc;
 	sb->data = sb->buf;
 	sb->len = 0;
@@ -24,7 +24,7 @@ void aholyc_i_sb_init(StrBuf *sb, Aholyc *cc) {
 	sb->buf[0] = 0;
 }
 
-static void sb_putn(StrBuf *sb, const char *s, size_t n) {
+void sb_putn(StrBuf *sb, const char *s, size_t n) {
 	if (!n) {
 		return;
 	}
@@ -34,17 +34,17 @@ static void sb_putn(StrBuf *sb, const char *s, size_t n) {
 	sb->data[sb->len] = 0;
 }
 
-void aholyc_i_sb_puts(StrBuf *sb, const char *s) {
+void sb_puts(StrBuf *sb, const char *s) {
 	sb_putn (sb, s, strlen (s));
 }
 
-void aholyc_i_sb_putc(StrBuf *sb, int c) {
+void sb_putc(StrBuf *sb, int c) {
 	reserve (sb, 1);
 	sb->data[sb->len++] = (char)c;
 	sb->data[sb->len] = 0;
 }
 
-void aholyc_i_sb_printf(StrBuf *sb, const char *fmt, ...) {
+void sb_printf(StrBuf *sb, const char *fmt, ...) {
 	va_list ap, aq;
 	va_start (ap, fmt);
 	va_copy (aq, ap);
@@ -53,28 +53,28 @@ void aholyc_i_sb_printf(StrBuf *sb, const char *fmt, ...) {
 	va_end (ap);
 	if (n < 0) {
 		va_end (aq);
-		aholyc_i_error (sb->cc, "string formatting failed");
+		error (sb->cc, "string formatting failed");
 	}
 	if ((size_t)n >= avail) {
 		reserve (sb, (size_t)n);
 		int written = vsnprintf (sb->data + sb->len, (size_t)n + 1, fmt, aq);
 		if (written != n) {
 			va_end (aq);
-			aholyc_i_error (sb->cc, "string formatting failed");
+			error (sb->cc, "string formatting failed");
 		}
 	}
 	va_end (aq);
 	sb->len += (size_t)n;
 }
 
-char *aholyc_i_sb_take(StrBuf *sb) {
+char *sb_take(StrBuf *sb) {
 	char *s;
 	if (sb->data == sb->buf) {
-		s = aholyc_i_xmalloc (sb->cc, sb->len + 1);
+		s = xmalloc (sb->cc, sb->len + 1);
 		memcpy (s, sb->buf, sb->len + 1);
 	} else {
 		s = sb->data;
 	}
-	aholyc_i_sb_init (sb, sb->cc);
+	sb_init (sb, sb->cc);
 	return s;
 }

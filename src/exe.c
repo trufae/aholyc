@@ -33,9 +33,9 @@ typedef struct {
 static void stream_put(void *ctx, void *s) {
 	ExeRun *run = ctx;
 	if (s) {
-		aholyc_i_sb_puts (&run->out, s);
+		sb_puts (&run->out, s);
 	}
-	aholyc_i_sb_putc (&run->out, '\n');
+	sb_putc (&run->out, '\n');
 }
 
 /* the compiler's token stream right after the #exe block */
@@ -45,7 +45,7 @@ static void *stream_get(void *ctx) { return ((ExeRun *)ctx)->stream; }
 static void stream_set(void *ctx, void *stream) { ((ExeRun *)ctx)->stream = stream; }
 
 static int64_t exe_cd(void *ctx, void *path) {
-	return path && aholyc_i_lex_set_cwd (((ExeRun *)ctx)->cc, path);
+	return path && lex_set_cwd (((ExeRun *)ctx)->cc, path);
 }
 
 static int64_t exe_now(void *ctx) { (void)ctx; return (int64_t)time (NULL); }
@@ -70,39 +70,35 @@ static const char exe_bridge[] =
 /* Compile and run one #exe block. 'block' is its preprocessed body,
  * EOF-terminated; *rest is the stream after the block, which the
  * block may advance. Returns the text to splice into the stream. */
-char *aholyc_i_exe_run(Aholyc *cc, Token *block, Token **rest) {
+char *exe_run(Aholyc *cc, Token *block, Token **rest) {
 	/* a stand-alone program: runtime prelude, exe API, block body.
 	 * The body is preprocessed last so the exe API macros apply. */
-	Token *toks = aholyc_i_lex_string (cc, aholyc_i_prelude_hc, "<prelude>", NULL);
-	toks = aholyc_i_token_join (toks, aholyc_i_lex_string (cc, aholyc_i_exe_hc, "<exe-api>", NULL));
-	toks = aholyc_i_token_join (toks, aholyc_i_lex_preprocess (cc, block));
-	Program *p = aholyc_i_parse (cc, toks, true);
+	Token *toks = lex_string (cc, aholyc_i_prelude_hc, "<prelude>", NULL);
+	toks = token_join (toks, lex_string (cc, aholyc_i_exe_hc, "<exe-api>", NULL));
+	toks = token_join (toks, lex_preprocess (cc, block));
+	Program *p = parse (cc, toks, true);
 	ExeRun run = { .cc = cc, .stream = *rest };
-	aholyc_i_sb_init (&run.out, cc);
+	sb_init (&run.out, cc);
 
 	const char *tmp = getenv ("TMPDIR");
 	if (!tmp || !*tmp) {
 		tmp = "/tmp";
 	}
-	char *dir = aholyc_i_xasprintf (cc, "%s/aholyc-exe-XXXXXX", tmp);
+	char *dir = xasprintf (cc, "%s/aholyc-exe-XXXXXX", tmp);
 	if (!mkdtemp (dir)) {
-		aholyc_i_error (cc, "#exe: cannot create temporary directory");
+		error (cc, "#exe: cannot create temporary directory");
 	}
-	char *cpath = aholyc_i_xasprintf (cc, "%s/block.c", dir);
-	char *sopath = aholyc_i_xasprintf (cc, "%s/block.so", dir);
-	FILE *f = fopen (cpath, "w");
-	if (!f) {
-		aholyc_i_error (cc, "#exe: cannot write '%s'", cpath);
-	}
-	aholyc_i_cleanup_push (cc, aholyc_i_cleanup_file, f);
-	aholyc_i_backend_c.emit (cc, p, f, false, false);
-	fputs (exe_bridge, f);
-	aholyc_i_cleanup_pop (cc);
-	fclose (f);
+	char *cpath = xasprintf (cc, "%s/block.c", dir);
+	char *sopath = xasprintf (cc, "%s/block.so", dir);
+	StrBuf src;
+	sb_init (&src, cc);
+	aholyc_i_backend_c.emit (cc, p, &src, false, false);
+	sb_puts (&src, exe_bridge);
+	write_file (cc, cpath, src.data, src.len);
 
 	const char *tool = getenv ("CC");
 	if (!tool || !*tool) {
-		tool = aholyc_i_have_cmd (cc, "cc")? "cc": aholyc_i_have_cmd (cc, "clang")? "clang": "gcc";
+		tool = have_cmd (cc, "cc")? "cc": have_cmd (cc, "clang")? "clang": "gcc";
 	}
 	char *argv[] = {
 		(char *)tool, "-O0", "-w", "-fno-strict-aliasing",
@@ -113,29 +109,29 @@ char *aholyc_i_exe_run(Aholyc *cc, Token *block, Token **rest) {
 #endif
 		"-o", sopath, cpath, "-lm", NULL
 	};
-	if (aholyc_i_run_cmd (cc, argv) != 0) {
-		aholyc_i_error (cc, "#exe: failed to build %s (kept for inspection)", cpath);
+	if (run_cmd (cc, argv) != 0) {
+		error (cc, "#exe: failed to build %s (kept for inspection)", cpath);
 	}
 	void *h = dlopen (sopath, RTLD_NOW | RTLD_LOCAL);
 	if (!h) {
-		aholyc_i_error (cc, "#exe: dlopen: %s", dlerror ());
+		error (cc, "#exe: dlopen: %s", dlerror ());
 	}
-	aholyc_i_cleanup_push (cc, cleanup_dso, h);
+	cleanup_push (cc, cleanup_dso, h);
 	void (*init)(void *, void *) = (void (*)(void *, void *))(intptr_t)
 		dlsym (h, "__aholyc_exe_init");
 	if (!init) {
-		aholyc_i_error (cc, "#exe: callback bridge missing in %s", sopath);
+		error (cc, "#exe: callback bridge missing in %s", sopath);
 	}
 	ExeApi api = { stream_put, stream_get, stream_set, exe_cd, exe_now };
 	init (&run, &api);
 	int64_t (*entry)(int64_t, int64_t) =
 		(int64_t (*)(int64_t, int64_t))(intptr_t)dlsym (h, "__hc_start");
 	if (!entry) {
-		aholyc_i_error (cc, "#exe: no __hc_start in %s", sopath);
+		error (cc, "#exe: no __hc_start in %s", sopath);
 	}
 	int64_t noargs = 0;
 	entry (0, (int64_t)(intptr_t)&noargs);
-	aholyc_i_cleanup_pop (cc);
+	cleanup_pop (cc);
 	dlclose (h);
 	if (!cc->keep) {
 		unlink (cpath);
@@ -143,5 +139,5 @@ char *aholyc_i_exe_run(Aholyc *cc, Token *block, Token **rest) {
 		rmdir (dir);
 	}
 	*rest = run.stream;
-	return aholyc_i_sb_take (&run.out);
+	return sb_take (&run.out);
 }

@@ -80,7 +80,7 @@ typedef struct Backend {
     const char *name;   /* -b <name> */
     const char *ext;    /* artifact extension */
     const char *descr;
-    void (*emit)(Aholyc *cc, Program *prog, FILE *out,
+    void (*emit)(Aholyc *cc, Program *prog, StrBuf *out,
                  bool object_mode, bool ctor_mode);
     int (*build)(Aholyc *cc, const char *artifact,
                  const char *outpath, const char *opt);
@@ -89,7 +89,9 @@ typedef struct Backend {
 } Backend;
 ```
 
-The driver passes `object_mode` explicitly for `-c` and source groups mixed
+The driver initializes `out`, lets the backend build the complete artifact in
+memory, and only writes it after `emit` succeeds. It passes `object_mode`
+explicitly for `-c` and source groups mixed
 with `.o` inputs. In that mode the runtime is declared instead of embedded and
 `public` symbols keep external linkage. `ctor_mode` distinguishes a true `-c`
 module, whose constructor registers its startup function, from a source group

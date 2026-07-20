@@ -10,18 +10,18 @@
 
 static void add_ccflag(Aholyc *cc, char *flag) {
 	if (cc->nccflags >= 64) {
-		aholyc_i_error (cc, "too many -I/-L/-l flags");
+		error (cc, "too many -I/-L/-l flags");
 	}
 	cc->ccflags[cc->nccflags++] = flag;
 }
 
 static void add_define(Aholyc *cc, const char *arg) {
-	char *name = aholyc_i_xstrdup (cc, arg);
+	char *name = xstrdup (cc, arg);
 	char *value = strchr (name, '=');
 	if (value) {
 		*value++ = 0;
 	}
-	aholyc_i_lex_define (cc, name, value? value: "1");
+	lex_define (cc, name, value? value: "1");
 }
 
 static const Backend *const backends[] = {
@@ -81,16 +81,10 @@ static const Backend *find_backend(const char *name) {
 
 static void emit_file(Aholyc *cc, const Backend *be, Program *prog,
 		const char *path, bool object_mode, bool ctor_mode) {
-	FILE *f = fopen (path, "w");
-	if (!f) {
-		aholyc_i_error (cc, "cannot write '%s'", path);
-	}
-	aholyc_i_cleanup_push (cc, aholyc_i_cleanup_file, f);
-	be->emit (cc, prog, f, object_mode, ctor_mode);
-	aholyc_i_cleanup_pop (cc);
-	if (fclose (f)) {
-		aholyc_i_error (cc, "writing '%s' failed", path);
-	}
+	StrBuf out;
+	sb_init (&out, cc);
+	be->emit (cc, prog, &out, object_mode, ctor_mode);
+	write_file (cc, path, out.data, out.len);
 }
 
 static void build_source(Aholyc *cc, const Backend *be, Program *prog,
@@ -102,13 +96,13 @@ static void build_source(Aholyc *cc, const Backend *be, Program *prog,
 		unlink (artifact);
 	}
 	if (rc) {
-		aholyc_i_error (cc, "backend '%s' failed to build %s", be->name, out);
+		error (cc, "backend '%s' failed to build %s", be->name, out);
 	}
 }
 
 static int parseargv(Aholyc *cc, int argc, char **argv) {
 	if (argc >= 2 && !strcmp (argv[1], "fmt")) {
-		return aholyc_i_fmt_main (cc, argc - 2, argv + 2);
+		return fmt_main (cc, argc - 2, argv + 2);
 	}
 	bool run = argc >= 2 && !strcmp (argv[1], "run");
 	int argi = run? 2: 1;
@@ -124,16 +118,16 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 	int nrunargs = 0;
 
 	RGetopt go;
-	aholyc_i_r_getopt_init (&go, argc, (const char **)argv, "o:b:cSO::I:L:l:D:f:kVhv");
+	r_getopt_init (&go, argc, (const char **)argv, "o:b:cSO::I:L:l:D:f:kVhv");
 	go.ind = argi;
 	for (;;) {
-		int c = aholyc_i_r_getopt_next (&go);
+		int c = r_getopt_next (&go);
 		if (c < 0) {
 			break;
 		}
 		if (c == 1) {
 			if (ninputs >= 64) {
-				aholyc_i_error (cc, "too many input files");
+				error (cc, "too many input files");
 			}
 			inputs[ninputs++] = go.arg;
 			if (run) {
@@ -148,22 +142,22 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 		case 'b': bname = go.arg; break;
 		case 'c': compile_obj = true; break;
 		case 'S': emit_only = true; break;
-		case 'O': opt = go.arg? aholyc_i_xasprintf (cc, "-O%s", go.arg): "-O"; break;
+		case 'O': opt = go.arg? xasprintf (cc, "-O%s", go.arg): "-O"; break;
 		case 'I':
-			aholyc_i_lex_add_include_dir (cc, go.arg);
-			add_ccflag (cc, aholyc_i_xasprintf (cc, "-I%s", go.arg));
+			lex_add_include_dir (cc, go.arg);
+			add_ccflag (cc, xasprintf (cc, "-I%s", go.arg));
 			break;
 		case 'L':
 		case 'l':
-			add_ccflag (cc, aholyc_i_xasprintf (cc, "-%c%s", c, go.arg));
+			add_ccflag (cc, xasprintf (cc, "-%c%s", c, go.arg));
 			break;
 		case 'D':
-			if (ndefines >= 64) aholyc_i_error (cc, "too many -D options");
+			if (ndefines >= 64) error (cc, "too many -D options");
 			defines[ndefines++] = go.arg;
 			break;
 		case 'f':
 			if (strcmp (go.arg, "no-hints")) {
-				aholyc_i_error (cc, "unknown option '-f%s' (try -h)", go.arg);
+				error (cc, "unknown option '-f%s' (try -h)", go.arg);
 			}
 			cc->use_hints = false;
 			break;
@@ -174,9 +168,10 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 			printf ("aholyc %s — another Holy-C compiler\n", AHOLYC_VERSION);
 			return 0;
 		case ':':
-			aholyc_i_error (cc, "-%c needs an argument", go.opt);
+			error (cc, "-%c needs an argument", go.opt);
+			break;
 		default:
-			aholyc_i_error (cc, "unknown option '-%c' (try -h)", go.opt);
+			error (cc, "unknown option '-%c' (try -h)", go.opt);
 		}
 	}
 	for (int i = 0; i < ndefines; i++) add_define (cc, defines[i]);
@@ -184,7 +179,7 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 		return usage (1);
 	}
 	if (run && (compile_obj || emit_only)) {
-		aholyc_i_error (cc, "run cannot be combined with %s", compile_obj? "-c": "-S");
+		error (cc, "run cannot be combined with %s", compile_obj? "-c": "-S");
 	}
 	/* classify inputs: HolyC sources vs objects/archives for the linker */
 	const char *sources[64], *objects[64];
@@ -205,33 +200,33 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 	if (bname) {
 		be = find_backend (bname);
 		if (!be) {
-			aholyc_i_error (cc, "unknown backend '%s' (try -h)", bname);
+			error (cc, "unknown backend '%s' (try -h)", bname);
 		}
 	} else {
 		/* default: LLVM toolchain if present, else system C compiler */
-		be = (aholyc_i_have_cmd (cc, "clang") || aholyc_i_have_cmd (cc, "llc"))? &aholyc_i_backend_ll: &aholyc_i_backend_c;
+		be = (have_cmd (cc, "clang") || have_cmd (cc, "llc"))? &aholyc_i_backend_ll: &aholyc_i_backend_c;
 	}
 	if (compile_obj && nobj > 0) {
-		aholyc_i_error (cc, "cannot mix object files with -c");
+		error (cc, "cannot mix object files with -c");
 	}
 	if ((compile_obj || nobj > 0) && !be->build_obj && !emit_only) {
-		aholyc_i_error (cc, "backend '%s' cannot produce object files", be->name);
+		error (cc, "backend '%s' cannot produce object files", be->name);
 	}
 	if (nsrc == 0 && (compile_obj || emit_only)) {
-		aholyc_i_error (cc, "no source files");
+		error (cc, "no source files");
 	}
 	if (outpath && !strcmp (outpath, "-") && !emit_only) {
-		aholyc_i_error (cc, "-o '-' (stdout) requires -S");
+		error (cc, "-o '-' (stdout) requires -S");
 	}
 
 	Program *prog = NULL;
 	if (nsrc > 0) {
 		/* prelude first so its macros exist, then user files in order */
-		Token *toks = aholyc_i_lex_string (cc, aholyc_i_prelude_hc, "<prelude>", NULL);
+		Token *toks = lex_string (cc, aholyc_i_prelude_hc, "<prelude>", NULL);
 		for (int i = 0; i < nsrc; i++) {
-			toks = aholyc_i_token_join (toks, aholyc_i_lex_file (cc, sources[i]));
+			toks = token_join (toks, lex_file (cc, sources[i]));
 		}
-		prog = aholyc_i_parse (cc, toks, be != &aholyc_i_backend_js);
+		prog = parse (cc, toks, be != &aholyc_i_backend_js);
 	}
 
 	/* stem of first source, for default -c/-S output names */
@@ -242,7 +237,7 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 		if (!strcmp (base, "-")) {
 			base = "stdin";
 		}
-		stem = aholyc_i_xstrdup (cc, base);
+		stem = xstrdup (cc, base);
 		char *dot = strrchr (stem, '.');
 		if (dot && dot != stem) {
 			*dot = 0;
@@ -251,14 +246,11 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 
 	if (emit_only) {
 		if (outpath && !strcmp (outpath, "-")) {
-			be->emit (cc, prog, stdout, compile_obj || nobj > 0, compile_obj);
-			if (fflush (stdout) != 0 || ferror (stdout)) {
-				aholyc_i_error (cc, "writing to stdout failed");
-			}
+			emit_file (cc, be, prog, "-", compile_obj || nobj > 0, compile_obj);
 			return 0;
 		}
-		char *artifact = outpath? aholyc_i_xstrdup (cc, outpath):
-			aholyc_i_xasprintf (cc, "%s%s", stem, be->ext);
+		char *artifact = outpath? xstrdup (cc, outpath):
+			xasprintf (cc, "%s%s", stem, be->ext);
 		emit_file (cc, be, prog, artifact, compile_obj || nobj > 0, compile_obj);
 		if (cc->verbose) {
 			fprintf (stderr, "aholyc: wrote %s\n", artifact);
@@ -269,9 +261,9 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 	if (compile_obj) {
 		/* -c: one relocatable object from the source group */
 		if (!outpath) {
-			outpath = aholyc_i_xasprintf (cc, "%s.o", stem);
+			outpath = xasprintf (cc, "%s.o", stem);
 		}
-		char *artifact = aholyc_i_xasprintf (cc, "%s.aholyc%s", outpath, be->ext);
+		char *artifact = xasprintf (cc, "%s.aholyc%s", outpath, be->ext);
 		build_source (cc, be, prog, artifact, outpath, opt, true, true);
 		return 0;
 	}
@@ -286,33 +278,33 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 	char *tmpobj = NULL;
 	if (nobj == 0) {
 		/* whole-program build (single translation unit) */
-		char *artifact = aholyc_i_xasprintf (cc, "%s.aholyc%s", outpath, be->ext);
+		char *artifact = xasprintf (cc, "%s.aholyc%s", outpath, be->ext);
 		build_source (cc, be, prog, artifact, outpath, opt, false, false);
 		r = 0;
 	} else {
 		/* link mode: compile sources (if any) to a temp object, then
 		 * link everything with the runtime, like a C compiler would */
 		if (nsrc > 0) {
-			char *artifact = aholyc_i_xasprintf (cc, "%s.aholyc%s", outpath, be->ext);
-			tmpobj = aholyc_i_xasprintf (cc, "%s.aholyc.o", outpath);
+			char *artifact = xasprintf (cc, "%s.aholyc%s", outpath, be->ext);
+			tmpobj = xasprintf (cc, "%s.aholyc.o", outpath);
 			build_source (cc, be, prog, artifact, tmpobj, opt, true, false);
 		}
 		/* write the runtime and link */
-		char *rtpath = aholyc_i_xasprintf (cc, "%s.aholycrt.c", outpath);
-		FILE *f = fopen (rtpath, "w");
-		if (!f) {
-			aholyc_i_error (cc, "cannot write '%s'", rtpath);
+		char *rtpath = xasprintf (cc, "%s.aholycrt.c", outpath);
+		StrBuf rt;
+		sb_init (&rt, cc);
+		sb_puts (&rt, "#define HC_OBJECT_RUNTIME 1\n");
+		if (nsrc > 0) {
+			sb_puts (&rt, "#define HC_EXTERNAL_START 1\n");
 		}
-		fputs ("#define HC_OBJECT_RUNTIME 1\n", f);
-		if (nsrc > 0) fputs ("#define HC_EXTERNAL_START 1\n", f);
-		fputs (aholyc_i_rt_c_src, f);
-		fclose (f);
+		sb_puts (&rt, aholyc_i_rt_c_src);
+		write_file (cc, rtpath, rt.data, rt.len);
 		const char *link_inputs[66];
 		int n = 0;
 		if (tmpobj) link_inputs[n++] = tmpobj;
 		for (int i = 0; i < nobj; i++) link_inputs[n++] = objects[i];
 		link_inputs[n++] = rtpath;
-		r = aholyc_i_run_cc (cc, NULL, opt, outpath, link_inputs, n, false, false);
+		r = run_cc (cc, NULL, opt, outpath, link_inputs, n, false, false);
 		if (!cc->keep) {
 			unlink (rtpath);
 			if (tmpobj) {
@@ -321,15 +313,15 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 		}
 	}
 	if (r != 0) {
-		aholyc_i_error (cc, "failed to build %s", outpath);
+		error (cc, "failed to build %s", outpath);
 	}
 	if (run) {
-		char **rargv = aholyc_i_xcalloc (cc, (size_t)nrunargs + 2, sizeof(char *));
-		char *abspath = strchr (outpath, '/')? aholyc_i_xstrdup (cc, outpath):
-			aholyc_i_xasprintf (cc, "./%s", outpath);
+		char **rargv = xcalloc (cc, (size_t)nrunargs + 2, sizeof(char *));
+		char *abspath = strchr (outpath, '/')? xstrdup (cc, outpath):
+			xasprintf (cc, "./%s", outpath);
 		rargv[0] = abspath;
 		memcpy (rargv + 1, run_args, (size_t)nrunargs * sizeof(char *));
-		r = aholyc_i_run_cmd (cc, rargv);
+		r = run_cmd (cc, rargv);
 		if (tmpout && !cc->keep) {
 			unlink (outpath);
 		}
@@ -343,7 +335,7 @@ int aholyc_parseargv(Aholyc *cc, int argc, char **argv) {
 	cc->error_active = true;
 	int rc = 1;
 	if (!setjmp (cc->error_jmp)) {
-		aholyc_i_lex_reset (cc);
+		lex_reset (cc);
 		rc = parseargv (cc, argc, argv);
 	}
 	cc->error_active = false;

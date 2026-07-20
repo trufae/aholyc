@@ -31,7 +31,7 @@ static Type *const ty_u64 = (Type *)(const void *)&ty_u64_;
 static Type *const ty_f64 = (Type *)(const void *)&ty_f64_;
 
 static Type *new_type(Aholyc *cc, TypeKind k, int size, int align) {
-	Type *t = aholyc_i_xcalloc (cc, 1, sizeof(Type));
+	Type *t = xcalloc (cc, 1, sizeof(Type));
 	t->kind = k;
 	t->size = size;
 	t->align = align;
@@ -100,7 +100,7 @@ typedef struct {
 /* ------------------------------------------------------------- helpers */
 
 static void enter_scope(Parser *ps) {
-	Scope *s = aholyc_i_xcalloc (ps->cc, 1, sizeof(Scope));
+	Scope *s = xcalloc (ps->cc, 1, sizeof(Scope));
 	s->next = ps->scope;
 	ps->scope = s;
 }
@@ -150,7 +150,7 @@ static Type *find_class(Parser *ps, const char *name) {
 }
 
 static void scope_push(Parser *ps, char *name, Obj *var) {
-	VarScope *v = aholyc_i_xcalloc (ps->cc, 1, sizeof(VarScope));
+	VarScope *v = xcalloc (ps->cc, 1, sizeof(VarScope));
 	v->name = name;
 	v->var = var;
 	v->next = ps->scope->vars;
@@ -158,7 +158,7 @@ static void scope_push(Parser *ps, char *name, Obj *var) {
 }
 
 static Obj *new_obj(Parser *ps, char *name, Type *ty) {
-	Obj *o = aholyc_i_xcalloc (ps->cc, 1, sizeof(Obj));
+	Obj *o = xcalloc (ps->cc, 1, sizeof(Obj));
 	o->name = name;
 	o->ty = ty;
 	o->uid = ps->uid_counter++;
@@ -174,7 +174,7 @@ static Obj *new_local(Parser *ps, char *name, Type *ty) {
 }
 
 static Obj *new_temp(Parser *ps, Type *ty) {
-	char *name = aholyc_i_xasprintf (ps->cc, "tmp%d", ps->uid_counter);
+	char *name = xasprintf (ps->cc, "tmp%d", ps->uid_counter);
 	Obj *o = new_obj (ps, name, ty);
 	o->next = ps->fn_locals;
 	ps->fn_locals = o;
@@ -197,7 +197,7 @@ static Obj *new_global(Parser *ps, char *name, Type *ty) {
 }
 
 static char *new_label(Parser *ps, const char *hint) {
-	return aholyc_i_xasprintf (ps->cc, ".%s%d", hint, ps->label_counter++);
+	return xasprintf (ps->cc, ".%s%d", hint, ps->label_counter++);
 }
 
 /* token cursor */
@@ -219,26 +219,26 @@ static bool eat(Parser *ps, const char *s) {
 
 static void expect(Parser *ps, const char *s) {
 	if (!eat (ps, s)) {
-		aholyc_i_error_tok (ps->cc, ps->tk, "expected '%s'", s);
+		error_tok (ps->cc, ps->tk, "expected '%s'", s);
 	}
 }
 
 static void collect_hints(Parser *ps, Token *t, Token **bits, Token **func, Token **align) {
 	if (t && t->hint_bits) {
 		if (*bits) {
-			aholyc_i_error_tok (ps->cc, t, "duplicate @bits hint on declaration");
+			error_tok (ps->cc, t, "duplicate @bits hint on declaration");
 		}
 		*bits = t;
 	}
 	if (t && (t->hints & (HINT_INLINE | HINT_NOINLINE))) {
 		if (*func) {
-			aholyc_i_error_tok (ps->cc, t, "duplicate inline hint on declaration");
+			error_tok (ps->cc, t, "duplicate inline hint on declaration");
 		}
 		*func = t;
 	}
 	if (t && t->hint_align) {
 		if (*align) {
-			aholyc_i_error_tok (ps->cc, t, "duplicate @align hint on declaration");
+			error_tok (ps->cc, t, "duplicate @align hint on declaration");
 		}
 		*align = t;
 	}
@@ -246,7 +246,7 @@ static void collect_hints(Parser *ps, Token *t, Token **bits, Token **func, Toke
 
 static void reject_func_hint(Parser *ps, Token *t) {
 	if (t) {
-		aholyc_i_error_tok (ps->cc, t, "inline hints apply only to function declarations");
+		error_tok (ps->cc, t, "inline hints apply only to function declarations");
 	}
 }
 
@@ -256,7 +256,7 @@ static void collect_bits_hint(Parser *ps, Token *t, Token **bits) {
 	collect_hints (ps, t, bits, &func, &align);
 	reject_func_hint (ps, func);
 	if (align) {
-		aholyc_i_error_tok (ps->cc, align, "@align applies only to classes, fields, and local variables");
+		error_tok (ps->cc, align, "@align applies only to classes, fields, and local variables");
 	}
 }
 
@@ -275,14 +275,14 @@ static Type *hinted_type(Parser *ps, Type *ty, Token *hint) {
 		return ty;
 	}
 	if (!is_integer (ty)) {
-		aholyc_i_error_tok (ps->cc, hint, "@bits requires an integer declaration");
+		error_tok (ps->cc, hint, "@bits requires an integer declaration");
 	}
 	int bits = hint->hint_bits;
 	if (bits > ty->size * 8) {
-		aholyc_i_error_tok (ps->cc, hint, "@bits=%d exceeds the declared %d-bit integer width",
+		error_tok (ps->cc, hint, "@bits=%d exceeds the declared %d-bit integer width",
 			bits, ty->size * 8);
 	}
-	Type *t = aholyc_i_xmalloc (ps->cc, sizeof(*t));
+	Type *t = xmalloc (ps->cc, sizeof(*t));
 	*t = *ty;
 	t->bits = bits;
 	return t;
@@ -291,7 +291,7 @@ static Type *hinted_type(Parser *ps, Type *ty, Token *hint) {
 /* ------------------------------------------------------------ AST nodes */
 
 static Node *new_node(NodeKind kind, Token *tok) {
-	Node *n = aholyc_i_xcalloc (tok->cc, 1, sizeof(Node));
+	Node *n = xcalloc (tok->cc, 1, sizeof(Node));
 	n->kind = kind;
 	n->tok = tok;
 	return n;
@@ -482,10 +482,10 @@ static bool is_lvalue(Node *n) {
 
 static Node *new_assign(Parser *ps, Node *lhs, Node *rhs, Token *tok) {
 	if (!is_lvalue (lhs)) {
-		aholyc_i_error_tok (ps->cc, tok, "not an assignable expression");
+		error_tok (ps->cc, tok, "not an assignable expression");
 	}
 	if (lhs->ty->kind == TY_ARRAY) {
-		aholyc_i_error_tok (ps->cc, tok, "cannot assign to an array");
+		error_tok (ps->cc, tok, "cannot assign to an array");
 	}
 	rhs = rvalize (rhs);
 	/* implicit conversion to stored type */
@@ -531,7 +531,7 @@ static Type *parse_typespec(Parser *ps) {
 		ty = find_class (ps, ps->tk->str);
 	}
 	if (!ty) {
-		aholyc_i_error_tok (ps->cc, ps->tk, "unknown type '%s'", ps->tk->str);
+		error_tok (ps->cc, ps->tk, "unknown type '%s'", ps->tk->str);
 	}
 	ps->tk = ps->tk->next;
 	while (is_punct (ps, "*")) {
@@ -556,12 +556,12 @@ static int64_t eval_const(Parser *ps, Node *n) {
 	case ND_MUL: return eval_const (ps, n->lhs) * eval_const (ps, n->rhs);
 	case ND_DIV: {
 		int64_t d = eval_const (ps, n->rhs);
-		if (!d) aholyc_i_error_tok (ps->cc, n->tok, "division by zero in constant");
+		if (!d) error_tok (ps->cc, n->tok, "division by zero in constant");
 		return eval_const (ps, n->lhs) / d;
 	}
 	case ND_MOD: {
 		int64_t d = eval_const (ps, n->rhs);
-		if (!d) aholyc_i_error_tok (ps->cc, n->tok, "division by zero in constant");
+		if (!d) error_tok (ps->cc, n->tok, "division by zero in constant");
 		return eval_const (ps, n->lhs) % d;
 	}
 	case ND_AND: return eval_const (ps, n->lhs) & eval_const (ps, n->rhs);
@@ -580,7 +580,7 @@ static int64_t eval_const(Parser *ps, Node *n) {
 	case ND_LT: return eval_const (ps, n->lhs) < eval_const (ps, n->rhs);
 	case ND_LE: return eval_const (ps, n->lhs) <= eval_const (ps, n->rhs);
 	default:
-		aholyc_i_error_tok (ps->cc, n->tok, "not a constant expression");
+		error_tok (ps->cc, n->tok, "not a constant expression");
 		return 0;
 	}
 }
@@ -595,7 +595,7 @@ static Node *block_stmt(Parser *ps);
 
 static Node *new_str_node(Parser *ps, char *data, int len, Token *tok) {
 	Node *n = new_node (ND_STR, tok);
-	StrLit *s = aholyc_i_xcalloc (ps->cc, 1, sizeof(StrLit));
+	StrLit *s = xcalloc (ps->cc, 1, sizeof(StrLit));
 	s->data = data;
 	s->len = len;
 	s->id = ps->prog->nstrings++;
@@ -639,7 +639,7 @@ static const char *holyc_type_name(Type *ty) {
 static Node *call_named(Parser *ps, const char *name, Node *args, int nargs, Token *tok) {
 	Obj *fn = find_func (ps, name);
 	if (!fn) {
-		aholyc_i_error_tok (ps->cc, tok, "runtime function '%s' is not declared (missing prelude?)", name);
+		error_tok (ps->cc, tok, "runtime function '%s' is not declared (missing prelude?)", name);
 	}
 	return make_call (ps, fn, args, nargs, tok);
 }
@@ -655,13 +655,13 @@ static Node *make_call(Parser *ps, Obj *fn, Node *args, int nargs, Token *tok) {
 	int i, argc = 0;
 	for (Node *a = args; a; a = a->next) {
 		if (argc >= 256) {
-			aholyc_i_error_tok (ps->cc, tok, "too many arguments");
+			error_tok (ps->cc, tok, "too many arguments");
 		}
 		argv[argc++] = a;
 	}
 	(void)nargs;
 	if (!fn->is_variadic && argc > fn->nparams) {
-		aholyc_i_error_tok (ps->cc, tok, "too many arguments to %s() (takes %d)", fn->name, fn->nparams);
+		error_tok (ps->cc, tok, "too many arguments to %s() (takes %d)", fn->name, fn->nparams);
 	}
 	int nfixed = fn->nparams < argc? fn->nparams: argc;
 	Obj *p = fn->params;
@@ -673,15 +673,15 @@ static Node *make_call(Parser *ps, Obj *fn, Node *args, int nargs, Token *tok) {
 		}
 		if (!a) {
 			if (!fn->defaults || !fn->defaults[i]) {
-				aholyc_i_error_tok (ps->cc, tok, "missing argument %d in call to %s() and no default", i + 1, fn->name);
+				error_tok (ps->cc, tok, "missing argument %d in call to %s() and no default", i + 1, fn->name);
 			}
 			a = fn->defaults[i];
 			if (a == nd_lastclass) {
 				if (!prev_ty) {
-					aholyc_i_error_tok (ps->cc, tok, "lastclass argument %d in call to %s() has no previous argument", i + 1, fn->name);
+					error_tok (ps->cc, tok, "lastclass argument %d in call to %s() has no previous argument", i + 1, fn->name);
 				}
 				const char *nm = holyc_type_name (prev_ty);
-				a = new_str_node (ps, aholyc_i_xstrdup (ps->cc, nm), strlen (nm), tok);
+				a = new_str_node (ps, xstrdup (ps->cc, nm), strlen (nm), tok);
 			}
 		}
 		a = rvalize (a);
@@ -698,7 +698,7 @@ static Node *make_call(Parser *ps, Obj *fn, Node *args, int nargs, Token *tok) {
 	/* variadic extras keep their own types (F64 slots bit-copied) */
 	for (i = fn->nparams; i < argc; i++) {
 		if (argv[i]->kind == ND_NOP) {
-			aholyc_i_error_tok (ps->cc, tok, "empty variadic argument");
+			error_tok (ps->cc, tok, "empty variadic argument");
 		}
 		argv[i] = rvalize (argv[i]);
 	}
@@ -711,7 +711,7 @@ static Node *make_call(Parser *ps, Obj *fn, Node *args, int nargs, Token *tok) {
 	for (i = 0; i < total; i++) {
 		/* shallow-clone: default exprs are shared between call sites, so
 		 * never relink the original nodes' next pointers */
-		Node *c = aholyc_i_xmalloc (ps->cc, sizeof(Node));
+		Node *c = xmalloc (ps->cc, sizeof(Node));
 		*c = *argv[i];
 		c->next = NULL;
 		cur->next = c;
@@ -733,7 +733,7 @@ static Node *make_indirect_call(Parser *ps, Node *callee, Node *args, Token *tok
 	n->ty = fnty && fnty->base? value_type (ps->cc, fnty->base): ty_i64;
 	for (Node *a = args; a; a = a->next) {
 		if (a->kind == ND_NOP) {
-			aholyc_i_error_tok (ps->cc, tok, "default arguments require a direct call");
+			error_tok (ps->cc, tok, "default arguments require a direct call");
 		}
 	}
 	n->args = args;
@@ -795,7 +795,7 @@ static Node *primary(Parser *ps) {
 			len += q->len;
 			q = q->next;
 		}
-		char *buf = aholyc_i_xmalloc (ps->cc, len + 1);
+		char *buf = xmalloc (ps->cc, len + 1);
 		int off = 0;
 		for (Token *s = t; s != q; s = s->next) {
 			memcpy (buf + off, s->str, s->len);
@@ -826,15 +826,15 @@ static Node *primary(Parser *ps) {
 		expect (ps, "(");
 		Type *cls = is_type_start (ps, ps->tk)? parse_typespec (ps): NULL;
 		if (!cls || cls->kind != TY_CLASS) {
-			aholyc_i_error_tok (ps->cc, t, "offset(Class.member) expects a class name");
+			error_tok (ps->cc, t, "offset(Class.member) expects a class name");
 		}
 		expect (ps, ".");
 		if (ps->tk->kind != TK_ID) {
-			aholyc_i_error_tok (ps->cc, ps->tk, "expected member name");
+			error_tok (ps->cc, ps->tk, "expected member name");
 		}
 		Member *m = find_member (cls, ps->tk->str);
 		if (!m) {
-			aholyc_i_error_tok (ps->cc, ps->tk, "no member '%s' in class %s", ps->tk->str, cls->name);
+			error_tok (ps->cc, ps->tk, "no member '%s' in class %s", ps->tk->str, cls->name);
 		}
 		ps->tk = ps->tk->next;
 		expect (ps, ")");
@@ -848,7 +848,7 @@ static Node *primary(Parser *ps) {
 		/* current address in the generated code (TempleOS RIP) */
 		Obj *fn = find_func (ps, "__hc_rip");
 		if (!fn) {
-			aholyc_i_error_tok (ps->cc, t, "'$$' needs the runtime prelude");
+			error_tok (ps->cc, t, "'$$' needs the runtime prelude");
 		}
 		return make_call (ps, fn, NULL, 0, t);
 	}
@@ -868,9 +868,9 @@ static Node *primary(Parser *ps) {
 			/* paren-less call: Dir; Ret = F; etc. */
 			return make_call (ps, fn, NULL, 0, t);
 		}
-		aholyc_i_error_tok (ps->cc, t, "undefined symbol '%s'", t->str);
+		error_tok (ps->cc, t, "undefined symbol '%s'", t->str);
 	}
-	aholyc_i_error_tok (ps->cc, t, "expected an expression");
+	error_tok (ps->cc, t, "expected an expression");
 	return NULL;
 }
 
@@ -892,7 +892,7 @@ static Node *lval_addr_temp(Parser *ps, Node *lval, Node **out_deref, Token *t) 
 
 static Node *incdec(Parser *ps, Node *lval, int delta, bool post, Token *t) {
 	if (!is_lvalue (lval)) {
-		aholyc_i_error_tok (ps->cc, t, "++/-- needs an lvalue");
+		error_tok (ps->cc, t, "++/-- needs an lvalue");
 	}
 	Node *place, *setup = lval_addr_temp (ps, lval, &place, t);
 	Node *one = new_num (delta, t);
@@ -930,20 +930,20 @@ static Type *subint_view_type(const char *name) {
 static Node *subint_access(Parser *ps, Node *base, Token *t) {
 	Type *view = subint_view_type (ps->tk->str);
 	if (!view) {
-		aholyc_i_error_tok (ps->cc, ps->tk, "no member '%s' in an integer", ps->tk->str);
+		error_tok (ps->cc, ps->tk, "no member '%s' in an integer", ps->tk->str);
 	}
 	if (view->size >= base->ty->size) {
-		aholyc_i_error_tok (ps->cc, ps->tk, "sub-int view '%s' needs a wider int than %s",
+		error_tok (ps->cc, ps->tk, "sub-int view '%s' needs a wider int than %s",
 			ps->tk->str, base->ty->size == 1? "a byte":
 			base->ty->size == 2? "U16": "U32");
 	}
 	if (!is_lvalue (base)) {
-		aholyc_i_error_tok (ps->cc, t, "sub-int access needs an addressable value");
+		error_tok (ps->cc, t, "sub-int access needs an addressable value");
 	}
 	/* narrow params live sign-extended in a full 64-bit slot; a store
 	 * through a view would leave the slot badly extended */
 	if (base->kind == ND_VAR && base->var->is_param && base->ty->size < 8) {
-		aholyc_i_error_tok (ps->cc, t, "sub-int access on a narrow parameter; copy it to a local");
+		error_tok (ps->cc, t, "sub-int access on a narrow parameter; copy it to a local");
 	}
 	Type *arr = array_of (ps->cc, view, base->ty->size / view->size);
 	Node *a = new_unary (ps, ND_ADDR, base, t);
@@ -978,11 +978,11 @@ static Node *postfix(Parser *ps) {
 			expect (ps, "]");
 			Node *sum = new_binary (ps, ND_ADD, n, idx, t);
 			if (!is_ptrish (sum->ty) && sum->ty->kind != TY_PTR) {
-				aholyc_i_error_tok (ps->cc, t, "subscript on a non-pointer");
+				error_tok (ps->cc, t, "subscript on a non-pointer");
 			}
 			Node *d = new_unary (ps, ND_DEREF, sum, t);
 			if (sum->ty->kind != TY_PTR || !sum->ty->base) {
-				aholyc_i_error_tok (ps->cc, t, "cannot index this expression");
+				error_tok (ps->cc, t, "cannot index this expression");
 			}
 			d->ty = sum->ty->base;
 			n = d;
@@ -992,13 +992,13 @@ static Node *postfix(Parser *ps) {
 			bool arrow = is_punct (ps, "->");
 			ps->tk = ps->tk->next;
 			if (ps->tk->kind != TK_ID) {
-				aholyc_i_error_tok (ps->cc, ps->tk, "expected member name");
+				error_tok (ps->cc, ps->tk, "expected member name");
 			}
 			Node *base = n;
 			if (arrow) {
 				base = rvalize (n);
 				if (base->ty->kind != TY_PTR || !base->ty->base) {
-					aholyc_i_error_tok (ps->cc, t, "'->' on a non-pointer");
+					error_tok (ps->cc, t, "'->' on a non-pointer");
 				}
 				Node *d = new_unary (ps, ND_DEREF, base, t);
 				d->ty = base->ty->base;
@@ -1009,11 +1009,11 @@ static Node *postfix(Parser *ps) {
 				continue;
 			}
 			if (base->ty->kind != TY_CLASS) {
-				aholyc_i_error_tok (ps->cc, t, "member access on a non-class value");
+				error_tok (ps->cc, t, "member access on a non-class value");
 			}
 			Member *m = find_member (base->ty, ps->tk->str);
 			if (!m) {
-				aholyc_i_error_tok (ps->cc, ps->tk, "no member '%s' in class %s", ps->tk->str,
+				error_tok (ps->cc, ps->tk, "no member '%s' in class %s", ps->tk->str,
 					base->ty->name? base->ty->name: "?");
 			}
 			Node *mn = new_node (ND_MEMBER, t);
@@ -1061,7 +1061,7 @@ static Node *unary(Parser *ps) {
 	if (eat (ps, "*")) {
 		Node *n = rvalize (unary (ps));
 		if (n->ty->kind != TY_PTR || !n->ty->base) {
-			aholyc_i_error_tok (ps->cc, t, "dereference of a non-pointer");
+			error_tok (ps->cc, t, "dereference of a non-pointer");
 		}
 		Node *d = new_unary (ps, ND_DEREF, n, t);
 		d->ty = n->ty->base;
@@ -1081,7 +1081,7 @@ static Node *unary(Parser *ps) {
 		}
 		Node *n = unary (ps);
 		if (!is_lvalue (n)) {
-			aholyc_i_error_tok (ps->cc, t, "'&' needs an lvalue");
+			error_tok (ps->cc, t, "'&' needs an lvalue");
 		}
 		Node *a = new_unary (ps, ND_ADDR, n, t);
 		a->ty = ptr_to (ps->cc, n->ty);
@@ -1269,7 +1269,7 @@ static Node *assign(Parser *ps) {
 		if (is_punct (ps, comp[i].op)) {
 			ps->tk = ps->tk->next;
 			if (!is_lvalue (n)) {
-				aholyc_i_error_tok (ps->cc, t, "not an assignable expression");
+				error_tok (ps->cc, t, "not an assignable expression");
 			}
 			Node *rhs = assign (ps);
 			Node *place, *setup = lval_addr_temp (ps, n, &place, t);
@@ -1323,7 +1323,7 @@ static void label_use(Parser *ps, char *name, Token *t, bool define) {
 			return;
 		}
 	}
-	LabelRef *l = aholyc_i_xcalloc (ps->cc, 1, sizeof(LabelRef));
+	LabelRef *l = xcalloc (ps->cc, 1, sizeof(LabelRef));
 	l->name = name;
 	l->tok = t;
 	l->defined = define;
@@ -1411,7 +1411,7 @@ static Node *local_decl(Parser *ps) {
 			ps->tk = ps->tk->next;
 			expect (ps, "*");
 			if (ps->tk->kind != TK_ID) {
-				aholyc_i_error_tok (ps->cc, ps->tk, "expected name");
+				error_tok (ps->cc, ps->tk, "expected name");
 			}
 			char *name = ps->tk->str;
 			ps->tk = ps->tk->next;
@@ -1438,7 +1438,7 @@ static Node *local_decl(Parser *ps) {
 			continue;
 		}
 		if (ps->tk->kind != TK_ID) {
-			aholyc_i_error_tok (ps->cc, ps->tk, "expected variable name");
+			error_tok (ps->cc, ps->tk, "expected variable name");
 		}
 		char *name = ps->tk->str;
 		Token *nt = ps->tk;
@@ -1454,7 +1454,7 @@ static Node *local_decl(Parser *ps) {
 			if (is_punct (ps, "{")) {
 				/* brace initializer for 1-D arrays */
 				if (ty->kind != TY_ARRAY) {
-					aholyc_i_error_tok (ps->cc, ps->tk, "brace initializer needs an array");
+					error_tok (ps->cc, ps->tk, "brace initializer needs an array");
 				}
 				ps->tk = ps->tk->next;
 				int idx = 0;
@@ -1574,7 +1574,7 @@ static Node *switch_stmt(Parser *ps, Token *t) {
 		Token *ct = ps->tk;
 		if (is_kw (ps, "case")) {
 			ps->tk = ps->tk->next;
-			SwCase *c = aholyc_i_xcalloc (ps->cc, 1, sizeof(SwCase));
+			SwCase *c = xcalloc (ps->cc, 1, sizeof(SwCase));
 			if (is_punct (ps, ":")) {
 				c->lo = c->hi = sw.next_case_val;
 			} else {
@@ -1600,7 +1600,7 @@ static Node *switch_stmt(Parser *ps, Token *t) {
 				sw.grp_first_case = c;
 				/* porch dispatch emitted in pass 2 (needs all group cases) */
 				Node *anchor = new_node (ND_NOP, ct);
-				anchor->label = aholyc_i_xasprintf (ps->cc, "porch%d", sw.cur_group);
+				anchor->label = xasprintf (ps->cc, "porch%d", sw.cur_group);
 				sw_append (&sw, anchor);
 				sw.porch_dispatch_anchor = anchor;
 			}
@@ -1610,7 +1610,7 @@ static Node *switch_stmt(Parser *ps, Token *t) {
 		if (is_kw (ps, "default")) {
 			ps->tk = ps->tk->next;
 			expect (ps, ":");
-			SwCase *c = aholyc_i_xcalloc (ps->cc, 1, sizeof(SwCase));
+			SwCase *c = xcalloc (ps->cc, 1, sizeof(SwCase));
 			c->is_default = true;
 			c->label = new_label (ps, "default");
 			c->group = sw.cur_group;
@@ -1626,10 +1626,10 @@ static Node *switch_stmt(Parser *ps, Token *t) {
 		if (is_kw (ps, "start") && ps->tk->next->kind == TK_PUNCT && !strcmp (ps->tk->next->str, ":")) {
 			ps->tk = ps->tk->next->next;
 			if (sw.cur_group >= 0) {
-				aholyc_i_error_tok (ps->cc, ct, "nested start:/end: groups are not supported");
+				error_tok (ps->cc, ct, "nested start:/end: groups are not supported");
 			}
 			if (sw.ngroups >= 64) {
-				aholyc_i_error_tok (ps->cc, ct, "too many sub_switch groups");
+				error_tok (ps->cc, ct, "too many sub_switch groups");
 			}
 			sw.cur_group = sw.ngroups++;
 			if (!sw.grp_var) {
@@ -1649,7 +1649,7 @@ static Node *switch_stmt(Parser *ps, Token *t) {
 			Token *et = ps->tk;
 			ps->tk = ps->tk->next->next;
 			if (sw.cur_group < 0) {
-				aholyc_i_error_tok (ps->cc, et, "end: without start:");
+				error_tok (ps->cc, et, "end: without start:");
 			}
 			sw_append (&sw, new_labelstmt (sw.group_end[sw.cur_group], et));
 			sw.cur_group = -1;
@@ -1664,7 +1664,7 @@ static Node *switch_stmt(Parser *ps, Token *t) {
 	ps->break_label = save_break;
 
 	if (sw.cur_group >= 0) {
-		aholyc_i_error_tok (ps->cc, t, "start: without end: in switch");
+		error_tok (ps->cc, t, "start: without end: in switch");
 	}
 
 	/* Pass 2: build dispatch. */
@@ -1800,7 +1800,7 @@ static Node *stmt(Parser *ps) {
 		n->then = stmt (ps);
 		ps->break_label = save;
 		if (!is_kw (ps, "while")) {
-			aholyc_i_error_tok (ps->cc, ps->tk, "expected 'while' after do body");
+			error_tok (ps->cc, ps->tk, "expected 'while' after do body");
 		}
 		ps->tk = ps->tk->next;
 		expect (ps, "(");
@@ -1880,30 +1880,30 @@ static Node *stmt(Parser *ps) {
 		ps->tk = ps->tk->next;
 		expect (ps, ";");
 		if (!ps->break_label) {
-			aholyc_i_error_tok (ps->cc, t, "break outside of a loop or switch");
+			error_tok (ps->cc, t, "break outside of a loop or switch");
 		}
 		return new_goto (ps->break_label, t);
 	}
 	if (is_kw (ps, "continue")) {
-		aholyc_i_error_tok (ps->cc, t, "HolyC has no 'continue' statement; use goto (see doc/language.md)");
+		error_tok (ps->cc, t, "HolyC has no 'continue' statement; use goto (see doc/language.md)");
 	}
 	if (is_kw (ps, "goto")) {
 		ps->tk = ps->tk->next;
 		if (ps->tk->kind != TK_ID) {
-			aholyc_i_error_tok (ps->cc, ps->tk, "expected label after goto");
+			error_tok (ps->cc, ps->tk, "expected label after goto");
 		}
 		char *name = ps->tk->str;
 		ps->tk = ps->tk->next;
 		expect (ps, ";");
 		label_use (ps, name, t, false);
-		return new_goto (aholyc_i_xasprintf (ps->cc, "u_%s", name), t);
+		return new_goto (xasprintf (ps->cc, "u_%s", name), t);
 	}
 	if (is_kw (ps, "try")) {
 		ps->tk = ps->tk->next;
 		Node *n = new_node (ND_TRY, t);
 		n->then = block_stmt (ps);
 		if (!is_kw (ps, "catch")) {
-			aholyc_i_error_tok (ps->cc, ps->tk, "expected 'catch' after try block");
+			error_tok (ps->cc, ps->tk, "expected 'catch' after try block");
 		}
 		ps->tk = ps->tk->next;
 		n->els = block_stmt (ps);
@@ -1912,14 +1912,14 @@ static Node *stmt(Parser *ps) {
 	if (is_kw (ps, "no_warn")) {
 		while (!eat (ps, ";")) {
 			if (ps->tk->kind == TK_EOF) {
-				aholyc_i_error_tok (ps->cc, t, "unterminated no_warn");
+				error_tok (ps->cc, t, "unterminated no_warn");
 			}
 			ps->tk = ps->tk->next;
 		}
 		return new_node (ND_NOP, t);
 	}
 	if (is_kw (ps, "asm")) {
-		aholyc_i_error_tok (ps->cc, t, "inline asm is not supported by aholyc (portable backends only)");
+		error_tok (ps->cc, t, "inline asm is not supported by aholyc (portable backends only)");
 	}
 	if (is_kw (ps, "lock")) {
 		/* compile the block without lock semantics */
@@ -1932,7 +1932,7 @@ static Node *stmt(Parser *ps) {
 		char *name = t->str;
 		ps->tk = t->next->next;
 		label_use (ps, name, t, true);
-		return new_labelstmt (aholyc_i_xasprintf (ps->cc, "u_%s", name), t);
+		return new_labelstmt (xasprintf (ps->cc, "u_%s", name), t);
 	}
 	/* declaration? */
 	if (is_type_start (ps, t)) {
@@ -1965,7 +1965,7 @@ static Node *block_stmt(Parser *ps) {
 	Node *cur = &head;
 	while (!is_punct (ps, "}")) {
 		if (ps->tk->kind == TK_EOF) {
-			aholyc_i_error_tok (ps->cc, t, "unterminated block");
+			error_tok (ps->cc, t, "unterminated block");
 		}
 		Node *s = stmt (ps);
 		cur->next = s;
@@ -1985,7 +1985,7 @@ static Node *block_stmt(Parser *ps) {
 static void check_labels(Parser *ps) {
 	for (LabelRef *l = ps->fn_labels; l; l = l->next) {
 		if (!l->defined) {
-			aholyc_i_error_tok (ps->cc, l->tok, "goto to undefined label '%s'", l->name);
+			error_tok (ps->cc, l->tok, "goto to undefined label '%s'", l->name);
 		}
 	}
 	ps->fn_labels = NULL;
@@ -2009,7 +2009,7 @@ static void parse_params(Parser *ps, Obj *fn) {
 			break;
 		}
 		if (!is_type_start (ps, ps->tk)) {
-			aholyc_i_error_tok (ps->cc, ps->tk, "expected parameter type");
+			error_tok (ps->cc, ps->tk, "expected parameter type");
 		}
 		Token *hint = NULL;
 		collect_bits_hint (ps, ps->tk, &hint);
@@ -2033,9 +2033,9 @@ static void parse_params(Parser *ps, Obj *fn) {
 			ty = ptr_to (ps->cc, ty);
 		}
 		if (ty->kind == TY_CLASS) {
-			aholyc_i_error_tok (ps->cc, ps->tk, "class values cannot be parameters; pass a pointer");
+			error_tok (ps->cc, ps->tk, "class values cannot be parameters; pass a pointer");
 		}
-		Obj *p = new_obj (ps, name? name: aholyc_i_xasprintf (ps->cc, "arg%d", n),
+		Obj *p = new_obj (ps, name? name: xasprintf (ps->cc, "arg%d", n),
 			hinted_type (ps, ty, hint));
 		defaults[n] = NULL;
 		if (eat (ps, "=")) {
@@ -2052,7 +2052,7 @@ static void parse_params(Parser *ps, Obj *fn) {
 		}
 		n++;
 		if (n >= 250) {
-			aholyc_i_error_tok (ps->cc, ps->tk, "too many parameters");
+			error_tok (ps->cc, ps->tk, "too many parameters");
 		}
 		cur->next = p;
 		cur = p;
@@ -2060,8 +2060,8 @@ static void parse_params(Parser *ps, Obj *fn) {
 	expect (ps, ")");
 	if (fn->is_variadic) {
 		/* implicit argc/argv params */
-		Obj *pargc = new_obj (ps, aholyc_i_xstrdup (ps->cc, "argc"), ty_i64);
-		Obj *pargv = new_obj (ps, aholyc_i_xstrdup (ps->cc, "argv"),
+		Obj *pargc = new_obj (ps, xstrdup (ps->cc, "argc"), ty_i64);
+		Obj *pargv = new_obj (ps, xstrdup (ps->cc, "argv"),
 			ptr_to (ps->cc, ty_i64));
 		cur->next = pargc;
 		pargc->next = pargv;
@@ -2072,7 +2072,7 @@ static void parse_params(Parser *ps, Obj *fn) {
 	}
 	fn->params = head.next;
 	fn->nparams = n;
-	fn->defaults = aholyc_i_xmalloc (ps->cc, sizeof(Node *) * (n? n: 1));
+	fn->defaults = xmalloc (ps->cc, sizeof(Node *) * (n? n: 1));
 	memcpy (fn->defaults, defaults, sizeof(Node *) * n);
 }
 
@@ -2088,7 +2088,7 @@ static void add_func(Parser *ps, Obj *fn) {
 static void parse_class(Parser *ps, bool is_union, int align_all) {
 	ps->tk = ps->tk->next; /* class/union */
 	if (ps->tk->kind != TK_ID) {
-		aholyc_i_error_tok (ps->cc, ps->tk, "expected class name");
+		error_tok (ps->cc, ps->tk, "expected class name");
 	}
 	char *name = ps->tk->str;
 	ps->tk = ps->tk->next;
@@ -2097,7 +2097,7 @@ static void parse_class(Parser *ps, bool is_union, int align_all) {
 		ty = new_type (ps->cc, TY_CLASS, 0, 1);
 		ty->name = name;
 		ty->is_union = is_union;
-		ClassEnt *c = aholyc_i_xcalloc (ps->cc, 1, sizeof(ClassEnt));
+		ClassEnt *c = xcalloc (ps->cc, 1, sizeof(ClassEnt));
 		c->name = name;
 		c->ty = ty;
 		c->next = ps->classes;
@@ -2108,11 +2108,11 @@ static void parse_class(Parser *ps, bool is_union, int align_all) {
 	}
 	if (eat (ps, ":")) {
 		if (ps->tk->kind != TK_ID) {
-			aholyc_i_error_tok (ps->cc, ps->tk, "expected parent class name");
+			error_tok (ps->cc, ps->tk, "expected parent class name");
 		}
 		Type *parent = find_class (ps, ps->tk->str);
 		if (!parent) {
-			aholyc_i_error_tok (ps->cc, ps->tk, "unknown parent class '%s'", ps->tk->str);
+			error_tok (ps->cc, ps->tk, "unknown parent class '%s'", ps->tk->str);
 		}
 		ty->parent = parent;
 		ps->tk = ps->tk->next;
@@ -2152,7 +2152,7 @@ static void parse_class(Parser *ps, bool is_union, int align_all) {
 			continue;
 		}
 		if (!is_type_start (ps, ps->tk)) {
-			aholyc_i_error_tok (ps->cc, ps->tk, "expected member type");
+			error_tok (ps->cc, ps->tk, "expected member type");
 		}
 		Token *hint = NULL, *func_hint = NULL, *align_hint = NULL;
 		collect_hints (ps, ps->tk, &hint, &func_hint, &align_hint);
@@ -2173,7 +2173,7 @@ static void parse_class(Parser *ps, bool is_union, int align_all) {
 			}
 			first = false;
 			if (ps->tk->kind != TK_ID) {
-				aholyc_i_error_tok (ps->cc, ps->tk, "expected member name");
+				error_tok (ps->cc, ps->tk, "expected member name");
 			}
 			char *mname = ps->tk->str;
 			ps->tk = ps->tk->next;
@@ -2183,9 +2183,9 @@ static void parse_class(Parser *ps, bool is_union, int align_all) {
 				mty = array_of (ps->cc, mty, (int)eval_const (ps, len));
 			}
 			if (mty->kind == TY_CLASS && mty->size == 0) {
-				aholyc_i_error_tok (ps->cc, ps->tk, "member of incomplete class type");
+				error_tok (ps->cc, ps->tk, "member of incomplete class type");
 			}
-			Member *m = aholyc_i_xcalloc (ps->cc, 1, sizeof(Member));
+			Member *m = xcalloc (ps->cc, 1, sizeof(Member));
 			m->name = mname;
 			m->ty = hinted_type (ps, mty, hint);
 			int natural = mty->align? mty->align: 1;
@@ -2243,7 +2243,7 @@ static void parse_func(Parser *ps, Type *ret, char *name, bool is_extern, bool i
 	fn->is_extern = is_extern;
 	if (inline_tok) {
 		if (fn->hints && fn->hints != inline_tok->hints) {
-			aholyc_i_error_tok (ps->cc, inline_tok, "conflicting inline hint for function %s", name);
+			error_tok (ps->cc, inline_tok, "conflicting inline hint for function %s", name);
 		}
 		fn->hints = inline_tok->hints;
 	}
@@ -2272,7 +2272,7 @@ static void parse_func(Parser *ps, Type *ret, char *name, bool is_extern, bool i
 		return;
 	}
 	if (fn->body) {
-		aholyc_i_error_tok (ps->cc, ps->tk, "redefinition of function %s", name);
+		error_tok (ps->cc, ps->tk, "redefinition of function %s", name);
 	}
 	/* params visible in body scope */
 	for (Obj *p = fn->params; p; p = p->next) {
@@ -2334,7 +2334,7 @@ static Node *global_decl(Parser *ps, Type *base, bool is_extern, bool is_public,
 			continue;
 		}
 		if (ps->tk->kind != TK_ID) {
-			aholyc_i_error_tok (ps->cc, ps->tk, "expected variable name");
+			error_tok (ps->cc, ps->tk, "expected variable name");
 		}
 		char *name = ps->tk->str;
 		Token *nt = ps->tk;
@@ -2353,7 +2353,7 @@ static Node *global_decl(Parser *ps, Type *base, bool is_extern, bool is_public,
 		if (eat (ps, "=")) {
 			if (is_punct (ps, "{")) {
 				if (ty->kind != TY_ARRAY) {
-					aholyc_i_error_tok (ps->cc, ps->tk, "brace initializer needs an array");
+					error_tok (ps->cc, ps->tk, "brace initializer needs an array");
 				}
 				ps->tk = ps->tk->next;
 				int idx = 0;
@@ -2394,16 +2394,16 @@ static Node *global_decl(Parser *ps, Type *base, bool is_extern, bool is_public,
 
 /* ------------------------------------------------------------- top level */
 
-Program *aholyc_i_parse(Aholyc *cc, Token *tok, bool align_hints) {
+Program *parse(Aholyc *cc, Token *tok, bool align_hints) {
 	Parser state = {
 		.cc = cc, .tk = tok, .uid_counter = 1, .label_counter = 1,
 		.align_hints = align_hints,
 	};
 	Parser *ps = &state;
-	ps->prog = aholyc_i_xcalloc (ps->cc, 1, sizeof(Program));
+	ps->prog = xcalloc (ps->cc, 1, sizeof(Program));
 	enter_scope (ps); /* global scope */
 
-	Obj *startup = new_obj (ps, aholyc_i_xstrdup (ps->cc, "__hc_start"), NULL);
+	Obj *startup = new_obj (ps, xstrdup (ps->cc, "__hc_start"), NULL);
 	startup->is_func = true;
 	Type *fnty = new_type (ps->cc, TY_FUNC, 8, 8);
 	/* Falling off global startup succeeds; an explicit top-level return
@@ -2412,14 +2412,14 @@ Program *aholyc_i_parse(Aholyc *cc, Token *tok, bool align_hints) {
 	startup->ty = fnty;
 	/* Like a variadic function, global-space startup receives a hidden
 	 * count/vector pair.  CLI vector elements are pointer-sized I64 slots. */
-	Obj *pargc = new_obj (ps, aholyc_i_xstrdup (ps->cc, "argc"), ty_i64);
-	Obj *pargv = new_obj (ps, aholyc_i_xstrdup (ps->cc, "argv"),
+	Obj *pargc = new_obj (ps, xstrdup (ps->cc, "argc"), ty_i64);
+	Obj *pargv = new_obj (ps, xstrdup (ps->cc, "argv"),
 		ptr_to (ps->cc, ty_i64));
 	pargc->is_param = pargv->is_param = true;
 	pargc->next = pargv;
 	startup->params = pargc;
 	startup->is_variadic = true;
-	startup->defaults = aholyc_i_xmalloc (ps->cc, sizeof(Node *));
+	startup->defaults = xmalloc (ps->cc, sizeof(Node *));
 	ps->prog->startup = startup;
 
 	Node top_head = {0};
@@ -2454,7 +2454,7 @@ Program *aholyc_i_parse(Aholyc *cc, Token *tok, bool align_hints) {
 		}
 		if (is_kw (ps, "class")) {
 			if (hint) {
-				aholyc_i_error_tok (ps->cc, hint, "@bits applies only to integer object declarations");
+				error_tok (ps->cc, hint, "@bits applies only to integer object declarations");
 			}
 			reject_func_hint (ps, inline_tok);
 			parse_class (ps, false, align_tok && ps->align_hints? align_tok->hint_align: 0);
@@ -2462,7 +2462,7 @@ Program *aholyc_i_parse(Aholyc *cc, Token *tok, bool align_hints) {
 		}
 		if (is_kw (ps, "union")) {
 			if (hint) {
-				aholyc_i_error_tok (ps->cc, hint, "@bits applies only to integer object declarations");
+				error_tok (ps->cc, hint, "@bits applies only to integer object declarations");
 			}
 			reject_func_hint (ps, inline_tok);
 			parse_class (ps, true, align_tok && ps->align_hints? align_tok->hint_align: 0);
@@ -2483,10 +2483,10 @@ Program *aholyc_i_parse(Aholyc *cc, Token *tok, bool align_hints) {
 			if (ps->tk->kind == TK_ID && ps->tk->next && ps->tk->next->kind == TK_PUNCT &&
 			    !strcmp (ps->tk->next->str, "(")) {
 				if (hint) {
-					aholyc_i_error_tok (ps->cc, hint, "@bits applies only to integer object declarations");
+					error_tok (ps->cc, hint, "@bits applies only to integer object declarations");
 				}
 				if (align_tok) {
-					aholyc_i_error_tok (ps->cc, align_tok, "@align does not apply to functions");
+					error_tok (ps->cc, align_tok, "@align does not apply to functions");
 				}
 				char *name = ps->tk->str;
 				ps->tk = ps->tk->next;
@@ -2495,7 +2495,7 @@ Program *aholyc_i_parse(Aholyc *cc, Token *tok, bool align_hints) {
 			}
 			reject_func_hint (ps, inline_tok);
 			if (align_tok) {
-				aholyc_i_error_tok (ps->cc, align_tok, "@align applies only to classes, fields, and local variables");
+				error_tok (ps->cc, align_tok, "@align applies only to classes, fields, and local variables");
 			}
 			/* global variable(s): rewind to after base name, stars are
 			 * per-declarator in global_decl */
@@ -2517,14 +2517,14 @@ Program *aholyc_i_parse(Aholyc *cc, Token *tok, bool align_hints) {
 			continue;
 		}
 		if (is_extern) {
-			aholyc_i_error_tok (ps->cc, ps->tk, "expected declaration after extern");
+			error_tok (ps->cc, ps->tk, "expected declaration after extern");
 		}
 		if (hint) {
-			aholyc_i_error_tok (ps->cc, hint, "@bits applies only to integer object declarations");
+			error_tok (ps->cc, hint, "@bits applies only to integer object declarations");
 		}
 		reject_func_hint (ps, inline_tok);
 		if (align_tok) {
-			aholyc_i_error_tok (ps->cc, align_tok, "@align applies only to classes, fields, and local variables");
+			error_tok (ps->cc, align_tok, "@align applies only to classes, fields, and local variables");
 		}
 		/* top-level statement -> startup code */
 		Obj *save_fn = ps->cur_fn;

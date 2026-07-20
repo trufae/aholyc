@@ -14,21 +14,21 @@ typedef struct {
 } Tokenizer;
 
 static void clear_config(Aholyc *cc) {
-	aholyc_i_xfree_to (cc, NULL);
+	xfree_to (cc, NULL);
 	cc->inc_dirs = NULL;
 	cc->macros = NULL;
 	cc->cwd = NULL;
 	cc->nccflags = 0;
 }
 
-void aholyc_i_lex_reset(Aholyc *cc) {
+void lex_reset(Aholyc *cc) {
 	clear_config (cc);
 	cc->verbose = cc->keep = false;
 	cc->use_hints = true;
 	char *cwd = getcwd (NULL, 0);
-	if (cwd) aholyc_i_cleanup_push (cc, free, cwd);
-	cc->cwd = aholyc_i_xstrdup (cc, cwd? cwd: ".");
-	if (cwd) aholyc_i_cleanup_pop (cc);
+	if (cwd) cleanup_push (cc, free, cwd);
+	cc->cwd = xstrdup (cc, cwd? cwd: ".");
+	if (cwd) cleanup_pop (cc);
 	free (cwd);
 }
 
@@ -45,11 +45,11 @@ void aholyc_fini(Aholyc *cc) {
 }
 
 static char *from_cwd(Aholyc *cc, const char *path) {
-	return path[0] == '/'? aholyc_i_xstrdup (cc, path):
-		aholyc_i_xasprintf (cc, "%s/%s", cc->cwd, path);
+	return path[0] == '/'? xstrdup (cc, path):
+		xasprintf (cc, "%s/%s", cc->cwd, path);
 }
 
-bool aholyc_i_lex_set_cwd(Aholyc *cc, const char *path) {
+bool lex_set_cwd(Aholyc *cc, const char *path) {
 	char *dir = from_cwd (cc, path);
 	struct stat st;
 	if (stat (dir, &st) || !S_ISDIR (st.st_mode)) {
@@ -59,8 +59,8 @@ bool aholyc_i_lex_set_cwd(Aholyc *cc, const char *path) {
 	return true;
 }
 
-void aholyc_i_lex_add_include_dir(Aholyc *cc, const char *dir) {
-	AholyIncDir *d = aholyc_i_xmalloc (cc, sizeof(*d));
+void lex_add_include_dir(Aholyc *cc, const char *dir) {
+	AholyIncDir *d = xmalloc (cc, sizeof(*d));
 	d->dir = from_cwd (cc, dir);
 	d->next = cc->inc_dirs;
 	cc->inc_dirs = d;
@@ -76,7 +76,7 @@ static AholyMacro *find_macro(Aholyc *cc, const char *name) {
 }
 
 static Token *new_token(Tokenizer *tz, TokenKind kind) {
-	Token *t = aholyc_i_xcalloc (tz->cc, 1, sizeof(Token));
+	Token *t = xcalloc (tz->cc, 1, sizeof(Token));
 	t->kind = kind;
 	t->cc = tz->cc;
 	t->file = (char *)tz->file;
@@ -122,14 +122,14 @@ static void scan_comment_hint(Aholyc *cc, const char *start, const char *end,
 					q++;
 				}
 				if (a < 1 || a > 1048576 || (a & (a - 1))) {
-					aholyc_i_error (cc, "%s:%d: @align must be a power of two", fname, line);
+					error (cc, "%s:%d: @align must be a power of two", fname, line);
 				}
 				if (q < end && !comment_space ((unsigned char)*q) && *q != '@') {
-					aholyc_i_error (cc, "%s:%d: malformed @align hint", fname, line);
+					error (cc, "%s:%d: malformed @align hint", fname, line);
 				}
 			}
 			if (*pending_align) {
-				aholyc_i_error (cc, "%s:%d: duplicate @align hint before declaration", fname, line);
+				error (cc, "%s:%d: duplicate @align hint before declaration", fname, line);
 			}
 			*pending_align = a;
 			p = q - 1;
@@ -139,7 +139,7 @@ static void scan_comment_hint(Aholyc *cc, const char *start, const char *end,
 			n == 8 && !strncmp (p + 1, "noinline", 8)? HINT_NOINLINE: 0;
 		if (hint) {
 			if (*pending_hints) {
-					aholyc_i_error (cc, "%s:%d: duplicate hint before declaration", fname, line);
+					error (cc, "%s:%d: duplicate hint before declaration", fname, line);
 			}
 			*pending_hints |= hint;
 			p = q - 1;
@@ -150,11 +150,11 @@ static void scan_comment_hint(Aholyc *cc, const char *start, const char *end,
 		}
 		q = skip_comment_space (q, end);
 		if (q == end || *q++ != '=') {
-			aholyc_i_error (cc, "%s:%d: malformed @bits hint (expected @bits=N)", fname, line);
+			error (cc, "%s:%d: malformed @bits hint (expected @bits=N)", fname, line);
 		}
 		q = skip_comment_space (q, end);
 		if (q == end || *q < '0' || *q > '9') {
-			aholyc_i_error (cc, "%s:%d: malformed @bits hint (expected @bits=N)", fname, line);
+			error (cc, "%s:%d: malformed @bits hint (expected @bits=N)", fname, line);
 		}
 		int width = 0;
 		while (q < end && *q >= '0' && *q <= '9') {
@@ -164,13 +164,13 @@ static void scan_comment_hint(Aholyc *cc, const char *start, const char *end,
 			q++;
 		}
 		if (q < end && !comment_space ((unsigned char)*q) && *q != '@') {
-			aholyc_i_error (cc, "%s:%d: malformed @bits hint (expected @bits=N)", fname, line);
+			error (cc, "%s:%d: malformed @bits hint (expected @bits=N)", fname, line);
 		}
 		if (width < 1 || width > 128) {
-			aholyc_i_error (cc, "%s:%d: @bits width must be between 1 and 128", fname, line);
+			error (cc, "%s:%d: @bits width must be between 1 and 128", fname, line);
 		}
 		if (*pending_bits) {
-			aholyc_i_error (cc, "%s:%d: duplicate @bits hint before declaration", fname, line);
+			error (cc, "%s:%d: duplicate @bits hint before declaration", fname, line);
 		}
 		*pending_bits = width;
 		p = q - 1;
@@ -262,7 +262,7 @@ static Token *tokenize(Aholyc *cc, const char *src, const char *fname) {
 			while (ident_cont (*p)) p++;
 			t = new_token (&tz, TK_ID);
 			t->len = p - s;
-			t->str = aholyc_i_xmalloc (cc, t->len + 1);
+			t->str = xmalloc (cc, t->len + 1);
 			memcpy (t->str, s, t->len);
 			t->str[t->len] = 0;
 		} else if ((*p >= '0' && *p <= '9') ||
@@ -315,7 +315,7 @@ static Token *tokenize(Aholyc *cc, const char *src, const char *fname) {
 		} else if (*p == '"') {
 			/* string literal; adjacent strings are concatenated later */
 			p++;
-			char *buf = aholyc_i_xmalloc (cc, strlen (p) + 1);
+			char *buf = xmalloc (cc, strlen (p) + 1);
 			int n = 0;
 			while (*p && *p != '"') {
 				if (*p == '\\') {
@@ -327,7 +327,7 @@ static Token *tokenize(Aholyc *cc, const char *src, const char *fname) {
 				}
 			}
 			if (*p != '"') {
-				aholyc_i_error (cc, "%s:%d: unterminated string", fname, tz.line);
+				error (cc, "%s:%d: unterminated string", fname, tz.line);
 			}
 			p++;
 			buf[n] = 0; /* NUL-terminate: #include and #exe read str as C string */
@@ -351,7 +351,7 @@ static Token *tokenize(Aholyc *cc, const char *src, const char *fname) {
 				n++;
 			}
 			if (*p != '\'') {
-				aholyc_i_error (cc, "%s:%d: unterminated char constant", fname, tz.line);
+				error (cc, "%s:%d: unterminated char constant", fname, tz.line);
 			}
 			p++;
 			t = new_token (&tz, TK_CHR);
@@ -369,7 +369,7 @@ static Token *tokenize(Aholyc *cc, const char *src, const char *fname) {
 				}
 			}
 			if (!t) {
-				aholyc_i_error (cc, "%s:%d: stray character '%c' (0x%02x)",
+				error (cc, "%s:%d: stray character '%c' (0x%02x)",
 					fname, tz.line, *p, (unsigned char)*p);
 			}
 		}
@@ -407,24 +407,24 @@ static char *search_include(Aholyc *cc, const char *name,
 	/* relative to including file first */
 	const char *slash = from_file? strrchr (from_file, '/'): NULL;
 	if (slash) {
-		char *dir = aholyc_i_xstrdup (cc, from_file);
+		char *dir = xstrdup (cc, from_file);
 		dir[slash - from_file] = 0;
-		char *path = aholyc_i_xasprintf (cc, "%s/%s", dir, name);
+		char *path = xasprintf (cc, "%s/%s", dir, name);
 		FILE *f = fopen (path, "r");
 		if (f) {
 			fclose (f);
 			return path;
 		}
 	}
-	char *local = name[0] == '/'? aholyc_i_xstrdup (cc, name):
-		aholyc_i_xasprintf (cc, "%s/%s", cc->cwd, name);
+	char *local = name[0] == '/'? xstrdup (cc, name):
+		xasprintf (cc, "%s/%s", cc->cwd, name);
 	FILE *f = fopen (local, "r");
 	if (f) {
 		fclose (f);
 		return local;
 	}
 	for (AholyIncDir *d = cc->inc_dirs; d; d = d->next) {
-		char *path = aholyc_i_xasprintf (cc, "%s/%s", d->dir, name);
+		char *path = xasprintf (cc, "%s/%s", d->dir, name);
 		f = fopen (path, "r");
 		if (f) {
 			fclose (f);
@@ -435,14 +435,14 @@ static char *search_include(Aholyc *cc, const char *name,
 }
 
 static Token *copy_token(Aholyc *cc, Token *t) {
-	Token *n = aholyc_i_xmalloc (cc, sizeof(Token));
+	Token *n = xmalloc (cc, sizeof(Token));
 	*n = *t;
 	n->next = NULL;
 	return n;
 }
 
 static Token *new_eof(Aholyc *cc, Token *near) {
-	Token *t = aholyc_i_xcalloc (cc, 1, sizeof(*t));
+	Token *t = xcalloc (cc, 1, sizeof(*t));
 	t->kind = TK_EOF;
 	t->cc = cc;
 	if (near) {
@@ -458,20 +458,20 @@ static void inherit_hint(Aholyc *cc, Token *src, Token *dst) {
 	}
 	if (src->hint_bits) {
 		if (dst->hint_bits) {
-			aholyc_i_error_tok (cc, src, "duplicate @bits hint on declaration");
+			error_tok (cc, src, "duplicate @bits hint on declaration");
 		}
 		dst->hint_bits = src->hint_bits;
 	}
 	if (src->hint_align) {
 		if (dst->hint_align) {
-			aholyc_i_error_tok (cc, src, "duplicate @align hint on declaration");
+			error_tok (cc, src, "duplicate @align hint on declaration");
 		}
 		dst->hint_align = src->hint_align;
 	}
 	if (src->hints) {
 		unsigned funcs = HINT_INLINE | HINT_NOINLINE;
 		if (src->hints & funcs && dst->hints & funcs) {
-			aholyc_i_error_tok (cc, src, "duplicate hint on declaration");
+			error_tok (cc, src, "duplicate hint on declaration");
 		}
 		dst->hints |= src->hints;
 	}
@@ -504,7 +504,7 @@ static Token *skip_cond(Token *t, bool *hit_else) {
 }
 
 /* Resolve directives and expand macros. Consumes raw list, returns clean list. */
-Token *aholyc_i_lex_preprocess(Aholyc *cc, Token *tok) {
+Token *lex_preprocess(Aholyc *cc, Token *tok) {
 	Token head = {0};
 	Token *cur = &head;
 	int cond_depth = 0;
@@ -514,20 +514,20 @@ Token *aholyc_i_lex_preprocess(Aholyc *cc, Token *tok) {
 			Token *d = tok->next;
 			int dline = tok->line;
 			if (d->kind != TK_ID) {
-				aholyc_i_error_tok (cc, tok, "invalid preprocessor directive");
+				error_tok (cc, tok, "invalid preprocessor directive");
 			}
 			if (!strcmp (d->str, "include")) {
 				Token *f = d->next;
 				if (f->kind != TK_STR) {
-					aholyc_i_error_tok (cc, f, "#include expects \"file\" (HolyC has no <>)");
+					error_tok (cc, f, "#include expects \"file\" (HolyC has no <>)");
 				}
 				char *path = search_include (cc, f->str, f->file);
 				if (!path) {
-					aholyc_i_error_tok (cc, f, "cannot find include file \"%s\"", f->str);
+					error_tok (cc, f, "cannot find include file \"%s\"", f->str);
 				}
-				char *src = aholyc_i_read_source (cc, path);
+				char *src = read_source (cc, path);
 				if (!src) {
-					aholyc_i_error_tok (cc, f, "cannot read \"%s\"", path);
+					error_tok (cc, f, "cannot read \"%s\"", path);
 				}
 				Token *inc = tokenize (cc, src, path);
 				/* splice: inc-list (minus EOF) then rest */
@@ -545,12 +545,12 @@ Token *aholyc_i_lex_preprocess(Aholyc *cc, Token *tok) {
 			if (!strcmp (d->str, "define")) {
 				Token *n = d->next;
 				if (n->kind != TK_ID) {
-					aholyc_i_error_tok (cc, n, "#define expects a name");
+					error_tok (cc, n, "#define expects a name");
 				}
 				AholyMacro *m = find_macro (cc, n->str);
 				if (!m) {
-					m = aholyc_i_xcalloc (cc, 1, sizeof(*m));
-					m->name = aholyc_i_xstrdup (cc, n->str);
+					m = xcalloc (cc, 1, sizeof(*m));
+					m->name = xstrdup (cc, n->str);
 					m->next = cc->macros;
 					cc->macros = m;
 				}
@@ -579,7 +579,7 @@ Token *aholyc_i_lex_preprocess(Aholyc *cc, Token *tok) {
 			if (!strcmp (d->str, "ifdef") || !strcmp (d->str, "ifndef")) {
 				Token *n = d->next;
 				if (n->kind != TK_ID) {
-					aholyc_i_error_tok (cc, n, "%s expects a name", d->str);
+					error_tok (cc, n, "%s expects a name", d->str);
 				}
 				bool defined = find_macro (cc, n->str) != NULL;
 				bool live = strcmp (d->str, "ifdef")? !defined: defined;
@@ -597,7 +597,7 @@ Token *aholyc_i_lex_preprocess(Aholyc *cc, Token *tok) {
 			}
 			if (!strcmp (d->str, "else")) {
 				if (cond_depth <= 0) {
-					aholyc_i_error_tok (cc, d, "#else without #ifdef");
+					error_tok (cc, d, "#else without #ifdef");
 				}
 				bool has_else;
 				tok = skip_cond (d->next, &has_else);
@@ -606,7 +606,7 @@ Token *aholyc_i_lex_preprocess(Aholyc *cc, Token *tok) {
 			}
 			if (!strcmp (d->str, "endif")) {
 				if (cond_depth <= 0) {
-					aholyc_i_error_tok (cc, d, "#endif without #ifdef");
+					error_tok (cc, d, "#endif without #ifdef");
 				}
 				cond_depth--;
 				tok = d->next;
@@ -617,7 +617,7 @@ Token *aholyc_i_lex_preprocess(Aholyc *cc, Token *tok) {
 				 * run it (exe.c), splice its StreamPrint output in */
 				Token *b = d->next;
 				if (!tok_is (b, "{")) {
-					aholyc_i_error_tok (cc, b, "#exe expects '{'");
+					error_tok (cc, b, "#exe expects '{'");
 				}
 				Token *prev = b, *q = b->next;
 				int depth = 1;
@@ -631,22 +631,22 @@ Token *aholyc_i_lex_preprocess(Aholyc *cc, Token *tok) {
 					q = q->next;
 				}
 				if (q->kind == TK_EOF) {
-					aholyc_i_error_tok (cc, b, "unterminated #exe{}");
+					error_tok (cc, b, "unterminated #exe{}");
 				}
 				Token *rest = q->next;
 				prev->next = new_eof (cc, prev);
 				Token *body = prev == b? prev->next: b->next;
 				/* per-block location macros, TempleOS style */
-				aholyc_i_lex_define (cc, "__FILE__", aholyc_i_xasprintf (cc, "\"%s\"", d->file));
-				char *dir = aholyc_i_xstrdup (cc, d->file);
+				lex_define (cc, "__FILE__", xasprintf (cc, "\"%s\"", d->file));
+				char *dir = xstrdup (cc, d->file);
 				char *sl = strrchr (dir, '/');
 				if (sl) {
 					*sl = 0;
 				} else {
 					strcpy (dir, ".");
 				}
-				aholyc_i_lex_define (cc, "__DIR__", aholyc_i_xasprintf (cc, "\"%s\"", dir));
-				char *out = aholyc_i_exe_run (cc, body, &rest);
+				lex_define (cc, "__DIR__", xasprintf (cc, "\"%s\"", dir));
+				char *out = exe_run (cc, body, &rest);
 				Token *inj = tokenize (cc, out, "<exe>");
 				if (inj->kind == TK_EOF) {
 					tok = rest;
@@ -667,7 +667,7 @@ Token *aholyc_i_lex_preprocess(Aholyc *cc, Token *tok) {
 				tok = b;
 				continue;
 			}
-			aholyc_i_error_tok (cc, d, "unknown directive #%s", d->str);
+			error_tok (cc, d, "unknown directive #%s", d->str);
 		}
 		if (tok->kind == TK_ID && !tok->no_expand) {
 			AholyMacro *m = find_macro (cc, tok->str);
@@ -705,9 +705,9 @@ Token *aholyc_i_lex_preprocess(Aholyc *cc, Token *tok) {
 	return head.next;
 }
 
-void aholyc_i_lex_define(Aholyc *cc, const char *name, const char *value) {
-	AholyMacro *m = aholyc_i_xcalloc (cc, 1, sizeof(*m));
-	m->name = aholyc_i_xstrdup (cc, name);
+void lex_define(Aholyc *cc, const char *name, const char *value) {
+	AholyMacro *m = xcalloc (cc, 1, sizeof(*m));
+	m->name = xstrdup (cc, name);
 	if (value && *value) {
 		Token *t = tokenize (cc, value, "<cmdline>");
 		/* drop EOF */
@@ -724,24 +724,24 @@ void aholyc_i_lex_define(Aholyc *cc, const char *name, const char *value) {
 	cc->macros = m;
 }
 
-Token *aholyc_i_lex_file(Aholyc *cc, const char *path) {
-	char *src = aholyc_i_read_source (cc, path);
+Token *lex_file(Aholyc *cc, const char *path) {
+	char *src = read_source (cc, path);
 	if (!src) {
-		aholyc_i_error (cc, "cannot open '%s'", path);
+		error (cc, "cannot open '%s'", path);
 	}
-	Token *t = tokenize (cc, src, aholyc_i_xstrdup (cc, path));
-	return aholyc_i_lex_preprocess (cc, t);
+	Token *t = tokenize (cc, src, xstrdup (cc, path));
+	return lex_preprocess (cc, t);
 }
 
 /* Tokenize an in-memory buffer (prelude); chain_after appended at EOF. */
-Token *aholyc_i_lex_string(Aholyc *cc, const char *src, const char *fake_name,
+Token *lex_string(Aholyc *cc, const char *src, const char *fake_name,
 		Token *chain_after) {
-	Token *pre = aholyc_i_lex_preprocess (cc, tokenize (cc, src, fake_name));
-	return chain_after? aholyc_i_token_join (pre, chain_after): pre;
+	Token *pre = lex_preprocess (cc, tokenize (cc, src, fake_name));
+	return chain_after? token_join (pre, chain_after): pre;
 }
 
 /* append list b after a, dropping a's EOF */
-Token *aholyc_i_token_join(Token *a, Token *b) {
+Token *token_join(Token *a, Token *b) {
 	if (!a || a->kind == TK_EOF) {
 		return b;
 	}

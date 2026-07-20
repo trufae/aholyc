@@ -11,42 +11,42 @@
 typedef struct {
 	Aholyc *cc;
 	Program *prog;
-	FILE *out;
+	StrBuf *out;
 	int ntmp, nlab, try_depth;
 	bool block_open, ret_f, ret_void, ctor_mode;
 } LlGen;
 
 static char *tmp_(LlGen *lg) {
-	return aholyc_i_xasprintf (lg->cc, "%%t%d", ++lg->ntmp);
+	return xasprintf (lg->cc, "%%t%d", ++lg->ntmp);
 }
 
 static char *newlab(LlGen *lg, const char *hint) {
-	return aholyc_i_xasprintf (lg->cc, "B%s%d", hint, ++lg->nlab);
+	return xasprintf (lg->cc, "B%s%d", hint, ++lg->nlab);
 }
 
 static void ensure_block(LlGen *lg) {
 	if (!lg->block_open) {
-		fprintf (lg->out, "dead%d:\n", ++lg->nlab);
+		sb_printf (lg->out, "dead%d:\n", ++lg->nlab);
 		lg->block_open = true;
 	}
 }
 
 static void br_to(LlGen *lg, const char *lab) {
 	ensure_block (lg);
-	fprintf (lg->out, "  br label %%%s\n", lab);
+	sb_printf (lg->out, "  br label %%%s\n", lab);
 	lg->block_open = false;
 }
 
 static void place_label(LlGen *lg, const char *lab) {
 	if (lg->block_open) {
-		fprintf (lg->out, "  br label %%%s\n", lab);
+		sb_printf (lg->out, "  br label %%%s\n", lab);
 	}
-	fprintf (lg->out, "%s:\n", lab);
+	sb_printf (lg->out, "%s:\n", lab);
 	lg->block_open = true;
 }
 
 static char *labname(LlGen *lg, const char *l) {
-	char *s = aholyc_i_xasprintf (lg->cc, "L%s", l);
+	char *s = xasprintf (lg->cc, "L%s", l);
 	for (char *p = s; *p; p++) {
 		if (*p == '.') {
 			*p = '_';
@@ -73,18 +73,18 @@ static bool is_f(Node *n) {
 
 static char *objref(LlGen *lg, Obj *v) {
 	if (v->is_extern || v->is_public) {
-		return aholyc_i_xasprintf (lg->cc, "@%s", v->name);
+		return xasprintf (lg->cc, "@%s", v->name);
 	}
 	if (v->is_func) {
 		if (lg->prog && v == lg->prog->startup) {
-			return aholyc_i_xstrdup (lg->cc, lg->ctor_mode? "@__hc_ctor_body": "@__hc_start");
+			return xstrdup (lg->cc, lg->ctor_mode? "@__hc_ctor_body": "@__hc_start");
 		}
-		return aholyc_i_xasprintf (lg->cc, "@hc_%s", v->name);
+		return xasprintf (lg->cc, "@hc_%s", v->name);
 	}
 	if (v->is_global) {
-		return aholyc_i_xasprintf (lg->cc, "@g%d_%s", v->uid, v->name);
+		return xasprintf (lg->cc, "@g%d_%s", v->uid, v->name);
 	}
-	return aholyc_i_xasprintf (lg->cc, "%%l%d_%s", v->uid, v->name);
+	return xasprintf (lg->cc, "%%l%d_%s", v->uid, v->name);
 }
 
 /* storage width of a variable slot: params are full 64-bit */
@@ -113,9 +113,9 @@ static char *apply_bits_hint(LlGen *lg, char *val, Type *ty) {
 	}
 	ensure_block (lg);
 	char *n = tmp_ (lg);
-	fprintf (lg->out, "  %s = trunc i64 %s to i%d\n", n, val, bits);
+	sb_printf (lg->out, "  %s = trunc i64 %s to i%d\n", n, val, bits);
 	char *w = tmp_ (lg);
-	fprintf (lg->out, "  %s = %s i%d %s to i64\n", w,
+	sb_printf (lg->out, "  %s = %s i%d %s to i64\n", w,
 		ty->is_unsigned? "zext": "sext", bits, n);
 	return w;
 }
@@ -132,19 +132,19 @@ static void emit_stmt(LlGen *lg, Node *n);
 static char *load_from(LlGen *lg, char *addr_i64, Type *ty, bool full_width) {
 	ensure_block (lg);
 	char *p = tmp_ (lg);
-	fprintf (lg->out, "  %s = inttoptr i64 %s to ptr\n", p, addr_i64);
+	sb_printf (lg->out, "  %s = inttoptr i64 %s to ptr\n", p, addr_i64);
 	char *t = tmp_ (lg);
 	if (ty->kind == TY_F64) {
-		fprintf (lg->out, "  %s = load double, ptr %s\n", t, p);
+		sb_printf (lg->out, "  %s = load double, ptr %s\n", t, p);
 		return t;
 	}
 	int sz = full_width? 8: (ty->size? ty->size: 8);
-	fprintf (lg->out, "  %s = load %s, ptr %s\n", t, ityp (sz), p);
+	sb_printf (lg->out, "  %s = load %s, ptr %s\n", t, ityp (sz), p);
 	if (sz == 8) {
 		return t;
 	}
 	char *w = tmp_ (lg);
-	fprintf (lg->out, "  %s = %s %s %s to i64\n", w,
+	sb_printf (lg->out, "  %s = %s %s %s to i64\n", w,
 		ty->is_unsigned? "zext": "sext", ityp (sz), t);
 	return w;
 }
@@ -152,52 +152,52 @@ static char *load_from(LlGen *lg, char *addr_i64, Type *ty, bool full_width) {
 static void store_to(LlGen *lg, char *addr_i64, char *val, Type *ty, bool full_width) {
 	ensure_block (lg);
 	char *p = tmp_ (lg);
-	fprintf (lg->out, "  %s = inttoptr i64 %s to ptr\n", p, addr_i64);
+	sb_printf (lg->out, "  %s = inttoptr i64 %s to ptr\n", p, addr_i64);
 	if (ty->kind == TY_F64) {
-		fprintf (lg->out, "  store double %s, ptr %s\n", val, p);
+		sb_printf (lg->out, "  store double %s, ptr %s\n", val, p);
 		return;
 	}
 	int sz = full_width? 8: (ty->size? ty->size: 8);
 	if (sz == 8) {
-		fprintf (lg->out, "  store i64 %s, ptr %s\n", val, p);
+		sb_printf (lg->out, "  store i64 %s, ptr %s\n", val, p);
 		return;
 	}
 	char *t = tmp_ (lg);
-	fprintf (lg->out, "  %s = trunc i64 %s to %s\n", t, val, ityp (sz));
-	fprintf (lg->out, "  store %s %s, ptr %s\n", ityp (sz), t, p);
+	sb_printf (lg->out, "  %s = trunc i64 %s to %s\n", t, val, ityp (sz));
+	sb_printf (lg->out, "  store %s %s, ptr %s\n", ityp (sz), t, p);
 }
 
 static char *fnum_lit(LlGen *lg, double d) {
 	union { double d; uint64_t u; } u;
 	u.d = d;
-	return aholyc_i_xasprintf (lg->cc, "0x%016llX", (unsigned long long)u.u);
+	return xasprintf (lg->cc, "0x%016llX", (unsigned long long)u.u);
 }
 
 static char *bool_of(LlGen *lg, char *v, bool isf) {
 	ensure_block (lg);
 	char *c = tmp_ (lg);
 	if (isf) {
-		fprintf (lg->out, "  %s = fcmp one double %s, 0.0\n", c, v);
+		sb_printf (lg->out, "  %s = fcmp one double %s, 0.0\n", c, v);
 	} else {
-		fprintf (lg->out, "  %s = icmp ne i64 %s, 0\n", c, v);
+		sb_printf (lg->out, "  %s = icmp ne i64 %s, 0\n", c, v);
 	}
 	return c;
 }
 
 static char *zext_i64(LlGen *lg, char *i1) {
 	char *t = tmp_ (lg);
-	fprintf (lg->out, "  %s = zext i1 %s to i64\n", t, i1);
+	sb_printf (lg->out, "  %s = zext i1 %s to i64\n", t, i1);
 	return t;
 }
 
 /* address of a variable as i64 operand */
 static char *var_addr(LlGen *lg, Obj *v) {
 	if (v->is_global || v->is_extern) {
-		return aholyc_i_xasprintf (lg->cc, "ptrtoint (ptr %s to i64)", objref (lg, v));
+		return xasprintf (lg->cc, "ptrtoint (ptr %s to i64)", objref (lg, v));
 	}
 	ensure_block (lg);
 	char *t = tmp_ (lg);
-	fprintf (lg->out, "  %s = ptrtoint ptr %s to i64\n", t, objref (lg, v));
+	sb_printf (lg->out, "  %s = ptrtoint ptr %s to i64\n", t, objref (lg, v));
 	return t;
 }
 
@@ -214,11 +214,11 @@ static char *emit_addr(LlGen *lg, Node *n) {
 		}
 		ensure_block (lg);
 		char *t = tmp_ (lg);
-		fprintf (lg->out, "  %s = add i64 %s, %d\n", t, b, n->member_ref->offset);
+		sb_printf (lg->out, "  %s = add i64 %s, %d\n", t, b, n->member_ref->offset);
 		return t;
 	}
 	default:
-		aholyc_i_error (lg->cc, "LLVM backend: not an lvalue (node kind %d)", n->kind);
+		error (lg->cc, "LLVM backend: not an lvalue (node kind %d)", n->kind);
 		return NULL;
 	}
 }
@@ -248,21 +248,21 @@ static char *emit_bit_intrin(LlGen *lg, Node *n) {
 		ensure_block (lg);
 		char *t = tmp_ (lg);
 		if (!strcmp (nm, "BCnt")) {
-			fprintf (lg->out, "  %s = call i64 @llvm.ctpop.i64(i64 %s)\n", t, v);
+			sb_printf (lg->out, "  %s = call i64 @llvm.ctpop.i64(i64 %s)\n", t, v);
 			return t;
 		}
 		bool fwd = !strcmp (nm, "Bsf");
-		fprintf (lg->out, "  %s = call i64 @llvm.%s.i64(i64 %s, i1 false)\n", t,
+		sb_printf (lg->out, "  %s = call i64 @llvm.%s.i64(i64 %s, i1 false)\n", t,
 			fwd? "cttz": "ctlz", v);
 		char *pos = t;
 		if (!fwd) {
 			pos = tmp_ (lg);
-			fprintf (lg->out, "  %s = sub i64 63, %s\n", pos, t);
+			sb_printf (lg->out, "  %s = sub i64 63, %s\n", pos, t);
 		}
 		char *c = tmp_ (lg);
-		fprintf (lg->out, "  %s = icmp eq i64 %s, 0\n", c, v);
+		sb_printf (lg->out, "  %s = icmp eq i64 %s, 0\n", c, v);
 		char *r = tmp_ (lg);
-		fprintf (lg->out, "  %s = select i1 %s, i64 -1, i64 %s\n", r, c, pos);
+		sb_printf (lg->out, "  %s = select i1 %s, i64 -1, i64 %s\n", r, c, pos);
 		return r;
 	}
 	/* Bt/Btc/Btr/Bts/LBtc/LBtr/LBts(bit_field, bit): x86 BT addressing,
@@ -271,43 +271,43 @@ static char *emit_bit_intrin(LlGen *lg, Node *n) {
 	char *bit = emit_val (lg, a->next);
 	ensure_block (lg);
 	char *off = tmp_ (lg);
-	fprintf (lg->out, "  %s = ashr i64 %s, 3\n", off, bit);
+	sb_printf (lg->out, "  %s = ashr i64 %s, 3\n", off, bit);
 	char *ba = tmp_ (lg);
-	fprintf (lg->out, "  %s = add i64 %s, %s\n", ba, p, off);
+	sb_printf (lg->out, "  %s = add i64 %s, %s\n", ba, p, off);
 	char *ptr = tmp_ (lg);
-	fprintf (lg->out, "  %s = inttoptr i64 %s to ptr\n", ptr, ba);
+	sb_printf (lg->out, "  %s = inttoptr i64 %s to ptr\n", ptr, ba);
 	char *sh = tmp_ (lg);
-	fprintf (lg->out, "  %s = and i64 %s, 7\n", sh, bit);
+	sb_printf (lg->out, "  %s = and i64 %s, 7\n", sh, bit);
 	const char *op = bit_rmw_op (nm);
 	char *old = tmp_ (lg);
 	if (!op) {
-		fprintf (lg->out, "  %s = load i8, ptr %s\n", old, ptr);
+		sb_printf (lg->out, "  %s = load i8, ptr %s\n", old, ptr);
 	} else {
 		char *m = tmp_ (lg);
-		fprintf (lg->out, "  %s = shl i64 1, %s\n", m, sh);
+		sb_printf (lg->out, "  %s = shl i64 1, %s\n", m, sh);
 		if (!strcmp (op, "and")) {
 			char *inv = tmp_ (lg);
-			fprintf (lg->out, "  %s = xor i64 %s, -1\n", inv, m);
+			sb_printf (lg->out, "  %s = xor i64 %s, -1\n", inv, m);
 			m = inv;
 		}
 		char *m8 = tmp_ (lg);
-		fprintf (lg->out, "  %s = trunc i64 %s to i8\n", m8, m);
+		sb_printf (lg->out, "  %s = trunc i64 %s to i8\n", m8, m);
 		if (nm[0] == 'L') {
-			fprintf (lg->out, "  %s = atomicrmw %s ptr %s, i8 %s seq_cst\n",
+			sb_printf (lg->out, "  %s = atomicrmw %s ptr %s, i8 %s seq_cst\n",
 				old, op, ptr, m8);
 		} else {
-			fprintf (lg->out, "  %s = load i8, ptr %s\n", old, ptr);
+			sb_printf (lg->out, "  %s = load i8, ptr %s\n", old, ptr);
 			char *nw = tmp_ (lg);
-			fprintf (lg->out, "  %s = %s i8 %s, %s\n", nw, op, old, m8);
-			fprintf (lg->out, "  store i8 %s, ptr %s\n", nw, ptr);
+			sb_printf (lg->out, "  %s = %s i8 %s, %s\n", nw, op, old, m8);
+			sb_printf (lg->out, "  store i8 %s, ptr %s\n", nw, ptr);
 		}
 	}
 	char *w = tmp_ (lg);
-	fprintf (lg->out, "  %s = zext i8 %s to i64\n", w, old);
+	sb_printf (lg->out, "  %s = zext i8 %s to i64\n", w, old);
 	char *sv = tmp_ (lg);
-	fprintf (lg->out, "  %s = lshr i64 %s, %s\n", sv, w, sh);
+	sb_printf (lg->out, "  %s = lshr i64 %s, %s\n", sv, w, sh);
 	char *r = tmp_ (lg);
-	fprintf (lg->out, "  %s = and i64 %s, 1\n", r, sv);
+	sb_printf (lg->out, "  %s = and i64 %s, 1\n", r, sv);
 	return r;
 }
 
@@ -354,23 +354,23 @@ static char *emit_call(LlGen *lg, Node *n) {
 			if (is_f (e)) {
 				ensure_block (lg);
 				char *b = tmp_ (lg);
-				fprintf (lg->out, "  %s = bitcast double %s to i64\n", b, v);
+				sb_printf (lg->out, "  %s = bitcast double %s to i64\n", b, v);
 				v = b;
 			}
 			slots[nextras++] = v;
 		}
 		ensure_block (lg);
 		char *arr = tmp_ (lg);
-		fprintf (lg->out, "  %s = alloca [%d x i64], align 8\n", arr,
+		sb_printf (lg->out, "  %s = alloca [%d x i64], align 8\n", arr,
 			nextras? nextras: 1);
 		for (int k = 0; k < nextras; k++) {
 			char *gep = tmp_ (lg);
-			fprintf (lg->out, "  %s = getelementptr [%d x i64], ptr %s, i64 0, i64 %d\n",
+			sb_printf (lg->out, "  %s = getelementptr [%d x i64], ptr %s, i64 0, i64 %d\n",
 				gep, nextras? nextras: 1, arr, k);
-			fprintf (lg->out, "  store i64 %s, ptr %s\n", slots[k], gep);
+			sb_printf (lg->out, "  store i64 %s, ptr %s\n", slots[k], gep);
 		}
 		extras_ptr = tmp_ (lg);
-		fprintf (lg->out, "  %s = ptrtoint ptr %s to i64\n", extras_ptr, arr);
+		sb_printf (lg->out, "  %s = ptrtoint ptr %s to i64\n", extras_ptr, arr);
 	}
 	ensure_block (lg);
 	/* return kind */
@@ -378,22 +378,22 @@ static char *emit_call(LlGen *lg, Node *n) {
 	bool retv = n->ty && n->ty->kind == TY_VOID;
 	char *res = retv? NULL: tmp_ (lg);
 	if (res) {
-		fprintf (lg->out, "  %s = ", res);
+		sb_printf (lg->out, "  %s = ", res);
 	} else {
-		fprintf (lg->out, "  ");
+		sb_printf (lg->out, "  ");
 	}
 	const char *rty = retf? "double": retv? "void": "i64";
-	fprintf (lg->out, "call %s %s(", rty, objref (lg, fn));
+	sb_printf (lg->out, "call %s %s(", rty, objref (lg, fn));
 	for (int k = 0; k < nargs; k++) {
-		fprintf (lg->out, "%s%s %s", k? ", ": "", argf[k]? "double": "i64", args[k]);
+		sb_printf (lg->out, "%s%s %s", k? ", ": "", argf[k]? "double": "i64", args[k]);
 	}
 	if (fn && fn->is_variadic) {
-		fprintf (lg->out, "%si64 %d, i64 %s", nargs? ", ": "", nextras,
+		sb_printf (lg->out, "%si64 %d, i64 %s", nargs? ", ": "", nextras,
 			extras_ptr? extras_ptr: "0");
 	}
-	fprintf (lg->out, ")\n");
+	sb_printf (lg->out, ")\n");
 	if (retv) {
-		return aholyc_i_xstrdup (lg->cc, "0");
+		return xstrdup (lg->cc, "0");
 	}
 	return res;
 }
@@ -412,21 +412,21 @@ static char *emit_indirect_call(LlGen *lg, Node *n) {
 	}
 	ensure_block (lg);
 	char *fp = tmp_ (lg);
-	fprintf (lg->out, "  %s = inttoptr i64 %s to ptr\n", fp, callee);
+	sb_printf (lg->out, "  %s = inttoptr i64 %s to ptr\n", fp, callee);
 	bool retf = n->ty && n->ty->kind == TY_F64;
 	bool retv = n->ty && n->ty->kind == TY_VOID;
 	char *res = retv? NULL: tmp_ (lg);
 	if (res) {
-		fprintf (lg->out, "  %s = ", res);
+		sb_printf (lg->out, "  %s = ", res);
 	} else {
-		fprintf (lg->out, "  ");
+		sb_printf (lg->out, "  ");
 	}
-	fprintf (lg->out, "call %s %s(", retf? "double": retv? "void": "i64", fp);
+	sb_printf (lg->out, "call %s %s(", retf? "double": retv? "void": "i64", fp);
 	for (int k = 0; k < nargs; k++) {
-		fprintf (lg->out, "%s%s %s", k? ", ": "", argf[k]? "double": "i64", args[k]);
+		sb_printf (lg->out, "%s%s %s", k? ", ": "", argf[k]? "double": "i64", args[k]);
 	}
-	fprintf (lg->out, ")\n");
-	return res? res: aholyc_i_xstrdup (lg->cc, "0");
+	sb_printf (lg->out, ")\n");
+	return res? res: xstrdup (lg->cc, "0");
 }
 
 static char *emit_binop(LlGen *lg, Node *n) {
@@ -442,9 +442,9 @@ static char *emit_binop(LlGen *lg, Node *n) {
 			char *b = emit_val (lg, n->rhs);
 			ensure_block (lg);
 			char *d = tmp_ (lg);
-			fprintf (lg->out, "  %s = sub i64 %s, %s\n", d, a, b);
+			sb_printf (lg->out, "  %s = sub i64 %s, %s\n", d, a, b);
 			char *q = tmp_ (lg);
-			fprintf (lg->out, "  %s = sdiv i64 %s, %d\n", q, d, elem_size (lt));
+			sb_printf (lg->out, "  %s = sdiv i64 %s, %d\n", q, d, elem_size (lt));
 			return q;
 		}
 		if (lp) {
@@ -452,9 +452,9 @@ static char *emit_binop(LlGen *lg, Node *n) {
 			char *b = emit_val (lg, n->rhs);
 			ensure_block (lg);
 			char *s = tmp_ (lg);
-			fprintf (lg->out, "  %s = mul i64 %s, %d\n", s, b, elem_size (lt));
+			sb_printf (lg->out, "  %s = mul i64 %s, %d\n", s, b, elem_size (lt));
 			char *r = tmp_ (lg);
-			fprintf (lg->out, "  %s = %s i64 %s, %s\n", r,
+			sb_printf (lg->out, "  %s = %s i64 %s, %s\n", r,
 				n->kind == ND_ADD? "add": "sub", a, s);
 			return r;
 		}
@@ -474,10 +474,10 @@ static char *emit_binop(LlGen *lg, Node *n) {
 	case ND_XOR: op = "xor"; break;
 	case ND_SHL: op = "shl"; break;
 	case ND_SHR: op = unsig? "lshr": "ashr"; break;
-	default: aholyc_i_error (lg->cc, "llvm: bad binop"); break;
+	default: error (lg->cc, "llvm: bad binop"); break;
 	}
 	char *t = tmp_ (lg);
-	fprintf (lg->out, "  %s = %s %s %s, %s\n", t, op, ff? "double": "i64", a, b);
+	sb_printf (lg->out, "  %s = %s %s %s, %s\n", t, op, ff? "double": "i64", a, b);
 	return t;
 }
 
@@ -495,7 +495,7 @@ static char *emit_cmp(LlGen *lg, Node *n) {
 	default: cc = ff? "ole": unsig? "ule": "sle"; break;
 	}
 	char *c = tmp_ (lg);
-	fprintf (lg->out, "  %s = %s %s %s %s, %s\n", c, ff? "fcmp": "icmp", cc,
+	sb_printf (lg->out, "  %s = %s %s %s %s, %s\n", c, ff? "fcmp": "icmp", cc,
 		ff? "double": "i64", a, b);
 	return zext_i64 (lg, c);
 }
@@ -504,49 +504,49 @@ static char *emit_cmp(LlGen *lg, Node *n) {
 static char *emit_shortcircuit(LlGen *lg, Node *n) {
 	ensure_block (lg);
 	char *slot = tmp_ (lg);
-	fprintf (lg->out, "  %s = alloca i64, align 8\n", slot);
+	sb_printf (lg->out, "  %s = alloca i64, align 8\n", slot);
 	char *rhsl = newlab (lg, "sc_rhs");
 	char *skipl = newlab (lg, "sc_skip");
 	char *endl = newlab (lg, "sc_end");
 	char *a = emit_val (lg, n->lhs);
 	char *ca = bool_of (lg, a, false); /* operands already i64 (to_bool'ed) */
 	if (n->kind == ND_LOGAND) {
-		fprintf (lg->out, "  br i1 %s, label %%%s, label %%%s\n", ca, rhsl, skipl);
+		sb_printf (lg->out, "  br i1 %s, label %%%s, label %%%s\n", ca, rhsl, skipl);
 	} else {
-		fprintf (lg->out, "  br i1 %s, label %%%s, label %%%s\n", ca, skipl, rhsl);
+		sb_printf (lg->out, "  br i1 %s, label %%%s, label %%%s\n", ca, skipl, rhsl);
 	}
 	lg->block_open = false;
 	place_label (lg, rhsl);
 	char *b = emit_val (lg, n->rhs);
 	char *cb = bool_of (lg, b, false);
 	char *zb = zext_i64 (lg, cb);
-	fprintf (lg->out, "  store i64 %s, ptr %s\n", zb, slot);
+	sb_printf (lg->out, "  store i64 %s, ptr %s\n", zb, slot);
 	br_to (lg, endl);
 	place_label (lg, skipl);
-	fprintf (lg->out, "  store i64 %d, ptr %s\n", n->kind == ND_LOGAND? 0: 1, slot);
+	sb_printf (lg->out, "  store i64 %d, ptr %s\n", n->kind == ND_LOGAND? 0: 1, slot);
 	br_to (lg, endl);
 	place_label (lg, endl);
 	char *r = tmp_ (lg);
-	fprintf (lg->out, "  %s = load i64, ptr %s\n", r, slot);
+	sb_printf (lg->out, "  %s = load i64, ptr %s\n", r, slot);
 	return r;
 }
 
 static char *emit_val(LlGen *lg, Node *n) {
 	switch (n->kind) {
 	case ND_NUM:
-		return aholyc_i_xasprintf (lg->cc, "%lld", (long long)n->ival);
+		return xasprintf (lg->cc, "%lld", (long long)n->ival);
 	case ND_FNUM:
 		return fnum_lit (lg, n->fval);
 	case ND_STR:
-		return aholyc_i_xasprintf (lg->cc, "ptrtoint (ptr @hcs%d to i64)", n->str_id);
+		return xasprintf (lg->cc, "ptrtoint (ptr @hcs%d to i64)", n->str_id);
 	case ND_VAR: {
 		Obj *v = n->var;
 		if (is_fs_obj (v)) {
 			ensure_block (lg);
 			char *p = tmp_ (lg);
-			fprintf (lg->out, "  %s = call ptr @__hc_fs()\n", p);
+			sb_printf (lg->out, "  %s = call ptr @__hc_fs()\n", p);
 			char *t = tmp_ (lg);
-			fprintf (lg->out, "  %s = ptrtoint ptr %s to i64\n", t, p);
+			sb_printf (lg->out, "  %s = ptrtoint ptr %s to i64\n", t, p);
 			return t;
 		}
 		if (is_agg (v->ty)) {
@@ -560,21 +560,21 @@ static char *emit_val(LlGen *lg, Node *n) {
 		}
 		char *t = tmp_ (lg);
 		if (v->ty->kind == TY_F64) {
-			fprintf (lg->out, "  %s = load double, ptr %s\n", t, objref (lg, v));
+			sb_printf (lg->out, "  %s = load double, ptr %s\n", t, objref (lg, v));
 			return t;
 		}
 		int sz = store_size (v);
-		fprintf (lg->out, "  %s = load %s, ptr %s\n", t, ityp (sz), objref (lg, v));
+		sb_printf (lg->out, "  %s = load %s, ptr %s\n", t, ityp (sz), objref (lg, v));
 		if (sz == 8) {
 			return apply_bits_hint (lg, t, v->ty);
 		}
 		char *w = tmp_ (lg);
-		fprintf (lg->out, "  %s = %s %s %s to i64\n", w,
+		sb_printf (lg->out, "  %s = %s %s %s to i64\n", w,
 			v->ty->is_unsigned? "zext": "sext", ityp (sz), t);
 		return apply_bits_hint (lg, w, v->ty);
 	}
 	case ND_FUNCNAME:
-		return aholyc_i_xasprintf (lg->cc, "ptrtoint (ptr %s to i64)", objref (lg, n->func));
+		return xasprintf (lg->cc, "ptrtoint (ptr %s to i64)", objref (lg, n->func));
 	case ND_DEREF:
 		if (is_agg (n->ty)) {
 			return emit_val (lg, n->lhs);
@@ -594,9 +594,9 @@ static char *emit_val(LlGen *lg, Node *n) {
 			char *la = emit_addr (lg, l);
 			ensure_block (lg);
 			char *lp = tmp_ (lg), *rp = tmp_ (lg);
-			fprintf (lg->out, "  %s = inttoptr i64 %s to ptr\n", lp, la);
-			fprintf (lg->out, "  %s = inttoptr i64 %s to ptr\n", rp, rv);
-			fprintf (lg->out, "  call void @llvm.memcpy.p0.p0.i64(ptr %s, ptr %s, i64 %d, i1 false)\n",
+			sb_printf (lg->out, "  %s = inttoptr i64 %s to ptr\n", lp, la);
+			sb_printf (lg->out, "  %s = inttoptr i64 %s to ptr\n", rp, rv);
+			sb_printf (lg->out, "  call void @llvm.memcpy.p0.p0.i64(ptr %s, ptr %s, i64 %d, i1 false)\n",
 				lp, rp, l->ty->size);
 			return la;
 		}
@@ -605,27 +605,27 @@ static char *emit_val(LlGen *lg, Node *n) {
 			Obj *v = l->var;
 			ensure_block (lg);
 			if (v->ty->kind == TY_F64) {
-				fprintf (lg->out, "  store double %s, ptr %s\n", rv, objref (lg, v));
+				sb_printf (lg->out, "  store double %s, ptr %s\n", rv, objref (lg, v));
 				return rv;
 			}
 			int sz = store_size (v);
 			if (sz == 8 && v->is_param && v->ty->size && v->ty->size < 8) {
 				/* param slot is 64-bit but declared narrower: truncate */
 				char *t = tmp_ (lg);
-				fprintf (lg->out, "  %s = trunc i64 %s to %s\n", t, rv, ityp (v->ty->size));
+				sb_printf (lg->out, "  %s = trunc i64 %s to %s\n", t, rv, ityp (v->ty->size));
 				char *w = tmp_ (lg);
-				fprintf (lg->out, "  %s = %s %s %s to i64\n", w,
+				sb_printf (lg->out, "  %s = %s %s %s to i64\n", w,
 					v->ty->is_unsigned? "zext": "sext", ityp (v->ty->size), t);
-				fprintf (lg->out, "  store i64 %s, ptr %s\n", w, objref (lg, v));
+				sb_printf (lg->out, "  store i64 %s, ptr %s\n", w, objref (lg, v));
 				return rv;
 			}
 			if (sz == 8) {
-				fprintf (lg->out, "  store i64 %s, ptr %s\n", rv, objref (lg, v));
+				sb_printf (lg->out, "  store i64 %s, ptr %s\n", rv, objref (lg, v));
 				return rv;
 			}
 			char *t = tmp_ (lg);
-			fprintf (lg->out, "  %s = trunc i64 %s to %s\n", t, rv, ityp (sz));
-			fprintf (lg->out, "  store %s %s, ptr %s\n", ityp (sz), t, objref (lg, v));
+			sb_printf (lg->out, "  %s = trunc i64 %s to %s\n", t, rv, ityp (sz));
+			sb_printf (lg->out, "  store %s %s, ptr %s\n", ityp (sz), t, objref (lg, v));
 			return rv;
 		}
 		store_to (lg, emit_addr (lg, l), rv, l->ty, l->kind == ND_VAR && l->var->is_param);
@@ -637,22 +637,22 @@ static char *emit_val(LlGen *lg, Node *n) {
 		if (to->kind == TY_F64 && from->kind != TY_F64) {
 			ensure_block (lg);
 			char *t = tmp_ (lg);
-			fprintf (lg->out, "  %s = %s i64 %s to double\n", t,
+			sb_printf (lg->out, "  %s = %s i64 %s to double\n", t,
 				value_unsig (from)? "uitofp": "sitofp", v);
 			return t;
 		}
 		if (to->kind != TY_F64 && from->kind == TY_F64) {
 			ensure_block (lg);
 			char *t = tmp_ (lg);
-			fprintf (lg->out, "  %s = fptosi double %s to i64\n", t, v);
+			sb_printf (lg->out, "  %s = fptosi double %s to i64\n", t, v);
 			v = t;
 		}
 		if (to->kind == TY_INT && to->size < 8) {
 			ensure_block (lg);
 			char *t = tmp_ (lg);
-			fprintf (lg->out, "  %s = trunc i64 %s to %s\n", t, v, ityp (to->size));
+			sb_printf (lg->out, "  %s = trunc i64 %s to %s\n", t, v, ityp (to->size));
 			char *w = tmp_ (lg);
-			fprintf (lg->out, "  %s = %s %s %s to i64\n", w,
+			sb_printf (lg->out, "  %s = %s %s %s to i64\n", w,
 				to->is_unsigned? "zext": "sext", ityp (to->size), t);
 			return w;
 		}
@@ -666,7 +666,7 @@ static char *emit_val(LlGen *lg, Node *n) {
 		char *b = emit_val (lg, n->rhs);
 		ensure_block (lg);
 		char *t = tmp_ (lg);
-		fprintf (lg->out, "  %s = call double @__hc_pow(double %s, double %s)\n", t, a, b);
+		sb_printf (lg->out, "  %s = call double @__hc_pow(double %s, double %s)\n", t, a, b);
 		return t;
 	}
 	case ND_EQ: case ND_NE: case ND_LT: case ND_LE:
@@ -681,21 +681,21 @@ static char *emit_val(LlGen *lg, Node *n) {
 		char *cb = bool_of (lg, b, false);
 		ensure_block (lg);
 		char *x = tmp_ (lg);
-		fprintf (lg->out, "  %s = xor i1 %s, %s\n", x, ca, cb);
+		sb_printf (lg->out, "  %s = xor i1 %s, %s\n", x, ca, cb);
 		return zext_i64 (lg, x);
 	}
 	case ND_NOT: {
 		char *v = emit_val (lg, n->lhs);
 		ensure_block (lg);
 		char *c = tmp_ (lg);
-		fprintf (lg->out, "  %s = icmp eq i64 %s, 0\n", c, v);
+		sb_printf (lg->out, "  %s = icmp eq i64 %s, 0\n", c, v);
 		return zext_i64 (lg, c);
 	}
 	case ND_BITNOT: {
 		char *v = emit_val (lg, n->lhs);
 		ensure_block (lg);
 		char *t = tmp_ (lg);
-		fprintf (lg->out, "  %s = xor i64 %s, -1\n", t, v);
+		sb_printf (lg->out, "  %s = xor i64 %s, -1\n", t, v);
 		return t;
 	}
 	case ND_NEG: {
@@ -703,9 +703,9 @@ static char *emit_val(LlGen *lg, Node *n) {
 		ensure_block (lg);
 		char *t = tmp_ (lg);
 		if (is_f (n)) {
-			fprintf (lg->out, "  %s = fneg double %s\n", t, v);
+			sb_printf (lg->out, "  %s = fneg double %s\n", t, v);
 		} else {
-			fprintf (lg->out, "  %s = sub i64 0, %s\n", t, v);
+			sb_printf (lg->out, "  %s = sub i64 0, %s\n", t, v);
 		}
 		return t;
 	}
@@ -718,9 +718,9 @@ static char *emit_val(LlGen *lg, Node *n) {
 		}
 		return emit_indirect_call (lg, n);
 	case ND_NOP:
-		return aholyc_i_xstrdup (lg->cc, "0");
+		return xstrdup (lg->cc, "0");
 	default:
-		aholyc_i_error (lg->cc, "LLVM backend: unexpected node kind %d in expression", n->kind);
+		error (lg->cc, "LLVM backend: unexpected node kind %d in expression", n->kind);
 		return NULL;
 	}
 }
@@ -728,7 +728,7 @@ static char *emit_val(LlGen *lg, Node *n) {
 static void emit_cond_br(LlGen *lg, Node *cond, const char *tl, const char *fl) {
 	char *v = emit_val (lg, cond);
 	char *c = bool_of (lg, v, is_f (cond));
-	fprintf (lg->out, "  br i1 %s, label %%%s, label %%%s\n", c, tl, fl);
+	sb_printf (lg->out, "  br i1 %s, label %%%s, label %%%s\n", c, tl, fl);
 	lg->block_open = false;
 }
 
@@ -805,16 +805,16 @@ static void emit_stmt(LlGen *lg, Node *n) {
 	case ND_RETURN: {
 		ensure_block (lg);
 		for (int i = 0; i < lg->try_depth; i++) {
-			fprintf (lg->out, "  call void @__hc_try_pop()\n");
+			sb_printf (lg->out, "  call void @__hc_try_pop()\n");
 		}
 		if (lg->ret_void) {
-			fprintf (lg->out, "  ret void\n");
+			sb_printf (lg->out, "  ret void\n");
 		} else if (n->lhs) {
 			char *v = emit_val (lg, n->lhs);
 			ensure_block (lg);
-			fprintf (lg->out, "  ret %s %s\n", lg->ret_f? "double": "i64", v);
+			sb_printf (lg->out, "  ret %s %s\n", lg->ret_f? "double": "i64", v);
 		} else {
-			fprintf (lg->out, "  ret %s %s\n", lg->ret_f? "double": "i64",
+			sb_printf (lg->out, "  ret %s %s\n", lg->ret_f? "double": "i64",
 				lg->ret_f? "0.0": "0");
 		}
 		lg->block_open = false;
@@ -833,46 +833,46 @@ static void emit_stmt(LlGen *lg, Node *n) {
 	case ND_TRY: {
 		ensure_block (lg);
 		char *jb = tmp_ (lg);
-		fprintf (lg->out, "  %s = call ptr @__hc_try_push()\n", jb);
+		sb_printf (lg->out, "  %s = call ptr @__hc_try_push()\n", jb);
 		char *r = tmp_ (lg);
-		fprintf (lg->out, "  %s = call i32 @_setjmp(ptr %s) returns_twice\n", r, jb);
+		sb_printf (lg->out, "  %s = call i32 @_setjmp(ptr %s) returns_twice\n", r, jb);
 		char *c = tmp_ (lg);
-		fprintf (lg->out, "  %s = icmp eq i32 %s, 0\n", c, r);
+		sb_printf (lg->out, "  %s = icmp eq i32 %s, 0\n", c, r);
 		char *tl = newlab (lg, "try"), *cl = newlab (lg, "catch"), *el = newlab (lg, "tryend");
-		fprintf (lg->out, "  br i1 %s, label %%%s, label %%%s\n", c, tl, cl);
+		sb_printf (lg->out, "  br i1 %s, label %%%s, label %%%s\n", c, tl, cl);
 		lg->block_open = false;
 		place_label (lg, tl);
 		lg->try_depth++;
 		emit_stmt (lg, n->then);
 		lg->try_depth--;
 		ensure_block (lg);
-		fprintf (lg->out, "  call void @__hc_try_pop()\n");
+		sb_printf (lg->out, "  call void @__hc_try_pop()\n");
 		br_to (lg, el);
 		place_label (lg, cl);
 		emit_stmt (lg, n->els);
 		ensure_block (lg);
 		/* if (!Fs->catch_except) throw(Fs->except_ch) */
 		char *fsp = tmp_ (lg);
-		fprintf (lg->out, "  %s = call ptr @__hc_fs()\n", fsp);
+		sb_printf (lg->out, "  %s = call ptr @__hc_fs()\n", fsp);
 		char *fs = tmp_ (lg);
-		fprintf (lg->out, "  %s = ptrtoint ptr %s to i64\n", fs, fsp);
+		sb_printf (lg->out, "  %s = ptrtoint ptr %s to i64\n", fs, fsp);
 		char *cea = tmp_ (lg);
-		fprintf (lg->out, "  %s = add i64 %s, 8\n", cea, fs);
+		sb_printf (lg->out, "  %s = add i64 %s, 8\n", cea, fs);
 		char *cep = tmp_ (lg);
-		fprintf (lg->out, "  %s = inttoptr i64 %s to ptr\n", cep, cea);
+		sb_printf (lg->out, "  %s = inttoptr i64 %s to ptr\n", cep, cea);
 		char *ce = tmp_ (lg);
-		fprintf (lg->out, "  %s = load i64, ptr %s\n", ce, cep);
+		sb_printf (lg->out, "  %s = load i64, ptr %s\n", ce, cep);
 		char *cc = tmp_ (lg);
-		fprintf (lg->out, "  %s = icmp eq i64 %s, 0\n", cc, ce);
+		sb_printf (lg->out, "  %s = icmp eq i64 %s, 0\n", cc, ce);
 		char *rl = newlab (lg, "rethrow");
-		fprintf (lg->out, "  br i1 %s, label %%%s, label %%%s\n", cc, rl, el);
+		sb_printf (lg->out, "  br i1 %s, label %%%s, label %%%s\n", cc, rl, el);
 		lg->block_open = false;
 		place_label (lg, rl);
 		char *ep = tmp_ (lg);
-		fprintf (lg->out, "  %s = inttoptr i64 %s to ptr\n", ep, fs);
+		sb_printf (lg->out, "  %s = inttoptr i64 %s to ptr\n", ep, fs);
 		char *ev = tmp_ (lg);
-		fprintf (lg->out, "  %s = load i64, ptr %s\n", ev, ep);
-		fprintf (lg->out, "  call void @throw(i64 %s)\n", ev);
+		sb_printf (lg->out, "  %s = load i64, ptr %s\n", ev, ep);
+		sb_printf (lg->out, "  call void @throw(i64 %s)\n", ev);
 		br_to (lg, el);
 		place_label (lg, el);
 		break;
@@ -884,16 +884,16 @@ static void emit_stmt(LlGen *lg, Node *n) {
 }
 
 static void emit_str_escaped(LlGen *lg, StrLit *s) {
-	fprintf (lg->out, "@hcs%d = internal constant [%d x i8] c\"", s->id, s->len + 1);
+	sb_printf (lg->out, "@hcs%d = internal constant [%d x i8] c\"", s->id, s->len + 1);
 	for (int i = 0; i < s->len; i++) {
 		unsigned char c = (unsigned char)s->data[i];
 		if (c >= 32 && c < 127 && c != '"' && c != '\\') {
-			fputc (c, lg->out);
+			sb_putc (lg->out, c);
 		} else {
-			fprintf (lg->out, "\\%02X", c);
+			sb_printf (lg->out, "\\%02X", c);
 		}
 	}
-	fprintf (lg->out, "\\00\"\n");
+	sb_printf (lg->out, "\\00\"\n");
 }
 
 static void emit_func(LlGen *lg, Obj *fn) {
@@ -905,14 +905,14 @@ static void emit_func(LlGen *lg, Obj *fn) {
 	lg->try_depth = 0;
 	bool is_start = fn == lg->prog->startup;
 	bool exported = fn->is_public || (is_start && !lg->ctor_mode);
-	fprintf (lg->out, "define %s %s %s(", exported? "": "internal",
+	sb_printf (lg->out, "define %s %s %s(", exported? "": "internal",
 		lg->ret_f? "double": lg->ret_void? "void": "i64", objref (lg, fn));
 	int np = 0;
 	for (Obj *p = fn->params; p; p = p->next, np++) {
-		fprintf (lg->out, "%s%s %%a%d", np? ", ": "",
+		sb_printf (lg->out, "%s%s %%a%d", np? ", ": "",
 			p->ty->kind == TY_F64? "double": "i64", np);
 	}
-	fprintf (lg->out, ")%s {\nentry:\n",
+	sb_printf (lg->out, ")%s {\nentry:\n",
 		fn->hints & HINT_INLINE? " alwaysinline":
 		fn->hints & HINT_NOINLINE? " noinline": "");
 	lg->block_open = true;
@@ -920,11 +920,11 @@ static void emit_func(LlGen *lg, Obj *fn) {
 	np = 0;
 	for (Obj *p = fn->params; p; p = p->next, np++) {
 		if (p->ty->kind == TY_F64) {
-			fprintf (lg->out, "  %s = alloca double, align 8\n", objref (lg, p));
-			fprintf (lg->out, "  store double %%a%d, ptr %s\n", np, objref (lg, p));
+			sb_printf (lg->out, "  %s = alloca double, align 8\n", objref (lg, p));
+			sb_printf (lg->out, "  store double %%a%d, ptr %s\n", np, objref (lg, p));
 		} else {
-			fprintf (lg->out, "  %s = alloca i64, align 8\n", objref (lg, p));
-			fprintf (lg->out, "  store i64 %%a%d, ptr %s\n", np, objref (lg, p));
+			sb_printf (lg->out, "  %s = alloca i64, align 8\n", objref (lg, p));
+			sb_printf (lg->out, "  store i64 %%a%d, ptr %s\n", np, objref (lg, p));
 		}
 	}
 	/* locals */
@@ -932,36 +932,36 @@ static void emit_func(LlGen *lg, Obj *fn) {
 		int al = v->align? v->align: 1;
 		if (is_agg (v->ty)) {
 			int sz = v->ty->size? v->ty->size: 8;
-			fprintf (lg->out, "  %s = alloca [%d x i8], align %d\n", objref (lg, v), sz, al);
-			fprintf (lg->out, "  call void @llvm.memset.p0.i64(ptr %s, i8 0, i64 %d, i1 false)\n",
+			sb_printf (lg->out, "  %s = alloca [%d x i8], align %d\n", objref (lg, v), sz, al);
+			sb_printf (lg->out, "  call void @llvm.memset.p0.i64(ptr %s, i8 0, i64 %d, i1 false)\n",
 				objref (lg, v), sz);
 		} else if (v->ty->kind == TY_F64) {
-			fprintf (lg->out, "  %s = alloca double, align %d\n", objref (lg, v), al);
-			fprintf (lg->out, "  store double 0.0, ptr %s\n", objref (lg, v));
+			sb_printf (lg->out, "  %s = alloca double, align %d\n", objref (lg, v), al);
+			sb_printf (lg->out, "  store double 0.0, ptr %s\n", objref (lg, v));
 		} else {
 			int sz = store_size (v);
-			fprintf (lg->out, "  %s = alloca %s, align %d\n", objref (lg, v), ityp (sz), al);
-			fprintf (lg->out, "  store %s 0, ptr %s\n", ityp (sz), objref (lg, v));
+			sb_printf (lg->out, "  %s = alloca %s, align %d\n", objref (lg, v), ityp (sz), al);
+			sb_printf (lg->out, "  store %s 0, ptr %s\n", ityp (sz), objref (lg, v));
 		}
 	}
 	emit_stmt (lg, fn->body);
 	if (lg->block_open) {
 		if (lg->ret_void) {
-			fprintf (lg->out, "  ret void\n");
+			sb_printf (lg->out, "  ret void\n");
 		} else {
-			fprintf (lg->out, "  ret %s %s\n", lg->ret_f? "double": "i64",
+			sb_printf (lg->out, "  ret %s %s\n", lg->ret_f? "double": "i64",
 				lg->ret_f? "0.0": "0");
 		}
 	}
-	fprintf (lg->out, "}\n\n");
+	sb_printf (lg->out, "}\n\n");
 }
 
-static void ll_emit(Aholyc *cc, Program *prog, FILE *out,
+static void ll_emit(Aholyc *cc, Program *prog, StrBuf *out,
 		bool object_mode, bool ctor_mode) {
 	(void)object_mode;
 	LlGen gen = { .cc = cc, .prog = prog, .out = out, .ctor_mode = ctor_mode };
 	LlGen *lg = &gen;
-	fprintf (lg->out, "; generated by aholyc (HolyC -> LLVM IR)\n\n");
+	sb_printf (lg->out, "; generated by aholyc (HolyC -> LLVM IR)\n\n");
 	/* strings */
 	for (StrLit *s = prog->strings; s; s = s->next) {
 		emit_str_escaped (lg, s);
@@ -969,23 +969,23 @@ static void ll_emit(Aholyc *cc, Program *prog, FILE *out,
 	/* globals */
 	for (Obj *g = prog->globals; g; g = g->next) {
 		if (g->is_extern) {
-			fprintf (lg->out, "@%s = external %sglobal i64\n", g->name,
+			sb_printf (lg->out, "@%s = external %sglobal i64\n", g->name,
 				is_fs_obj (g)? "thread_local ": "");
 			continue;
 		}
 		const char *lnk = g->is_public? "": "internal ";
 		if (is_agg (g->ty)) {
 			int sz = g->ty->size? g->ty->size: 8;
-			fprintf (lg->out, "%s = %sglobal [%d x i8] zeroinitializer, align 8\n",
+			sb_printf (lg->out, "%s = %sglobal [%d x i8] zeroinitializer, align 8\n",
 				objref (lg, g), lnk, sz);
 		} else if (g->ty->kind == TY_F64) {
-			fprintf (lg->out, "%s = %sglobal double 0.0\n", objref (lg, g), lnk);
+			sb_printf (lg->out, "%s = %sglobal double 0.0\n", objref (lg, g), lnk);
 		} else {
-			fprintf (lg->out, "%s = %sglobal %s 0\n", objref (lg, g), lnk,
+			sb_printf (lg->out, "%s = %sglobal %s 0\n", objref (lg, g), lnk,
 				ityp (g->ty->size? g->ty->size: 8));
 		}
 	}
-	fprintf (lg->out, "\n");
+	sb_printf (lg->out, "\n");
 	/* extern function declares */
 	for (Obj *f = prog->funcs; f; f = f->next) {
 		if (!f->is_extern && f->body) {
@@ -995,32 +995,32 @@ static void ll_emit(Aholyc *cc, Program *prog, FILE *out,
 			continue; /* declared but never defined: skip */
 		}
 		Type *ret = f->ty->base;
-		fprintf (lg->out, "declare %s @%s(",
+		sb_printf (lg->out, "declare %s @%s(",
 			ret->kind == TY_F64? "double": ret->kind == TY_VOID? "void": "i64",
 			f->name);
 		int np = 0;
 		for (Obj *p = f->params; p; p = p->next, np++) {
-			fprintf (lg->out, "%s%s", np? ", ": "",
+			sb_printf (lg->out, "%s%s", np? ", ": "",
 				p->ty->kind == TY_F64? "double": "i64");
 		}
-		fprintf (lg->out, ")%s\n",
+		sb_printf (lg->out, ")%s\n",
 			f->hints & HINT_INLINE? " alwaysinline":
 			f->hints & HINT_NOINLINE? " noinline": "");
 	}
-	fprintf (lg->out, "declare ptr @__hc_try_push()\n");
-	fprintf (lg->out, "declare void @__hc_try_pop()\n");
-	fprintf (lg->out, "declare ptr @__hc_fs()\n");
-	fprintf (lg->out, "declare i32 @_setjmp(ptr) returns_twice\n");
-	fprintf (lg->out, "declare double @__hc_pow(double, double)\n");
-	fprintf (lg->out, "declare i64 @llvm.ctpop.i64(i64)\n");
-	fprintf (lg->out, "declare i64 @llvm.cttz.i64(i64, i1)\n");
-	fprintf (lg->out, "declare i64 @llvm.ctlz.i64(i64, i1)\n");
-	fprintf (lg->out, "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n");
-	fprintf (lg->out, "declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)\n");
+	sb_printf (lg->out, "declare ptr @__hc_try_push()\n");
+	sb_printf (lg->out, "declare void @__hc_try_pop()\n");
+	sb_printf (lg->out, "declare ptr @__hc_fs()\n");
+	sb_printf (lg->out, "declare i32 @_setjmp(ptr) returns_twice\n");
+	sb_printf (lg->out, "declare double @__hc_pow(double, double)\n");
+	sb_printf (lg->out, "declare i64 @llvm.ctpop.i64(i64)\n");
+	sb_printf (lg->out, "declare i64 @llvm.cttz.i64(i64, i1)\n");
+	sb_printf (lg->out, "declare i64 @llvm.ctlz.i64(i64, i1)\n");
+	sb_printf (lg->out, "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n");
+	sb_printf (lg->out, "declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)\n");
 	if (lg->ctor_mode) {
-		fprintf (lg->out, "declare void @__hc_register_start(ptr)\n");
+		sb_printf (lg->out, "declare void @__hc_register_start(ptr)\n");
 	}
-	fprintf (lg->out, "\n");
+	sb_printf (lg->out, "\n");
 	/* user functions */
 	for (Obj *f = prog->funcs; f; f = f->next) {
 		if (f->is_extern || !f->body) {
@@ -1030,13 +1030,13 @@ static void ll_emit(Aholyc *cc, Program *prog, FILE *out,
 	}
 	emit_func (lg, prog->startup);
 	if (lg->ctor_mode) {
-		fprintf (lg->out, "define internal void @__hc_ctor() {\n"
+		sb_printf (lg->out, "define internal void @__hc_ctor() {\n"
 			"entry:\n"
 			"  call void @__hc_register_start(ptr @__hc_ctor_body)\n"
 			"  ret void\n"
 			"}\n\n");
 		/* register the object's top-level code for program start */
-		fprintf (lg->out, "@llvm.global_ctors = appending global "
+		sb_printf (lg->out, "@llvm.global_ctors = appending global "
 			"[1 x { i32, ptr, ptr }] "
 			"[{ i32, ptr, ptr } { i32 65535, ptr @__hc_ctor, ptr null }]\n");
 	}
@@ -1044,52 +1044,48 @@ static void ll_emit(Aholyc *cc, Program *prog, FILE *out,
 
 static int ll_build_obj(Aholyc *cc, const char *artifact,
 		const char *outpath, const char *opt) {
-	if (aholyc_i_have_cmd (cc, "clang")) {
+	if (have_cmd (cc, "clang")) {
 		char *argv[] = {
 			"clang", (char *)opt, "-w", "-c",
 			"-o", (char *)outpath, (char *)artifact, NULL
 		};
-		return aholyc_i_run_cmd (cc, argv);
+		return run_cmd (cc, argv);
 	}
-	if (aholyc_i_have_cmd (cc, "llc")) {
+	if (have_cmd (cc, "llc")) {
 		char *argv[] = {
 			"llc", "-O2", "-filetype=obj", (char *)artifact,
 			"-o", (char *)outpath, NULL
 		};
-		return aholyc_i_run_cmd (cc, argv);
+		return run_cmd (cc, argv);
 	}
-	aholyc_i_error (cc, "LLVM backend needs 'clang' or 'llc' in PATH for -c");
+	error (cc, "LLVM backend needs 'clang' or 'llc' in PATH for -c");
 	return 1;
 }
 
 static int ll_build(Aholyc *cc, const char *artifact,
 		const char *outpath, const char *opt) {
 	/* materialize the runtime C source next to the artifact */
-	char *rtpath = aholyc_i_xasprintf (cc, "%s.rt.c", artifact);
-	FILE *f = fopen (rtpath, "w");
-	if (!f) {
-		aholyc_i_error (cc, "cannot write %s", rtpath);
-	}
-	fputs (aholyc_i_rt_c_src, f);
-	fclose (f);
+	char *rtpath = xasprintf (cc, "%s.rt.c", artifact);
+	write_file (cc, rtpath, aholyc_i_rt_c_src,
+		strlen (aholyc_i_rt_c_src));
 	int r;
-	if (aholyc_i_have_cmd (cc, "clang")) {
+	if (have_cmd (cc, "clang")) {
 		const char *inputs[] = { artifact, rtpath };
-		r = aholyc_i_run_cc (cc, "clang", opt, outpath, inputs, 2, false, true);
-	} else if (aholyc_i_have_cmd (cc, "llc")) {
-		char *spath = aholyc_i_xasprintf (cc, "%s.s", artifact);
+		r = run_cc (cc, "clang", opt, outpath, inputs, 2, false, true);
+	} else if (have_cmd (cc, "llc")) {
+		char *spath = xasprintf (cc, "%s.s", artifact);
 		char *largv[] = { "llc", "-O2", (char *)artifact, "-o", spath, NULL };
-		r = aholyc_i_run_cmd (cc, largv);
+		r = run_cmd (cc, largv);
 		if (r == 0) {
 			const char *ccbin = getenv ("CC");
 			const char *inputs[] = { spath, rtpath };
-			r = aholyc_i_run_cc (cc, ccbin, opt, outpath, inputs, 2, false, false);
+			r = run_cc (cc, ccbin, opt, outpath, inputs, 2, false, false);
 		}
 		if (!cc->keep) {
 			unlink (spath);
 		}
 	} else {
-		aholyc_i_error (cc, "LLVM backend needs 'clang' or 'llc' in PATH "
+		error (cc, "LLVM backend needs 'clang' or 'llc' in PATH "
 			"(install the LLVM toolchain, or use -b c)");
 		r = 1;
 	}

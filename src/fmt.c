@@ -303,15 +303,15 @@ static int split_pos(FState *st, const char *s, const FmtOpts *opt) {
 
 static void put_indent(StrBuf *o, int level, const FmtOpts *opt) {
 	for (int n = level * opt->indent; n > 0; n--) {
-		aholyc_i_sb_putc (o, ' ');
+		sb_putc (o, ' ');
 	}
 }
 
 static char *fmt_run(Aholyc *cc, const char *src, const FmtOpts *opt) {
 	StrBuf out;
-	aholyc_i_sb_init (&out, cc);
+	sb_init (&out, cc);
 	FState st = {0};
-	char *p = aholyc_i_xstrdup (cc, src);
+	char *p = xstrdup (cc, src);
 	int pending_blank = 0;
 	bool wrote_any = false;
 
@@ -323,11 +323,11 @@ static char *fmt_run(Aholyc *cc, const char *src, const FmtOpts *opt) {
 		if (st.in_bc || st.in_str) {
 			/* inside a multi-line comment/string: verbatim */
 			for (int i = 0; i < pending_blank; i++) {
-				aholyc_i_sb_putc (&out, '\n');
+				sb_putc (&out, '\n');
 			}
 			pending_blank = 0;
-			aholyc_i_sb_puts (&out, line);
-			aholyc_i_sb_putc (&out, '\n');
+			sb_puts (&out, line);
+			sb_putc (&out, '\n');
 			wrote_any = true;
 			st.cur_indent = stmt_level (&st);
 			scan_line (&st, line);
@@ -347,7 +347,7 @@ static char *fmt_run(Aholyc *cc, const char *src, const FmtOpts *opt) {
 			continue;
 		}
 		for (int i = 0; i < pending_blank; i++) {
-			aholyc_i_sb_putc (&out, '\n');
+			sb_putc (&out, '\n');
 		}
 		pending_blank = 0;
 
@@ -393,17 +393,17 @@ static char *fmt_run(Aholyc *cc, const char *src, const FmtOpts *opt) {
 				*--ht = 0;
 			}
 			put_indent (&out, level, opt);
-			aholyc_i_sb_puts (&out, b);
-			aholyc_i_sb_putc (&out, '\n');
+			sb_puts (&out, b);
+			sb_putc (&out, '\n');
 			put_indent (&out, level, opt);
 			*brace = save;
-			aholyc_i_sb_puts (&out, b + sp);
-			aholyc_i_sb_putc (&out, '\n');
+			sb_puts (&out, b + sp);
+			sb_putc (&out, '\n');
 			memset (ht, ' ', (size_t)(brace - ht));
 		} else {
 			put_indent (&out, level, opt);
-			aholyc_i_sb_puts (&out, b);
-			aholyc_i_sb_putc (&out, '\n');
+			sb_puts (&out, b);
+			sb_putc (&out, '\n');
 		}
 		wrote_any = true;
 		st.cur_indent = level;
@@ -436,7 +436,7 @@ static char *fmt_run(Aholyc *cc, const char *src, const FmtOpts *opt) {
 			}
 		}
 	}
-	return aholyc_i_sb_take (&out);
+	return sb_take (&out);
 }
 
 /* the only allowed difference is whitespace: verify or refuse */
@@ -457,7 +457,7 @@ static bool ws_equal(const char *a, const char *b) {
 
 /* ----------------------------------------------------------- driver */
 
-int aholyc_i_fmt_main(Aholyc *cc, int argc, char **argv) {
+int fmt_main(Aholyc *cc, int argc, char **argv) {
 	bool write = false, quiet = false;
 	FmtOpts opt = {2, true};
 	const char *files[256];
@@ -487,7 +487,7 @@ int aholyc_i_fmt_main(Aholyc *cc, int argc, char **argv) {
 		} else if (nfiles < 256) {
 			files[nfiles++] = argv[i];
 		} else {
-			aholyc_i_error (cc, "fmt: too many files");
+			error (cc, "fmt: too many files");
 		}
 	}
 	if (nfiles == 0) {
@@ -498,14 +498,14 @@ int aholyc_i_fmt_main(Aholyc *cc, int argc, char **argv) {
 	for (int i = 0; i < nfiles; i++) {
 		void *mark = cc->allocs;
 		bool is_stdin = !strcmp (files[i], "-");
-		char *src = aholyc_i_read_source (cc, files[i]);
+		char *src = read_source (cc, files[i]);
 		if (!src) {
-			aholyc_i_error (cc, "fmt: cannot open '%s'", files[i]);
+			error (cc, "fmt: cannot open '%s'", files[i]);
 		}
 		char *out = fmt_run (cc, src, &opt);
 		if (!ws_equal (src, out)) {
 			/* never emit anything that fails verification */
-			aholyc_i_error (cc, "fmt: internal error on '%s', left untouched",
+			error (cc, "fmt: internal error on '%s', left untouched",
 				is_stdin? "(stdin)": files[i]);
 		}
 		bool changed = strcmp (src, out) != 0;
@@ -518,24 +518,24 @@ int aholyc_i_fmt_main(Aholyc *cc, int argc, char **argv) {
 			}
 		} else if (write && !is_stdin) {
 			if (changed) {
-				char *tmp = aholyc_i_xasprintf (cc, "%s.fmt.tmp", files[i]);
+				char *tmp = xasprintf (cc, "%s.fmt.tmp", files[i]);
 				FILE *f = fopen (tmp, "wb");
-				if (!f) aholyc_i_error (cc, "fmt: cannot write '%s'", tmp);
+				if (!f) error (cc, "fmt: cannot write '%s'", tmp);
 				bool failed = fwrite (out, 1, strlen (out), f) != strlen (out);
 				failed |= fclose (f) != 0;
 				if (failed) {
 					unlink (tmp);
-					aholyc_i_error (cc, "fmt: cannot write '%s'", tmp);
+					error (cc, "fmt: cannot write '%s'", tmp);
 				}
 				if (rename (tmp, files[i]) != 0) {
 					unlink (tmp);
-					aholyc_i_error (cc, "fmt: cannot replace '%s'", files[i]);
+					error (cc, "fmt: cannot replace '%s'", files[i]);
 				}
 			}
 		} else {
 			fputs (out, stdout);
 		}
-		aholyc_i_xfree_to (cc, mark);
+		xfree_to (cc, mark);
 	}
 	return rc;
 }

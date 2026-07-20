@@ -25,7 +25,7 @@ typedef struct {
 typedef struct {
 	Aholyc *cc;
 	Program *prog;
-	FILE *out;
+	StrBuf *out;
 	Blk blocks[1024];
 	LabMap lmap[512];
 	RtChunk chunks[160];
@@ -36,28 +36,20 @@ typedef struct {
 	size_t core_len;
 } JsGen;
 
-typedef struct { FILE *file; char **buf; } MemStream;
-
-static void cleanup_memstream(void *arg) {
-	MemStream *m = arg;
-	if (m->file) fclose (m->file);
-	free (*m->buf);
-}
-
 static int new_block(JsGen *g) {
 	if (g->nblocks >= 1024) {
-		aholyc_i_error (g->cc, "js backend: too many blocks");
+		error (g->cc, "js backend: too many blocks");
 	}
 	memset (&g->blocks[g->nblocks], 0, sizeof(Blk));
-	aholyc_i_sb_init (&g->blocks[g->nblocks].out, g->cc);
+	sb_init (&g->blocks[g->nblocks].out, g->cc);
 	return g->nblocks++;
 }
 
-#define EMIT(...) aholyc_i_sb_printf (&g->blocks[g->cur_blk].out, __VA_ARGS__)
+#define EMIT(...) sb_printf (&g->blocks[g->cur_blk].out, __VA_ARGS__)
 
 static void uid_set(JsGen *g, int uid, long val) {
 	if (uid < 0 || uid >= 65536) {
-		aholyc_i_error (g->cc, "js backend: uid out of range");
+		error (g->cc, "js backend: uid out of range");
 	}
 	g->umap[uid] = val;
 }
@@ -66,7 +58,7 @@ static long uid_get(JsGen *g, int uid) {
 	if (uid >= 0 && uid < 65536 && g->umap[uid] >= 0) {
 		return g->umap[uid];
 	}
-	aholyc_i_error (g->cc, "js backend: no layout for uid %d", uid);
+	error (g->cc, "js backend: no layout for uid %d", uid);
 	return 0;
 }
 
@@ -77,7 +69,7 @@ static int label_block(JsGen *g, const char *name) {
 		}
 	}
 	if (g->nlmap >= 512) {
-		aholyc_i_error (g->cc, "js backend: too many labels");
+		error (g->cc, "js backend: too many labels");
 	}
 	g->lmap[g->nlmap].name = name;
 	g->lmap[g->nlmap].blk = new_block (g);
@@ -98,7 +90,7 @@ static void parse_rt_chunks(JsGen *g) {
 				g->core_len = p - aholyc_i_rt_js_src;
 			}
 			if (g->nchunks >= 160) {
-				aholyc_i_error (g->cc, "js backend: too many runtime chunks");
+				error (g->cc, "js backend: too many runtime chunks");
 			}
 			cur = &g->chunks[g->nchunks++];
 			size_t m = n < sizeof(cur->text)? n: sizeof(cur->text) - 1;
@@ -143,7 +135,7 @@ static const char *rt(JsGen *g, const char *name) { mark_chunk (g, name); return
 static bool is_agg(Type *ty) { return ty && (ty->kind == TY_CLASS || ty->kind == TY_ARRAY); }
 static bool native_var(Obj *v) { return !v->is_extern && !is_agg (v->ty) && !v->address_taken; }
 
-static char *vname(JsGen *g, Obj *v) { return aholyc_i_xasprintf (g->cc, "%c%d_%s", v->is_global? 'g': 'l', v->uid, v->name); }
+static char *vname(JsGen *g, Obj *v) { return xasprintf (g->cc, "%c%d_%s", v->is_global? 'g': 'l', v->uid, v->name); }
 
 static int store_size(Obj *v) { return v->is_param? 8: (v->ty->size? v->ty->size: 8); }
 static int elem_size(Type *ptrty) {
@@ -154,21 +146,21 @@ static const char *extname(Obj *fn) {
 }
 static char *fname(JsGen *g, Obj *fn) {
 	if (fn == g->prog->startup) {
-		return aholyc_i_xstrdup (g->cc, "__hc_start");
+		return xstrdup (g->cc, "__hc_start");
 	}
 	if (fn->is_extern) {
-		return aholyc_i_xstrdup (g->cc, RT (extname (fn)));
+		return xstrdup (g->cc, RT (extname (fn)));
 	}
-	return aholyc_i_xasprintf (g->cc, "hc_%s", fn->name);
+	return xasprintf (g->cc, "hc_%s", fn->name);
 }
 static char *var_addr(JsGen *g, Obj *v) {
 	if (v->is_extern) {
-		return aholyc_i_xasprintf (g->cc, "EXT.%s", v->name);
+		return xasprintf (g->cc, "EXT.%s", v->name);
 	}
 	if (v->is_global) {
-		return aholyc_i_xasprintf (g->cc, "%ld", uid_get (g, v->uid));
+		return xasprintf (g->cc, "%ld", uid_get (g, v->uid));
 	}
-	return aholyc_i_xasprintf (g->cc, "(fp+%ld)", uid_get (g, v->uid));
+	return xasprintf (g->cc, "(fp+%ld)", uid_get (g, v->uid));
 }
 
 static const char *ld_fn(JsGen *g, Type *ty, int size) {
@@ -208,10 +200,10 @@ static char *emit_addr(JsGen *g, Node *n) {
 		if (n->member_ref->offset == 0) {
 			return b;
 		}
-		return aholyc_i_xasprintf (g->cc, "(%s+%d)", b, n->member_ref->offset);
+		return xasprintf (g->cc, "(%s+%d)", b, n->member_ref->offset);
 	}
 	default:
-		aholyc_i_error (g->cc, "js backend: not an lvalue (node kind %d)", n->kind);
+		error (g->cc, "js backend: not an lvalue (node kind %d)", n->kind);
 		return NULL;
 	}
 }
@@ -221,42 +213,42 @@ static bool is_f(Node *n) { return n->ty && n->ty->kind == TY_F64; }
 static Node *append_args(JsGen *g, StrBuf *out, Node *a, int n) {
 	for (int i = 0; a && (n < 0 || i < n); i++, a = a->next) {
 		if (i) {
-			aholyc_i_sb_putc (out, ',');
+			sb_putc (out, ',');
 		}
 		char *v = emit_val (g, a);
-		aholyc_i_sb_puts (out, v);
+		sb_puts (out, v);
 	}
 	return a;
 }
 
 static char *emit_call(JsGen *g, Node *n) {
 	StrBuf out;
-	aholyc_i_sb_init (&out, g->cc);
+	sb_init (&out, g->cc);
 	Obj *fn = n->func;
 	char *name = fn? fname (g, fn): emit_val (g, n->lhs);
 	if (!fn) {
-		aholyc_i_sb_printf (&out, "FT[(%s)-1](", name);
+		sb_printf (&out, "FT[(%s)-1](", name);
 		append_args (g, &out, n->args, -1);
-		aholyc_i_sb_putc (&out, ')');
+		sb_putc (&out, ')');
 	} else if (fn->is_variadic) {
-		aholyc_i_sb_printf (&out, "%s(%s,[", RT ("hcVCall"), name);
+		sb_printf (&out, "%s(%s,[", RT ("hcVCall"), name);
 		Node *a = append_args (g, &out, n->args, n->nfixed);
-		aholyc_i_sb_puts (&out, "],[");
+		sb_puts (&out, "],[");
 		append_args (g, &out, a, -1);
-		aholyc_i_sb_puts (&out, "],[");
+		sb_puts (&out, "],[");
 		for (int i = 0; a; i++, a = a->next) {
 			if (i) {
-				aholyc_i_sb_putc (&out, ',');
+				sb_putc (&out, ',');
 			}
-			aholyc_i_sb_putc (&out, is_f (a)? '1': '0');
+			sb_putc (&out, is_f (a)? '1': '0');
 		}
-		aholyc_i_sb_puts (&out, "])");
+		sb_puts (&out, "])");
 	} else {
-		aholyc_i_sb_printf (&out, "%s(", name);
+		sb_printf (&out, "%s(", name);
 		append_args (g, &out, n->args, -1);
-		aholyc_i_sb_putc (&out, ')');
+		sb_putc (&out, ')');
 	}
-	return aholyc_i_sb_take (&out);
+	return sb_take (&out);
 }
 
 static const char *js_op(NodeKind kind) {
@@ -270,21 +262,21 @@ static const char *js_op(NodeKind kind) {
 }
 
 static char *emit_binary(JsGen *g, Node *n) {
-	return aholyc_i_xasprintf (g->cc, "(%s %s %s)", emit_val (g, n->lhs), js_op (n->kind),
+	return xasprintf (g->cc, "(%s %s %s)", emit_val (g, n->lhs), js_op (n->kind),
 		emit_val (g, n->rhs));
 }
 
 static char *emit_val(JsGen *g, Node *n) {
 	switch (n->kind) {
 	case ND_NUM:
-		return aholyc_i_xasprintf (g->cc, "%lld", (long long)n->ival);
+		return xasprintf (g->cc, "%lld", (long long)n->ival);
 	case ND_FNUM: {
 		char buf[64];
 		snprintf (buf, sizeof(buf), "%.17g", n->fval);
-		return aholyc_i_xstrdup (g->cc, buf);
+		return xstrdup (g->cc, buf);
 	}
 	case ND_STR:
-		return aholyc_i_xasprintf (g->cc, "%ld", g->str_addr[n->str_id]);
+		return xasprintf (g->cc, "%ld", g->str_addr[n->str_id]);
 	case ND_VAR: {
 		Obj *v = n->var;
 		if (native_var (v)) {
@@ -293,22 +285,22 @@ static char *emit_val(JsGen *g, Node *n) {
 		if (is_agg (v->ty)) {
 			return var_addr (g, v);
 		}
-		return aholyc_i_xasprintf (g->cc, "%s(%s)", ld_fn (g, v->ty, store_size (v)),
+		return xasprintf (g->cc, "%s(%s)", ld_fn (g, v->ty, store_size (v)),
 			var_addr (g, v));
 	}
 	case ND_FUNCNAME:
-		return aholyc_i_xasprintf (g->cc, "%ld", uid_get (g, n->func->uid));
+		return xasprintf (g->cc, "%ld", uid_get (g, n->func->uid));
 	case ND_DEREF:
 		if (is_agg (n->ty)) {
 			return emit_val (g, n->lhs);
 		}
-		return aholyc_i_xasprintf (g->cc, "%s(%s)", ld_fn (g, n->ty,
+		return xasprintf (g->cc, "%s(%s)", ld_fn (g, n->ty,
 			n->ty->size? n->ty->size: 8), emit_val (g, n->lhs));
 	case ND_MEMBER:
 		if (is_agg (n->ty)) {
 			return emit_addr (g, n);
 		}
-		return aholyc_i_xasprintf (g->cc, "%s(%s)", ld_fn (g, n->ty,
+		return xasprintf (g->cc, "%s(%s)", ld_fn (g, n->ty,
 			n->ty->size? n->ty->size: 8), emit_addr (g, n));
 	case ND_ADDR:
 		return emit_addr (g, n->lhs);
@@ -316,22 +308,22 @@ static char *emit_val(JsGen *g, Node *n) {
 		Node *l = n->lhs;
 		char *rv = emit_val (g, n->rhs);
 		if (l->kind == ND_VAR && native_var (l->var)) {
-			return aholyc_i_xasprintf (g->cc, "(%s = %s)", vname (g, l->var), rv);
+			return xasprintf (g->cc, "(%s = %s)", vname (g, l->var), rv);
 		}
 		if (l->ty && l->ty->kind == TY_CLASS) {
-			return aholyc_i_xasprintf (g->cc, "%s(%s,%s,%d)", RT ("MemCpy"),
+			return xasprintf (g->cc, "%s(%s,%s,%d)", RT ("MemCpy"),
 				emit_addr (g, l), rv, l->ty->size);
 		}
 		int sz = l->kind == ND_VAR? store_size (l->var):
 			(l->ty->size? l->ty->size: 8);
-		return aholyc_i_xasprintf (g->cc, "%s(%s,%s)", st_fn (g, l->ty, sz),
+		return xasprintf (g->cc, "%s(%s,%s)", st_fn (g, l->ty, sz),
 			emit_addr (g, l), rv);
 	}
 	case ND_CAST: {
 		Type *to = n->ty, *from = n->lhs->ty;
 		char *v = emit_val (g, n->lhs);
 		if (to->kind != TY_F64 && from->kind == TY_F64) {
-			return aholyc_i_xasprintf (g->cc, "Math.trunc(%s)", v);
+			return xasprintf (g->cc, "Math.trunc(%s)", v);
 		}
 		return v;
 	}
@@ -343,14 +335,14 @@ static char *emit_val(JsGen *g, Node *n) {
 		char *a = emit_val (g, n->lhs);
 		char *b = emit_val (g, n->rhs);
 		if (lp && rp && n->kind == ND_SUB) {
-			return aholyc_i_xasprintf (g->cc, "Math.trunc((%s - %s) / %d)", a, b,
+			return xasprintf (g->cc, "Math.trunc((%s - %s) / %d)", a, b,
 				elem_size (lt));
 		}
 		if (lp) {
-			return aholyc_i_xasprintf (g->cc, "(%s %s %s * %d)", a, js_op (n->kind), b,
+			return xasprintf (g->cc, "(%s %s %s * %d)", a, js_op (n->kind), b,
 				elem_size (lt));
 		}
-		return aholyc_i_xasprintf (g->cc, "(%s %s %s)", a, js_op (n->kind), b);
+		return xasprintf (g->cc, "(%s %s %s)", a, js_op (n->kind), b);
 	}
 	case ND_MUL:
 	case ND_MOD:
@@ -366,45 +358,45 @@ static char *emit_val(JsGen *g, Node *n) {
 		return emit_binary (g, n);
 	case ND_DIV:
 		if (n->ty->kind == TY_F64) {
-			return aholyc_i_xasprintf (g->cc, "(%s / %s)", emit_val (g, n->lhs),
+			return xasprintf (g->cc, "(%s / %s)", emit_val (g, n->lhs),
 				emit_val (g, n->rhs));
 		}
-		return aholyc_i_xasprintf (g->cc, "Math.trunc(%s / %s)",
+		return xasprintf (g->cc, "Math.trunc(%s / %s)",
 			emit_val (g, n->lhs), emit_val (g, n->rhs));
 	case ND_POW:
-		return aholyc_i_xasprintf (g->cc, "(%s ** %s)", emit_val (g, n->lhs),
+		return xasprintf (g->cc, "(%s ** %s)", emit_val (g, n->lhs),
 			emit_val (g, n->rhs));
 	case ND_LOGAND:
-		return aholyc_i_xasprintf (g->cc, "(%s && %s)",
+		return xasprintf (g->cc, "(%s && %s)",
 			emit_val (g, n->lhs), emit_val (g, n->rhs));
 	case ND_LOGOR:
-		return aholyc_i_xasprintf (g->cc, "(%s || %s)",
+		return xasprintf (g->cc, "(%s || %s)",
 			emit_val (g, n->lhs), emit_val (g, n->rhs));
 	case ND_LOGXOR:
-		return aholyc_i_xasprintf (g->cc, "(Boolean(%s) !== Boolean(%s))",
+		return xasprintf (g->cc, "(Boolean(%s) !== Boolean(%s))",
 			emit_val (g, n->lhs), emit_val (g, n->rhs));
 	case ND_NOT:
-		return aholyc_i_xasprintf (g->cc, "(!%s)", emit_val (g, n->lhs));
+		return xasprintf (g->cc, "(!%s)", emit_val (g, n->lhs));
 	case ND_BITNOT:
-		return aholyc_i_xasprintf (g->cc, "(~%s)", emit_val (g, n->lhs));
+		return xasprintf (g->cc, "(~%s)", emit_val (g, n->lhs));
 	case ND_NEG:
-		return aholyc_i_xasprintf (g->cc, "(-%s)", emit_val (g, n->lhs));
+		return xasprintf (g->cc, "(-%s)", emit_val (g, n->lhs));
 	case ND_COMMA:
-		return aholyc_i_xasprintf (g->cc, "(%s, %s)", emit_val (g, n->lhs),
+		return xasprintf (g->cc, "(%s, %s)", emit_val (g, n->lhs),
 			emit_val (g, n->rhs));
 	case ND_CALL:
 		return emit_call (g, n);
 	case ND_NOP:
-		return aholyc_i_xstrdup (g->cc, "0");
+		return xstrdup (g->cc, "0");
 	default:
-		aholyc_i_error (g->cc, "js backend: unexpected node kind %d in expression", n->kind);
+		error (g->cc, "js backend: unexpected node kind %d in expression", n->kind);
 		return NULL;
 	}
 }
 
 static void indent(JsGen *g, int n) {
 	while (n-- > 0) {
-		fputc ('\t', g->out);
+		sb_putc (g->out, '\t');
 	}
 }
 
@@ -449,7 +441,7 @@ static bool native_stmt(Node *n) {
 
 static char *plain_expr(JsGen *g, Node *n) {
 	if (n->kind == ND_ASSIGN && n->lhs->kind == ND_VAR && native_var (n->lhs->var)) {
-		return aholyc_i_xasprintf (g->cc, "%s = %s", vname (g, n->lhs->var),
+		return xasprintf (g->cc, "%s = %s", vname (g, n->lhs->var),
 			emit_val (g, n->rhs));
 	}
 	return emit_val (g, n);
@@ -463,7 +455,7 @@ static char *for_clause(JsGen *g, Node *stmt) {
 	if (n->kind == ND_COMMA && n->lhs->kind == ND_ASSIGN &&
 			n->lhs->rhs->kind == ND_VAR && native_var (n->lhs->rhs->var) &&
 			n->tok && (!strcmp (n->tok->str, "++") || !strcmp (n->tok->str, "--"))) {
-		return aholyc_i_xasprintf (g->cc, "%s%s", vname (g, n->lhs->rhs->var), n->tok->str);
+		return xasprintf (g->cc, "%s%s", vname (g, n->lhs->rhs->var), n->tok->str);
 	}
 	return plain_expr (g, n);
 }
@@ -475,7 +467,7 @@ static void emit_native_stmt(JsGen *g, Node *n, int ind) {
 		break;
 	case ND_EXPR_STMT:
 		indent (g, ind);
-		fprintf (g->out, "%s;\n", plain_expr (g, n->lhs));
+		sb_printf (g->out, "%s;\n", plain_expr (g, n->lhs));
 		break;
 	case ND_BLOCK:
 		for (Node *s = n->body; s; s = s->next) {
@@ -484,60 +476,60 @@ static void emit_native_stmt(JsGen *g, Node *n, int ind) {
 		break;
 	case ND_IF:
 		indent (g, ind);
-		fprintf (g->out, "if (%s) {\n", emit_val (g, n->cond));
+		sb_printf (g->out, "if (%s) {\n", emit_val (g, n->cond));
 		emit_native_stmt (g, n->then, ind + 1);
 		indent (g, ind);
-		fprintf (g->out, n->els? "} else {\n": "}\n");
+		sb_printf (g->out, n->els? "} else {\n": "}\n");
 		if (n->els) {
 			emit_native_stmt (g, n->els, ind + 1);
 			indent (g, ind);
-			fprintf (g->out, "}\n");
+			sb_printf (g->out, "}\n");
 		}
 		break;
 	case ND_WHILE:
 		indent (g, ind);
-		fprintf (g->out, "while (%s) {\n", emit_val (g, n->cond));
+		sb_printf (g->out, "while (%s) {\n", emit_val (g, n->cond));
 		emit_native_stmt (g, n->then, ind + 1);
 		indent (g, ind);
-		fprintf (g->out, "}\n");
+		sb_printf (g->out, "}\n");
 		break;
 	case ND_DOWHILE:
 		indent (g, ind);
-		fprintf (g->out, "do {\n");
+		sb_printf (g->out, "do {\n");
 		emit_native_stmt (g, n->then, ind + 1);
 		indent (g, ind);
-		fprintf (g->out, "} while (%s);\n", emit_val (g, n->cond));
+		sb_printf (g->out, "} while (%s);\n", emit_val (g, n->cond));
 		break;
 	case ND_FOR:
 		indent (g, ind);
-		fprintf (g->out, "for (%s; %s; %s) {\n", for_clause (g, n->init),
+		sb_printf (g->out, "for (%s; %s; %s) {\n", for_clause (g, n->init),
 			n->cond? emit_val (g, n->cond): "", for_clause (g, n->inc));
 		emit_native_stmt (g, n->then, ind + 1);
 		indent (g, ind);
-		fprintf (g->out, "}\n");
+		sb_printf (g->out, "}\n");
 		break;
 	case ND_RETURN:
 		indent (g, ind);
-		fprintf (g->out, n->lhs? "return %s;\n": "return 0;\n",
+		sb_printf (g->out, n->lhs? "return %s;\n": "return 0;\n",
 			n->lhs? emit_val (g, n->lhs): "");
 		break;
 	case ND_TRY:
 		indent (g, ind);
-		fprintf (g->out, "try {\n");
+		sb_printf (g->out, "try {\n");
 		emit_native_stmt (g, n->then, ind + 1);
 		indent (g, ind);
-		fprintf (g->out, "} catch (e) {\n");
+		sb_printf (g->out, "} catch (e) {\n");
 		indent (g, ind + 1);
-		fprintf (g->out, "if (e !== HCEXC) throw e;\n");
+		sb_printf (g->out, "if (e !== HCEXC) throw e;\n");
 		emit_native_stmt (g, n->els, ind + 1);
 		indent (g, ind + 1);
-		fprintf (g->out, "if (!ld8(TASK + 8)) %s(ld8(TASK));\n",
+		sb_printf (g->out, "if (!ld8(TASK + 8)) %s(ld8(TASK));\n",
 			RT ("hcThrowFn"));
 		indent (g, ind);
-		fprintf (g->out, "}\n");
+		sb_printf (g->out, "}\n");
 		break;
 	default:
-		aholyc_i_error (g->cc, "js backend: cannot emit structured node %d", n->kind);
+		error (g->cc, "js backend: cannot emit structured node %d", n->kind);
 	}
 }
 
@@ -669,64 +661,64 @@ static void emit_func(JsGen *g, Obj *fn) {
 		}
 	}
 
-	fprintf (g->out, "function %s(", fname (g, fn));
+	sb_printf (g->out, "function %s(", fname (g, fn));
 	int i = 0;
 	for (Obj *p = fn->params; p; p = p->next, i++) {
-		fprintf (g->out, "%s%s", i? ",": "", vname (g, p));
+		sb_printf (g->out, "%s%s", i? ",": "", vname (g, p));
 	}
-	fprintf (g->out, "){\n");
+	sb_printf (g->out, "){\n");
 	for (Obj *v = fn->locals; v; v = v->next) {
 		if (native_var (v)) {
-			fprintf (g->out, " let %s=0;\n", vname (g, v));
+			sb_printf (g->out, " let %s=0;\n", vname (g, v));
 		}
 	}
 	if (framesz) {
-		fprintf (g->out, " const fp=FP;FP+=%ld;\n", framesz);
-		fprintf (g->out, " U8A.fill(0,fp,fp+%ld);\n", framesz);
+		sb_printf (g->out, " const fp=FP;FP+=%ld;\n", framesz);
+		sb_printf (g->out, " U8A.fill(0,fp,fp+%ld);\n", framesz);
 	}
 	for (Obj *p = fn->params; p; p = p->next) {
 		if (!native_var (p)) {
-			fprintf (g->out, " %s(fp+%ld,%s);\n",
+			sb_printf (g->out, " %s(fp+%ld,%s);\n",
 				RT (p->ty->kind == TY_F64? "stf": "st8"),
 				uid_get (g, p->uid), vname (g, p));
 		}
 	}
 	if (native) {
 		if (framesz) {
-			fprintf (g->out, " try {\n");
+			sb_printf (g->out, " try {\n");
 		}
 		emit_native_stmt (g, fn->body, framesz? 2: 1);
 		Node *last = fn->body->kind == ND_BLOCK? fn->body->body: fn->body;
 		while (last && last->next) last = last->next;
 		if (!last || last->kind != ND_RETURN) {
-			fprintf (g->out, "%sreturn 0;\n", framesz? "  ": " ");
+			sb_printf (g->out, "%sreturn 0;\n", framesz? "  ": " ");
 		}
 		if (framesz) {
-			fprintf (g->out, " } finally { FP=fp; }\n");
+			sb_printf (g->out, " } finally { FP=fp; }\n");
 		}
-		fprintf (g->out, "}\n");
+		sb_printf (g->out, "}\n");
 		return;
 	}
-	fprintf (g->out, " let pc=%d;\n", entry);
+	sb_printf (g->out, " let pc=%d;\n", entry);
 	if (framesz) {
-		fprintf (g->out, " try {\n");
+		sb_printf (g->out, " try {\n");
 	}
-	fprintf (g->out, " for (;;) switch (pc) {\n");
+	sb_printf (g->out, " for (;;) switch (pc) {\n");
 	for (int i = 0; i < g->nblocks; i++) {
-		fprintf (g->out, " case %d:{\n%s }\n", i, g->blocks[i].out.data);
+		sb_printf (g->out, " case %d:{\n%s }\n", i, g->blocks[i].out.data);
 	}
-	fprintf (g->out, " default:return 0;\n }\n");
+	sb_printf (g->out, " default:return 0;\n }\n");
 	if (framesz) {
-		fprintf (g->out, " } finally { FP=fp; }\n");
+		sb_printf (g->out, " } finally { FP=fp; }\n");
 	}
-	fprintf (g->out, "}\n");
+	sb_printf (g->out, "}\n");
 }
 
-static void js_emit(Aholyc *cc, Program *prog, FILE *out,
+static void js_emit(Aholyc *cc, Program *prog, StrBuf *out,
 		bool object_mode, bool ctor_mode) {
 	(void)object_mode;
 	(void)ctor_mode;
-	JsGen *g = aholyc_i_xcalloc (cc, 1, sizeof(*g));
+	JsGen *g = xcalloc (cc, 1, sizeof(*g));
 	g->cc = cc;
 	g->prog = prog;
 	memset (g->umap, -1, sizeof(g->umap));
@@ -756,15 +748,9 @@ static void js_emit(Aholyc *cc, Program *prog, FILE *out,
 		uid_set (g, f->uid, ++fidx); /* FT index + 1 */
 	}
 
-	char *fbuf = NULL;
-	size_t fsize = 0;
-	FILE *fo = open_memstream (&fbuf, &fsize);
-	if (!fo) {
-		aholyc_i_error (cc, "js backend: open_memstream failed");
-	}
-	MemStream mem = { fo, &fbuf };
-	aholyc_i_cleanup_push (cc, cleanup_memstream, &mem);
-	g->out = fo;
+	StrBuf funcs;
+	sb_init (&funcs, cc);
+	g->out = &funcs;
 	for (Obj *f = prog->funcs; f; f = f->next) {
 		if (f->is_extern || !f->body) {
 			continue;
@@ -772,49 +758,45 @@ static void js_emit(Aholyc *cc, Program *prog, FILE *out,
 		emit_func (g, f);
 	}
 	emit_func (g, prog->startup);
-	fclose (fo);
-	mem.file = NULL;
 
 	RT ("chstr");
 
 	g->out = out;
-	fprintf (out, "#!/usr/bin/env node\n");
-	fwrite (g->core_src, 1, g->core_len, out);
+	sb_printf (out, "#!/usr/bin/env node\n");
+	sb_putn (out, g->core_src, g->core_len);
 	for (int i = 0; i < g->nchunks; i++) {
 		if (g->chunks[i].inc) {
-			fwrite (g->chunks[i].src, 1, g->chunks[i].len, out);
+			sb_putn (out, g->chunks[i].src, g->chunks[i].len);
 		}
 	}
 	for (Obj *obj = prog->globals; obj; obj = obj->next) {
 		if (native_var (obj)) {
-			fprintf (out, "let %s=0;\n", vname (g, obj));
+			sb_printf (out, "let %s=0;\n", vname (g, obj));
 		}
 	}
-	fwrite (fbuf, 1, fsize, out);
-	aholyc_i_cleanup_pop (cc);
-	free (fbuf);
+	sb_putn (out, funcs.data, funcs.len);
 
-	fprintf (out, "const FT=[");
+	sb_printf (out, "const FT=[");
 	for (Obj *f = prog->funcs; f; f = f->next) {
 		if (f->is_extern || !f->body) {
 			continue;
 		}
-		fprintf (out, "hc_%s,", f->name);
+		sb_printf (out, "hc_%s,", f->name);
 	}
-	fprintf (out, "];\n");
+	sb_printf (out, "];\n");
 
 	for (StrLit *s = prog->strings; s; s = s->next) {
-		fprintf (out, "D(%ld,[", g->str_addr[s->id]);
+		sb_printf (out, "D(%ld,[", g->str_addr[s->id]);
 		for (int i = 0; i < s->len; i++) {
-			fprintf (out, "%d,", (unsigned char)s->data[i]);
+			sb_printf (out, "%d,", (unsigned char)s->data[i]);
 		}
-		fprintf (out, "0]);\n");
+		sb_printf (out, "0]);\n");
 	}
-	fprintf (out, "setLayout(%ld);\n", addr);
+	sb_printf (out, "setLayout(%ld);\n", addr);
 
 	/* Node has [node, script, ...user] while HolyC startup sees only user
 	 * arguments.  Copy strings and their pointer vector into linear memory. */
-	fprintf (out, "try{const __hc_args=process.argv.slice(2);"
+	sb_printf (out, "try{const __hc_args=process.argv.slice(2);"
 		"const __hc_argv=HP;HP+=(__hc_args.length+1)*8;"
 		"if(HP>HEAP_END)throw new Error('argument vector exceeds memory');"
 		"for(let i=0;i<__hc_args.length;i++){"
@@ -835,12 +817,12 @@ static int js_build(Aholyc *cc, const char *artifact,
 	FILE *diag = cc->diagnostics? cc->diagnostics: stderr;
 	FILE *in = fopen (artifact, "rb");
 	if (!in) {
-		aholyc_i_error (cc, "cannot read %s", artifact);
+		error (cc, "cannot read %s", artifact);
 	}
 	FILE *outf = fopen (outpath, "wb");
 	if (!outf) {
 		fclose (in);
-		aholyc_i_error (cc, "cannot write %s", outpath);
+		error (cc, "cannot write %s", outpath);
 	}
 	char buf[65536];
 	size_t n;
@@ -853,7 +835,7 @@ static int js_build(Aholyc *cc, const char *artifact,
 	if (cc->verbose) {
 		fprintf (diag, "aholyc: wrote node script %s\n", outpath);
 	}
-	if (!aholyc_i_have_cmd (cc, "node")) {
+	if (!have_cmd (cc, "node")) {
 		fprintf (diag, "aholyc: warning: 'node' not found in PATH; "
 			"%s needs a JavaScript runtime\n", outpath);
 	}

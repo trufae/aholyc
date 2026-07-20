@@ -14,7 +14,7 @@ typedef struct r_getopt_t {
 	const char *ostr;
 } RGetopt;
 
-void aholyc_i_r_getopt_init(RGetopt *go, int argc, const char **argv, const char *ostr);
-int aholyc_i_r_getopt_next(RGetopt *opt);
+void r_getopt_init(RGetopt *go, int argc, const char **argv, const char *ostr);
+int r_getopt_next(RGetopt *opt);
 
 #endif
