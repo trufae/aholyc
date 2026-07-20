@@ -65,10 +65,16 @@ char *xstrdup(const char *s) {
 char *xasprintf(const char *fmt, ...) {
 	va_list ap;
 	va_start (ap, fmt);
-	char buf[4096];
-	vsnprintf (buf, sizeof(buf), fmt, ap);
+	int n = vsnprintf (NULL, 0, fmt, ap);
 	va_end (ap);
-	return xstrdup (buf);
+	if (n < 0) {
+		error ("string formatting failed");
+	}
+	char *buf = xmalloc ((size_t)n + 1);
+	va_start (ap, fmt);
+	vsnprintf (buf, (size_t)n + 1, fmt, ap);
+	va_end (ap);
+	return buf;
 }
 
 /* slurp an entire source: a file path, or stdin when path is "-".
@@ -128,10 +134,10 @@ bool have_cmd(const char *name) {
 	char *copy = xstrdup (path);
 	bool found = false;
 	for (char *dir = strtok (copy, ":"); dir; dir = strtok (NULL, ":")) {
-		char buf[1024];
-		snprintf (buf, sizeof(buf), "%s/%s", dir, name);
-		if (access (buf, X_OK) == 0) {
-			found = true;
+		char *file = xasprintf ("%s/%s", dir, name);
+		found = access (file, X_OK) == 0;
+		free (file);
+		if (found) {
 			break;
 		}
 	}

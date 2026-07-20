@@ -4,9 +4,7 @@
 #include <sys/stat.h>
 
 typedef struct {
-	char *s;
-	size_t len;
-	FILE *out;
+	StrBuf out;
 	bool term;
 } Blk;
 
@@ -20,14 +18,11 @@ static int new_block(void) {
 		error ("js backend: too many blocks");
 	}
 	memset (&blocks[nblocks], 0, sizeof(Blk));
-	blocks[nblocks].out = open_memstream (&blocks[nblocks].s, &blocks[nblocks].len);
-	if (!blocks[nblocks].out) {
-		error ("js backend: open_memstream failed");
-	}
+	sb_init (&blocks[nblocks].out);
 	return nblocks++;
 }
 
-#define EMIT(...) fprintf (blocks[cur_blk].out, __VA_ARGS__)
+#define EMIT(...) sb_printf (&blocks[cur_blk].out, __VA_ARGS__)
 
 static long umap[65536];
 
@@ -220,47 +215,47 @@ static char *emit_addr(Node *n) {
 
 static bool is_f(Node *n) { return n->ty && n->ty->kind == TY_F64; }
 
-static void append_arg(char **args, char *value) {
-	char *old = *args;
-	*args = xasprintf ("%s%s%s", old, *old? ",": "", value);
-	free (old);
+static Node *append_args(StrBuf *out, Node *a, int n) {
+	for (int i = 0; a && (n < 0 || i < n); i++, a = a->next) {
+		if (i) {
+			sb_putc (out, ',');
+		}
+		char *v = emit_val (a);
+		sb_puts (out, v);
+		free (v);
+	}
+	return a;
 }
 
 static char *emit_call(Node *n) {
+	StrBuf out;
+	sb_init (&out);
 	Obj *fn = n->func;
+	char *name = fn? fname (fn): emit_val (n->lhs);
 	if (!fn) {
-		char *callee = emit_val (n->lhs);
-		char *args = xstrdup ("");
-		for (Node *a = n->args; a; a = a->next) {
-			append_arg (&args, emit_val (a));
+		sb_printf (&out, "FT[(%s)-1](", name);
+		append_args (&out, n->args, -1);
+		sb_putc (&out, ')');
+	} else if (fn->is_variadic) {
+		sb_printf (&out, "%s(%s,[", RT ("hcVCall"), name);
+		Node *a = append_args (&out, n->args, n->nfixed);
+		sb_puts (&out, "],[");
+		append_args (&out, a, -1);
+		sb_puts (&out, "],[");
+		for (int i = 0; a; i++, a = a->next) {
+			if (i) {
+				sb_putc (&out, ',');
+			}
+			sb_putc (&out, is_f (a)? '1': '0');
 		}
-		return xasprintf ("FT[(%s)-1](%s)", callee, args);
+		sb_puts (&out, "])");
+	} else {
+		sb_printf (&out, "%s(", name);
+		append_args (&out, n->args, -1);
+		sb_putc (&out, ')');
 	}
-	char *nm = fname (fn);
-	if (fn->is_variadic) {
-		char *fixed = xstrdup ("");
-		Node *a = n->args;
-		int i = 0;
-		for (; a && i < n->nfixed; a = a->next, i++) {
-			append_arg (&fixed, emit_val (a));
-		}
-		char *extras = xstrdup ("");
-		char *flags = xstrdup ("");
-		for (; a; a = a->next) {
-			char *v = emit_val (a);
-			char *nf = xasprintf ("%s%s%d", flags, *flags? ",": "", is_f (a)? 1: 0);
-			append_arg (&extras, v);
-			free (flags);
-			flags = nf;
-		}
-		return xasprintf ("%s(%s,[%s],[%s],[%s])", RT ("hcVCall"),
-			nm, fixed, extras, flags);
-	}
-	char *args = xstrdup ("");
-	for (Node *a = n->args; a; a = a->next) {
-		append_arg (&args, emit_val (a));
-	}
-	return xasprintf ("%s(%s)", nm, args);
+	free (name);
+	return sb_take (&out);
 }
 
 static const char *js_op(NodeKind kind) {
@@ -710,9 +705,8 @@ static void emit_func(Obj *fn) {
 	}
 	fprintf (o, " for (;;) switch (pc) {\n");
 	for (int i = 0; i < nblocks; i++) {
-		fclose (blocks[i].out);
-		fprintf (o, " case %d:{\n%s }\n", i, blocks[i].s? blocks[i].s: "");
-		free (blocks[i].s);
+		fprintf (o, " case %d:{\n%s }\n", i, blocks[i].out.data);
+		sb_free (&blocks[i].out);
 	}
 	fprintf (o, " default:return 0;\n }\n");
 	if (framesz) {

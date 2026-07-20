@@ -302,19 +302,15 @@ static int split_pos(FState *st, const char *s) {
 
 /* ------------------------------------------------------- formatting */
 
-static void put_indent(FILE *o, int level) {
+static void put_indent(StrBuf *o, int level) {
 	for (int n = level * fmt_indent; n > 0; n--) {
-		fputc (' ', o);
+		sb_putc (o, ' ');
 	}
 }
 
 static char *fmt_run(const char *src) {
-	char *out = NULL;
-	size_t outsz = 0;
-	FILE *o = open_memstream (&out, &outsz);
-	if (!o) {
-		return NULL;
-	}
+	StrBuf out;
+	sb_init (&out);
 	FState st = {0};
 	const char *p = src;
 	int pending_blank = 0;
@@ -331,11 +327,11 @@ static char *fmt_run(const char *src) {
 		if (st.in_bc || st.in_str) {
 			/* inside a multi-line comment/string: verbatim */
 			for (int i = 0; i < pending_blank; i++) {
-				fputc ('\n', o);
+				sb_putc (&out, '\n');
 			}
 			pending_blank = 0;
-			fputs (line, o);
-			fputc ('\n', o);
+			sb_puts (&out, line);
+			sb_putc (&out, '\n');
 			wrote_any = true;
 			st.cur_indent = stmt_level (&st);
 			scan_line (&st, line);
@@ -357,7 +353,7 @@ static char *fmt_run(const char *src) {
 			continue;
 		}
 		for (int i = 0; i < pending_blank; i++) {
-			fputc ('\n', o);
+			sb_putc (&out, '\n');
 		}
 		pending_blank = 0;
 
@@ -404,17 +400,17 @@ static char *fmt_run(const char *src) {
 			while (ht > hdr && (ht[-1] == ' ' || ht[-1] == '\t')) {
 				*--ht = 0;
 			}
-			put_indent (o, level);
-			fputs (hdr, o);
-			fputc ('\n', o);
-			put_indent (o, level);
-			fputs (b + sp, o);
-			fputc ('\n', o);
+			put_indent (&out, level);
+			sb_puts (&out, hdr);
+			sb_putc (&out, '\n');
+			put_indent (&out, level);
+			sb_puts (&out, b + sp);
+			sb_putc (&out, '\n');
 			free (hdr);
 		} else {
-			put_indent (o, level);
-			fputs (b, o);
-			fputc ('\n', o);
+			put_indent (&out, level);
+			sb_puts (&out, b);
+			sb_putc (&out, '\n');
 		}
 		wrote_any = true;
 		st.cur_indent = level;
@@ -448,8 +444,7 @@ static char *fmt_run(const char *src) {
 		}
 		free (line);
 	}
-	fclose (o);
-	return out? out: xstrdup ("");
+	return sb_take (&out);
 }
 
 /* the only allowed difference is whitespace: verify or refuse */

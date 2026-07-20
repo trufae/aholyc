@@ -15,8 +15,7 @@
 #include <unistd.h>
 #include <time.h>
 
-static char *sbuf;      /* StreamPrint accumulator */
-static size_t slen, scap;
+static StrBuf sbuf;     /* StreamPrint accumulator */
 static Token *stream;   /* tokens following the block being run */
 
 /* ------------- API exported to #exe blocks (resolved at dlopen) */
@@ -30,18 +29,10 @@ int64_t Now(void);
 /* append one StreamPrint result; each one starts a fresh line so
  * injected directives (#define, nested #exe) are at start-of-line */
 void __StreamPutS(char *s) {
-	size_t n = s? strlen (s): 0;
-	if (slen + n + 2 > scap) {
-		scap = (scap? scap * 2: 256) + n;
-		sbuf = realloc (sbuf, scap);
-		if (!sbuf) {
-			error ("out of memory");
-		}
+	if (s) {
+		sb_puts (&sbuf, s);
 	}
-	memcpy (sbuf + slen, s, n);
-	slen += n;
-	sbuf[slen++] = '\n';
-	sbuf[slen] = 0;
+	sb_putc (&sbuf, '\n');
 }
 
 /* the compiler's token stream right after the #exe block */
@@ -83,10 +74,10 @@ char *exe_run(Token *block, Token **rest) {
 	toks = token_join (toks, lex_preprocess (block));
 
 	stream = *rest;
-	slen = 0;
-	if (sbuf) {
-		sbuf[0] = 0;
+	if (!sbuf.data) {
+		sb_init (&sbuf);
 	}
+	sb_reset (&sbuf);
 
 	Program *p = parse (toks);
 	aholyc_align_hints = save_align;
@@ -140,5 +131,5 @@ char *exe_run(Token *block, Token **rest) {
 		unlink (sopath);
 	}
 	*rest = stream;
-	return sbuf? sbuf: (char *)"";
+	return sbuf.data;
 }
