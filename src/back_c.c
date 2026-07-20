@@ -1,8 +1,4 @@
-/* aholyc C backend: emits "portable assembly" C99.
- * All values are hc_i64 (or hc_f64); addresses are hc_i64; loads/stores are
- * explicit width-typed derefs. The runtime C source is prepended so the
- * output is one self-contained translation unit.
- */
+/* aholyc C backend: emits self-contained portable C99. */
 #include "aholyc.h"
 
 static FILE *o;
@@ -13,8 +9,7 @@ static void emit_val(Node *n);
 static void emit_addr(Node *n);
 static void emit_stmt(Node *n, int ind);
 
-static bool cur_retf; /* current function returns F64 */
-static bool cur_retv; /* current function returns U0 */
+static Type *cur_ret;
 
 static bool value_unsig(Type *ty) {
 	return ty->kind == TY_INT && ty->is_unsigned;
@@ -22,6 +17,10 @@ static bool value_unsig(Type *ty) {
 
 static bool is_agg(Type *ty) {
 	return ty && (ty->kind == TY_CLASS || ty->kind == TY_ARRAY);
+}
+
+static bool is_ptr(Type *ty) {
+	return ty && (ty->kind == TY_PTR || ty->kind == TY_ARRAY);
 }
 
 static bool is_fs_obj(Obj *v) {
@@ -42,21 +41,31 @@ static const char *scalar_ctype(Type *ty) {
 	return "hc_i64"; /* I64/U64/pointers/functions */
 }
 
+static const char *value_ctype(Type *ty) {
+	return ty->kind == TY_F64? "hc_f64": "hc_i64";
+}
+
+static const char *extern_ctype(Type *ty) {
+	return is_ptr (ty)? "void *": value_ctype (ty);
+}
+
 static bool signed_i1(Type *ty) {
 	return ty->bits == 1 && !ty->is_unsigned;
 }
 
 static void emit_bits_begin(Type *ty) {
 	if (signed_i1 (ty)) {
-		fprintf (o, "(-((hc_i64)(");
+		fprintf (o, "-(hc_i64)(");
 	} else {
-		fprintf (o, "((hc_i64)(%s _BitInt(%d))(",
+		fprintf (o, "(hc_i64)(%s _BitInt(%d))",
 			ty->is_unsigned? "unsigned": "signed", ty->bits);
 	}
 }
 
 static void emit_bits_end(Type *ty) {
-	fprintf (o, "%s", signed_i1 (ty)? ")&1))": "))");
+	if (signed_i1 (ty)) {
+		fprintf (o, " & 1)");
+	}
 }
 
 static void emit_narrowed(Node *n, Type *ty) {
@@ -110,52 +119,42 @@ static void emit_fnum(double d) {
 	if (!strpbrk (buf, ".eEnN")) {
 		strcat (buf, ".0");
 	}
-	fprintf (o, "(%s)", buf);
+	fprintf (o, "%s", buf);
 }
 
-/* cast an argument to a runtime (extern C) function's parameter type */
 static void emit_rt_arg(Node *a, Type *pty) {
-	if (pty->kind == TY_PTR || pty->kind == TY_ARRAY) {
-		fprintf (o, "(void*)(intptr_t)(");
+	if (!is_ptr (pty)) {
 		emit_val (a);
-		fprintf (o, ")");
-	} else if (pty->kind == TY_F64) {
-		fprintf (o, "(hc_f64)(");
-		emit_val (a);
-		fprintf (o, ")");
+	} else if (a->kind == ND_STR) {
+		fprintf (o, "hcs%d", a->str_id);
+	} else if (a->kind == ND_ADDR && a->lhs->kind == ND_VAR) {
+		fprintf (o, "%s%s", is_agg (a->lhs->ty)? "": "&", objname (a->lhs->var));
 	} else {
-		fprintf (o, "(hc_i64)(");
+		fprintf (o, "(void *)(intptr_t)");
 		emit_val (a);
-		fprintf (o, ")");
 	}
 }
 
-static void emit_call(Node *n) {
+static void emit_call(Node *n, bool value) {
 	Obj *fn = n->func;
-	bool isvoid = n->ty && n->ty->kind == TY_VOID;
+	bool isvoid = value && n->ty && n->ty->kind == TY_VOID;
 	if (isvoid) {
 		fprintf (o, "(");
+	}
+	if (value && fn && fn->is_extern && is_ptr (fn->ty->base)) {
+		fprintf (o, "(hc_i64)(intptr_t)");
 	}
 	if (fn) {
 		fprintf (o, "%s(", objname (fn));
 		Obj *p = fn->params;
 		Node *a = n->args;
 		int i = 0;
-		/* named params */
 		for (; a && i < n->nfixed; a = a->next, i++) {
-			if (i) {
-				fprintf (o, ",");
-			}
+			fprintf (o, "%s", i? ", ": "");
 			if (fn->is_extern) {
 				emit_rt_arg (a, p? p->ty: ty_i64);
 			} else {
-				if (p && p->ty->kind == TY_F64) {
-					fprintf (o, "(hc_f64)(");
-				} else {
-					fprintf (o, "(hc_i64)(");
-				}
 				emit_val (a);
-				fprintf (o, ")");
 			}
 			if (p) {
 				p = p->next;
@@ -168,133 +167,181 @@ static void emit_call(Node *n) {
 				extras++;
 			}
 			if (i) {
-				fprintf (o, ",");
+				fprintf (o, ", ");
 			}
-			fprintf (o, "%d,", extras);
+			fprintf (o, "%d, ", extras);
 			if (!fn->is_extern) {
-				/* Internal pointers use HolyC's integer-address ABI. */
-				fprintf (o, "(hc_i64)(intptr_t)(");
+				fprintf (o, "(hc_i64)(intptr_t)");
 			}
 			if (extras == 0) {
-				fprintf (o, "(hc_i64*)0");
+				fprintf (o, "(hc_i64 *)0");
 			} else {
 				fprintf (o, "(hc_i64[]){");
 				for (Node *e = a; e; e = e->next) {
 					if (e != a) {
-						fprintf (o, ",");
+						fprintf (o, ", ");
 					}
 					if (e->ty && e->ty->kind == TY_F64) {
 						fprintf (o, "hc_f2b(");
 						emit_val (e);
 						fprintf (o, ")");
 					} else {
-						fprintf (o, "(hc_i64)(");
 						emit_val (e);
-						fprintf (o, ")");
 					}
 				}
 				fprintf (o, "}");
 			}
-			if (!fn->is_extern) {
-				fprintf (o, ")");
-			}
 		}
 		fprintf (o, ")");
 	} else {
-		/* indirect call through pointer value */
 		bool retf = n->ty && n->ty->kind == TY_F64;
 		fprintf (o, "((%s(*)(", retf? "hc_f64": "hc_i64");
 		bool first = true;
 		for (Node *e = n->args; e; e = e->next) {
-			if (!first) {
-				fprintf (o, ",");
-			}
+			fprintf (o, "%s", first? "": ", ");
 			first = false;
-			fprintf (o, "%s", e->ty && e->ty->kind == TY_F64? "hc_f64": "hc_i64");
+			fprintf (o, "%s", value_ctype (e->ty));
 		}
 		if (first) {
 			fprintf (o, "void");
 		}
-		fprintf (o, "))(intptr_t)(");
+		fprintf (o, "))(intptr_t)");
 		emit_val (n->lhs);
-		fprintf (o, "))(");
+		fprintf (o, ")(");
 		first = true;
 		for (Node *e = n->args; e; e = e->next) {
-			if (!first) {
-				fprintf (o, ",");
-			}
+			fprintf (o, "%s", first? "": ", ");
 			first = false;
-			fprintf (o, "(%s)(", e->ty && e->ty->kind == TY_F64? "hc_f64": "hc_i64");
 			emit_val (e);
-			fprintf (o, ")");
 		}
 		fprintf (o, ")");
 	}
 	if (isvoid) {
-		fprintf (o, ",(hc_i64)0)");
+		fprintf (o, ", 0)");
 	}
 }
 
 static void emit_load(Node *n) {
-	/* n has an address (emit_addr) and scalar type: load + widen */
 	Type *ty = n->ty;
 	if (is_agg (ty)) {
-		/* aggregate value = its address */
 		emit_addr (n);
 		return;
 	}
 	if (ty->kind == TY_F64) {
-		fprintf (o, "(*(hc_f64*)(intptr_t)(");
+		fprintf (o, "*(hc_f64 *)(intptr_t)");
 		emit_addr (n);
-		fprintf (o, "))");
 		return;
 	}
-	int bits = ty->bits;
-	if (bits) {
+	if (ty->bits) {
 		emit_bits_begin (ty);
-		fprintf (o, "*(%s*)(intptr_t)(", scalar_ctype (ty));
-	} else {
-		fprintf (o, "((hc_i64)*(%s*)(intptr_t)(", scalar_ctype (ty));
+	} else if (ty->kind == TY_INT && ty->size < 8) {
+		fprintf (o, "(hc_i64)");
 	}
+	fprintf (o, "*(%s *)(intptr_t)", scalar_ctype (ty));
 	emit_addr (n);
-	if (bits) {
-		fprintf (o, ")");
+	if (ty->bits) {
 		emit_bits_end (ty);
-	} else {
-		fprintf (o, "))");
+	}
+}
+
+static const char *binop(NodeKind kind) {
+	static const char *const ops[] = {
+		[ND_ADD] = "+", [ND_SUB] = "-", [ND_MUL] = "*", [ND_DIV] = "/",
+		[ND_MOD] = "%", [ND_AND] = "&", [ND_OR] = "|", [ND_XOR] = "^",
+		[ND_SHL] = "<<", [ND_SHR] = ">>", [ND_EQ] = "==", [ND_NE] = "!=",
+		[ND_LT] = "<", [ND_LE] = "<=", [ND_LOGAND] = "&&", [ND_LOGOR] = "||",
+		[ND_COMMA] = ",",
+	};
+	return ops[kind];
+}
+
+static void emit_binary(Node *n) {
+	fprintf (o, "(");
+	emit_val (n->lhs);
+	fprintf (o, " %s ", binop (n->kind));
+	emit_val (n->rhs);
+	fprintf (o, ")");
+}
+
+static void emit_unsigned_binary(Node *n) {
+	fprintf (o, "(hc_i64)((hc_u64)");
+	emit_val (n->lhs);
+	fprintf (o, " %s (hc_u64)", binop (n->kind));
+	emit_val (n->rhs);
+	fprintf (o, ")");
+}
+
+static void emit_truth(Node *n) {
+	switch (n->kind) {
+	case ND_EQ: case ND_NE: case ND_LT: case ND_LE:
+		if ((n->kind == ND_LT || n->kind == ND_LE) &&
+		    n->lhs->ty->kind == TY_INT &&
+		    (value_unsig (n->lhs->ty) || value_unsig (n->rhs->ty))) {
+			fprintf (o, "((hc_u64)");
+			emit_val (n->lhs);
+			fprintf (o, " %s (hc_u64)", binop (n->kind));
+			emit_val (n->rhs);
+			fprintf (o, ")");
+		} else {
+			emit_binary (n);
+		}
+		break;
+	case ND_LOGAND:
+	case ND_LOGOR:
+		fprintf (o, "(");
+		emit_truth (n->lhs);
+		fprintf (o, " %s ", binop (n->kind));
+		emit_truth (n->rhs);
+		fprintf (o, ")");
+		break;
+	case ND_LOGXOR:
+		fprintf (o, "(!");
+		emit_truth (n->lhs);
+		fprintf (o, " != !");
+		emit_truth (n->rhs);
+		fprintf (o, ")");
+		break;
+	case ND_NOT:
+		fprintf (o, "!");
+		emit_truth (n->lhs);
+		break;
+	default:
+		emit_val (n);
 	}
 }
 
 static void emit_val(Node *n) {
 	switch (n->kind) {
 	case ND_NUM:
-		fprintf (o, "((hc_i64)0x%llxULL)", (unsigned long long)n->ival);
+		fprintf (o, "(hc_i64)0x%llxULL", (unsigned long long)n->ival);
 		break;
 	case ND_FNUM:
 		emit_fnum (n->fval);
 		break;
 	case ND_STR:
-		fprintf (o, "((hc_i64)(intptr_t)hcs%d)", n->str_id);
+		fprintf (o, "(hc_i64)(intptr_t)hcs%d", n->str_id);
 		break;
 	case ND_VAR: {
 		Obj *v = n->var;
 		if (is_fs_obj (v)) {
-			fprintf (o, "((hc_i64)(intptr_t)__hc_fs())");
+			fprintf (o, "(hc_i64)(intptr_t)__hc_fs()");
 		} else if (is_agg (v->ty)) {
-			fprintf (o, "((hc_i64)(intptr_t)%s)", objname (v));
+			fprintf (o, "(hc_i64)(intptr_t)%s", objname (v));
 		} else if (v->ty->kind == TY_F64) {
 			fprintf (o, "%s", objname (v));
 		} else if (v->ty->bits) {
 			emit_bits_begin (v->ty);
 			fprintf (o, "%s", objname (v));
 			emit_bits_end (v->ty);
+		} else if (v->ty->kind == TY_INT && v->ty->size < 8) {
+			fprintf (o, "(hc_i64)%s", objname (v));
 		} else {
-			fprintf (o, "((hc_i64)%s)", objname (v));
+			fprintf (o, "%s", objname (v));
 		}
 		break;
 	}
 	case ND_FUNCNAME:
-		fprintf (o, "((hc_i64)(intptr_t)&%s)", objname (n->func));
+		fprintf (o, "(hc_i64)(intptr_t)&%s", objname (n->func));
 		break;
 	case ND_DEREF:
 		if (is_agg (n->ty)) {
@@ -312,190 +359,127 @@ static void emit_val(Node *n) {
 	case ND_ASSIGN: {
 		Node *l = n->lhs;
 		if (l->ty && l->ty->kind == TY_CLASS) {
-			fprintf (o, "((hc_i64)(intptr_t)memcpy((void*)(intptr_t)(");
+			fprintf (o, "(hc_i64)(intptr_t)memcpy((void *)(intptr_t)");
 			emit_addr (l);
-			fprintf (o, "),(void*)(intptr_t)(");
+			fprintf (o, ", (void *)(intptr_t)");
 			emit_val (n->rhs);
-			fprintf (o, "),%d))", l->ty->size);
+			fprintf (o, ", %d)", l->ty->size);
 			break;
 		}
 		if (l->kind == ND_VAR && !is_agg (l->ty)) {
-			fprintf (o, "(%s=", objname (l->var));
+			fprintf (o, "(%s = ", objname (l->var));
 			if (l->ty->bits) {
 				emit_narrowed (n->rhs, l->ty);
 			} else {
-				fprintf (o, "(%s)(", scalar_ctype (l->ty));
 				emit_val (n->rhs);
-				fprintf (o, ")");
 			}
 			fprintf (o, ")");
 			break;
 		}
-		fprintf (o, "(*(%s*)(intptr_t)(", scalar_ctype (l->ty));
+		fprintf (o, "(*(%s *)(intptr_t)", scalar_ctype (l->ty));
 		emit_addr (l);
-		fprintf (o, ")=(%s)(", scalar_ctype (l->ty));
+		fprintf (o, " = ");
 		emit_narrowed (n->rhs, l->ty);
-		fprintf (o, "))");
+		fprintf (o, ")");
 		break;
 	}
 	case ND_CAST: {
 		Type *to = n->ty;
 		Type *from = n->lhs->ty;
 		if (to->kind == TY_F64 && from->kind != TY_F64) {
-			fprintf (o, "((hc_f64)%s(", value_unsig (from)? "(hc_u64)": "");
+			fprintf (o, "(hc_f64)%s", value_unsig (from)? "(hc_u64)": "");
 			emit_val (n->lhs);
-			fprintf (o, "))");
 		} else if (to->kind != TY_F64 && from->kind == TY_F64) {
 			if (to->kind == TY_INT && to->size < 8) {
-				fprintf (o, "((hc_i64)(%s)(hc_i64)(", scalar_ctype (to));
-				emit_val (n->lhs);
-				fprintf (o, "))");
+				fprintf (o, "(hc_i64)(%s)(hc_i64)", scalar_ctype (to));
 			} else {
-				fprintf (o, "((hc_i64)(");
-				emit_val (n->lhs);
-				fprintf (o, "))");
+				fprintf (o, "(hc_i64)");
 			}
+			emit_val (n->lhs);
 		} else if (to->kind == TY_INT && to->size < 8) {
-			fprintf (o, "((hc_i64)(%s)(", scalar_ctype (to));
+			fprintf (o, "(hc_i64)(%s)", scalar_ctype (to));
 			emit_val (n->lhs);
-			fprintf (o, "))");
 		} else {
-			fprintf (o, "(");
 			emit_val (n->lhs);
-			fprintf (o, ")");
 		}
 		break;
 	}
 	case ND_ADD:
 	case ND_SUB: {
 		Type *lt = n->lhs->ty, *rt = n->rhs->ty;
-		bool lp = lt && (lt->kind == TY_PTR || lt->kind == TY_ARRAY);
-		bool rp = rt && (rt->kind == TY_PTR || rt->kind == TY_ARRAY);
+		bool lp = is_ptr (lt);
+		bool rp = is_ptr (rt);
 		if (lp && rp && n->kind == ND_SUB) {
-			fprintf (o, "(((");
+			fprintf (o, "((");
 			emit_val (n->lhs);
-			fprintf (o, ")-(");
+			fprintf (o, " - ");
 			emit_val (n->rhs);
-			fprintf (o, "))/%d)", elem_size (lt));
+			fprintf (o, ") / %d)", elem_size (lt));
 			break;
 		}
 		if (lp) {
-			fprintf (o, "((");
+			fprintf (o, "(");
 			emit_val (n->lhs);
-			fprintf (o, ")%s((", n->kind == ND_ADD? "+": "-");
+			fprintf (o, " %s ", binop (n->kind));
 			emit_val (n->rhs);
-			fprintf (o, ")*%d))", elem_size (lt));
+			fprintf (o, " * %d)", elem_size (lt));
 			break;
 		}
-		/* numeric */
-		fprintf (o, "((");
-		emit_val (n->lhs);
-		fprintf (o, ")%s(", n->kind == ND_ADD? "+": "-");
-		emit_val (n->rhs);
-		fprintf (o, "))");
+		emit_binary (n);
 		break;
 	}
 	case ND_MUL:
 	case ND_DIV:
 	case ND_MOD:
 	case ND_SHR: {
-		const char *op = n->kind == ND_MUL? "*": n->kind == ND_DIV? "/":
-			n->kind == ND_MOD? "%": ">>";
 		bool unsig = n->ty->kind == TY_INT && n->ty->is_unsigned;
 		if (n->ty->kind != TY_F64 && unsig && n->kind != ND_MUL) {
-			fprintf (o, "((hc_i64)((hc_u64)(");
-			emit_val (n->lhs);
-			fprintf (o, ")%s(hc_u64)(", op);
-			emit_val (n->rhs);
-			fprintf (o, ")))");
+			emit_unsigned_binary (n);
 		} else {
-			fprintf (o, "((");
-			emit_val (n->lhs);
-			fprintf (o, ")%s(", op);
-			emit_val (n->rhs);
-			fprintf (o, "))");
+			emit_binary (n);
 		}
 		break;
 	}
-	case ND_AND: case ND_OR: case ND_XOR: case ND_SHL: {
-		const char *op = n->kind == ND_AND? "&": n->kind == ND_OR? "|":
-			n->kind == ND_XOR? "^": "<<";
-		fprintf (o, "((");
-		emit_val (n->lhs);
-		fprintf (o, ")%s(", op);
-		emit_val (n->rhs);
-		fprintf (o, "))");
+	case ND_AND:
+	case ND_OR:
+	case ND_XOR:
+	case ND_SHL:
+		emit_binary (n);
 		break;
-	}
 	case ND_POW:
 		fprintf (o, "__hc_pow(");
 		emit_val (n->lhs);
-		fprintf (o, ",");
+		fprintf (o, ", ");
 		emit_val (n->rhs);
 		fprintf (o, ")");
 		break;
-	case ND_EQ: case ND_NE: case ND_LT: case ND_LE: {
-		const char *op = n->kind == ND_EQ? "==": n->kind == ND_NE? "!=":
-			n->kind == ND_LT? "<": "<=";
-		bool unsig = n->lhs->ty->kind == TY_INT &&
-			(value_unsig (n->lhs->ty) || value_unsig (n->rhs->ty));
-		if (unsig && (n->kind == ND_LT || n->kind == ND_LE)) {
-			fprintf (o, "((hc_i64)((hc_u64)(");
-			emit_val (n->lhs);
-			fprintf (o, ")%s(hc_u64)(", op);
-			emit_val (n->rhs);
-			fprintf (o, ")))");
-		} else {
-			fprintf (o, "((hc_i64)((");
-			emit_val (n->lhs);
-			fprintf (o, ")%s(", op);
-			emit_val (n->rhs);
-			fprintf (o, ")))");
-		}
-		break;
-	}
+	case ND_EQ:
+	case ND_NE:
+	case ND_LT:
+	case ND_LE:
 	case ND_LOGAND:
 	case ND_LOGOR:
-		fprintf (o, "((hc_i64)((");
-		emit_val (n->lhs);
-		fprintf (o, ")%s(", n->kind == ND_LOGAND? "&&": "||");
-		emit_val (n->rhs);
-		fprintf (o, ")))");
-		break;
 	case ND_LOGXOR:
-		fprintf (o, "((hc_i64)(!(");
-		emit_val (n->lhs);
-		fprintf (o, ")!=!(");
-		emit_val (n->rhs);
-		fprintf (o, ")))");
-		break;
 	case ND_NOT:
-		fprintf (o, "((hc_i64)!(");
-		emit_val (n->lhs);
-		fprintf (o, "))");
+		fprintf (o, "(hc_i64)");
+		emit_truth (n);
 		break;
 	case ND_BITNOT:
-		fprintf (o, "(~(");
+		fprintf (o, "~");
 		emit_val (n->lhs);
-		fprintf (o, "))");
 		break;
 	case ND_NEG:
-		fprintf (o, "(-(");
+		fprintf (o, "-");
 		emit_val (n->lhs);
-		fprintf (o, "))");
 		break;
 	case ND_COMMA:
-		fprintf (o, "((");
-		emit_val (n->lhs);
-		fprintf (o, "),(");
-		emit_val (n->rhs);
-		fprintf (o, "))");
+		emit_binary (n);
 		break;
 	case ND_CALL:
-		emit_call (n);
+		emit_call (n, true);
 		break;
 	case ND_NOP:
-		fprintf (o, "((hc_i64)0)");
+		fprintf (o, "0");
 		break;
 	default:
 		error ("C backend: unexpected node kind %d in expression", n->kind);
@@ -506,18 +490,22 @@ static void emit_addr(Node *n) {
 	switch (n->kind) {
 	case ND_VAR:
 		if (is_agg (n->var->ty)) {
-			fprintf (o, "((hc_i64)(intptr_t)%s)", objname (n->var));
+			fprintf (o, "(hc_i64)(intptr_t)%s", objname (n->var));
 		} else {
-			fprintf (o, "((hc_i64)(intptr_t)&%s)", objname (n->var));
+			fprintf (o, "(hc_i64)(intptr_t)&%s", objname (n->var));
 		}
 		break;
 	case ND_DEREF:
 		emit_val (n->lhs);
 		break;
 	case ND_MEMBER:
-		fprintf (o, "((");
-		emit_addr (n->lhs);
-		fprintf (o, ")+%d)", n->member_ref->offset);
+		if (n->member_ref->offset) {
+			fprintf (o, "(");
+			emit_addr (n->lhs);
+			fprintf (o, " + %d)", n->member_ref->offset);
+		} else {
+			emit_addr (n->lhs);
+		}
 		break;
 	default:
 		error ("C backend: not an lvalue (node kind %d)", n->kind);
@@ -530,79 +518,87 @@ static void ind_(int n) {
 	}
 }
 
+static void emit_inner(Node *n, int ind) {
+	if (n->kind == ND_BLOCK) {
+		for (Node *s = n->body; s; s = s->next) {
+			emit_stmt (s, ind);
+		}
+	} else {
+		emit_stmt (n, ind);
+	}
+}
+
+static void emit_body(Node *n, int ind) {
+	fprintf (o, "{\n");
+	emit_inner (n, ind + 1);
+	ind_ (ind);
+	fprintf (o, "}\n");
+}
+
+static void emit_discarded(Node *n) {
+	if (n->kind == ND_CALL) {
+		emit_call (n, false);
+	} else {
+		emit_val (n);
+	}
+}
+
 static void emit_stmt(Node *n, int ind) {
 	switch (n->kind) {
 	case ND_NOP:
 		break;
 	case ND_EXPR_STMT:
 		ind_ (ind);
-		fprintf (o, "(void)(");
-		emit_val (n->lhs);
-		fprintf (o, ");\n");
+		emit_discarded (n->lhs);
+		fprintf (o, ";\n");
 		break;
 	case ND_BLOCK:
-		ind_ (ind);
-		fprintf (o, "{\n");
-		for (Node *s = n->body; s; s = s->next) {
-			emit_stmt (s, ind + 1);
-		}
-		ind_ (ind);
-		fprintf (o, "}\n");
+		emit_inner (n, ind);
 		break;
 	case ND_IF:
 		ind_ (ind);
 		fprintf (o, "if (");
-		emit_val (n->cond);
-		fprintf (o, ") {\n");
-		emit_stmt (n->then, ind + 1);
-		ind_ (ind);
-		fprintf (o, "}\n");
+		emit_truth (n->cond);
+		fprintf (o, ") ");
+		emit_body (n->then, ind);
 		if (n->els) {
 			ind_ (ind);
-			fprintf (o, "else {\n");
-			emit_stmt (n->els, ind + 1);
-			ind_ (ind);
-			fprintf (o, "}\n");
+			fprintf (o, "else ");
+			emit_body (n->els, ind);
 		}
 		break;
 	case ND_WHILE:
 		ind_ (ind);
 		fprintf (o, "while (");
-		emit_val (n->cond);
-		fprintf (o, ") {\n");
-		emit_stmt (n->then, ind + 1);
-		ind_ (ind);
-		fprintf (o, "}\n");
+		emit_truth (n->cond);
+		fprintf (o, ") ");
+		emit_body (n->then, ind);
 		break;
 	case ND_DOWHILE:
 		ind_ (ind);
-		fprintf (o, "do {\n");
-		emit_stmt (n->then, ind + 1);
+		fprintf (o, "do ");
+		emit_body (n->then, ind);
 		ind_ (ind);
-		fprintf (o, "} while (");
-		emit_val (n->cond);
+		fprintf (o, "while (");
+		emit_truth (n->cond);
 		fprintf (o, ");\n");
 		break;
 	case ND_FOR:
-		ind_ (ind);
-		fprintf (o, "{\n");
 		if (n->init) {
-			emit_stmt (n->init, ind + 1);
+			emit_inner (n->init, ind);
 		}
-		ind_ (ind + 1);
+		ind_ (ind);
 		fprintf (o, "for (;;) {\n");
 		if (n->cond) {
-			ind_ (ind + 2);
-			fprintf (o, "if (!(");
-			emit_val (n->cond);
-			fprintf (o, ")) break;\n");
+			ind_ (ind + 1);
+			fprintf (o, "if (!");
+			emit_truth (n->cond);
+			fprintf (o, ") break;\n");
 		}
-		emit_stmt (n->then, ind + 2);
+		emit_inner (n->then, ind + 1);
 		if (n->inc) {
-			emit_stmt (n->inc, ind + 2);
+			emit_inner (n->inc, ind + 1);
 		}
-		ind_ (ind + 1);
-		fprintf (o, "}\n");
 		ind_ (ind);
 		fprintf (o, "}\n");
 		break;
@@ -613,11 +609,11 @@ static void emit_stmt(Node *n, int ind) {
 		}
 		ind_ (ind);
 		if (n->lhs) {
-			fprintf (o, "return (%s)(", cur_retf? "hc_f64": "hc_i64");
+			fprintf (o, "return ");
 			emit_val (n->lhs);
-			fprintf (o, ");\n");
+			fprintf (o, ";\n");
 		} else {
-			fprintf (o, "%s\n", cur_retv? "return;": "return 0;");
+			fprintf (o, "%s\n", cur_ret->kind == TY_VOID? "return;": "return 0;");
 		}
 		break;
 	case ND_GOTO:
@@ -632,34 +628,31 @@ static void emit_stmt(Node *n, int ind) {
 		ind_ (ind);
 		fprintf (o, "{ void *hjb = __hc_try_push();\n");
 		ind_ (ind);
-		fprintf (o, "if (!_setjmp(*(jmp_buf*)hjb)) {\n");
+		fprintf (o, "if (!_setjmp(*(jmp_buf *)hjb)) {\n");
 		try_depth++;
-		emit_stmt (n->then, ind + 1);
+		emit_inner (n->then, ind + 1);
 		try_depth--;
 		ind_ (ind + 1);
 		fprintf (o, "__hc_try_pop();\n");
 		ind_ (ind);
 		fprintf (o, "} else {\n");
-		emit_stmt (n->els, ind + 1);
+		emit_inner (n->els, ind + 1);
 		ind_ (ind + 1);
 		fprintf (o, "if (!__hc_fs()->catch_except) throw(__hc_fs()->except_ch);\n");
 		ind_ (ind);
 		fprintf (o, "} }\n");
 		break;
 	default:
-		/* expressions used as a bare statement (shouldn't happen) */
 		ind_ (ind);
-		fprintf (o, "(void)(");
-		emit_val (n);
-		fprintf (o, ");\n");
+		emit_discarded (n);
+		fprintf (o, ";\n");
 		break;
 	}
 }
 
 static void emit_func_sig(Obj *fn) {
 	Type *ret = fn->ty->base;
-	const char *rc = ret->kind == TY_F64? "hc_f64":
-		ret->kind == TY_VOID? "void": "hc_i64";
+	const char *rc = ret->kind == TY_VOID? "void": value_ctype (ret);
 	bool exported = fn->is_public ||
 		(cur_prog && fn == cur_prog->startup && !aholyc_ctor_mode);
 	fprintf (o, "%s%s%s%s %s(", exported?
@@ -668,12 +661,8 @@ static void emit_func_sig(Obj *fn) {
 		fn->hints & HINT_NOINLINE? "__attribute__((noinline)) ": "", rc, objname (fn));
 	bool first = true;
 	for (Obj *p = fn->params; p; p = p->next) {
-		if (!first) {
-			fprintf (o, ",");
-		}
+		fprintf (o, "%s%s %s", first? "": ", ", value_ctype (p->ty), objname (p));
 		first = false;
-		fprintf (o, "%s %s", p->ty->kind == TY_F64? "hc_f64": "hc_i64",
-			objname (p));
 	}
 	if (first) {
 		fprintf (o, "void");
@@ -681,10 +670,8 @@ static void emit_func_sig(Obj *fn) {
 	fprintf (o, ")");
 }
 
-static void emit_func(Program *prog, Obj *fn) {
-	(void)prog;
-	cur_retf = fn->ty->base && fn->ty->base->kind == TY_F64;
-	cur_retv = fn->ty->base && fn->ty->base->kind == TY_VOID;
+static void emit_func(Obj *fn) {
+	cur_ret = fn->ty->base;
 	emit_func_sig (fn);
 	fprintf (o, " {\n");
 	for (Obj *v = fn->locals; v; v = v->next) {
@@ -706,15 +693,14 @@ static void emit_func(Program *prog, Obj *fn) {
 		}
 	}
 	try_depth = 0;
-	emit_stmt (fn->body, 1);
-	if (fn->ty->base->kind != TY_VOID) {
+	emit_inner (fn->body, 1);
+	if (cur_ret->kind != TY_VOID) {
 		fprintf (o, "\treturn 0;\n");
 	}
 	fprintf (o, "}\n\n");
 }
 
-/* declare extern symbols, mapped like emit_rt_arg does. only_user skips
- * the runtime API (already defined when rt.c is embedded in the TU). */
+/* only_user skips the runtime API already embedded in the translation unit. */
 static void emit_extern_decls(Program *prog, bool only_user) {
 	for (Obj *f = prog->funcs; f; f = f->next) {
 		if (!f->is_extern || (only_user && f->from_prelude)) {
@@ -724,15 +710,10 @@ static void emit_extern_decls(Program *prog, bool only_user) {
 		fprintf (o, "extern %s%s%s %s(",
 			f->hints & HINT_INLINE? "inline ": "",
 			f->hints & HINT_NOINLINE? "__attribute__((noinline)) ": "",
-			ret->kind == TY_F64? "hc_f64":
-			ret->kind == TY_VOID? "void":
-			ret->kind == TY_PTR? "void *": "hc_i64", f->name);
+			ret->kind == TY_VOID? "void": extern_ctype (ret), f->name);
 		int np = 0;
 		for (Obj *p = f->params; p; p = p->next, np++) {
-			fprintf (o, "%s%s", np? ",": "",
-				p->ty->kind == TY_F64? "hc_f64":
-				p->ty->kind == TY_PTR || p->ty->kind == TY_ARRAY? "void *":
-				"hc_i64");
+			fprintf (o, "%s%s", np? ", ": "", extern_ctype (p->ty));
 		}
 		fprintf (o, "%s);\n", np? "": "void");
 	}
@@ -784,14 +765,12 @@ static void c_emit(Program *prog, FILE *out) {
 	if (aholyc_obj_mode) {
 		emit_obj_preamble (prog);
 	} else {
-		/* static runtime: unused API functions get discarded */
 		fprintf (o, "#define HC_API static\n");
 		fputs (rt_c_src, o);
 		emit_extern_decls (prog, true);
 	}
 	fprintf (o, "\n/* ---- program ---- */\n");
 	fprintf (o, "static hc_i64 hc_f2b(hc_f64 d){hc_i64 v;memcpy(&v,&d,8);return v;}\n");
-	/* string literals */
 	for (StrLit *s = prog->strings; s; s = s->next) {
 		fprintf (o, "static unsigned char hcs%d[] = {", s->id);
 		for (int i = 0; i < s->len; i++) {
@@ -799,7 +778,6 @@ static void c_emit(Program *prog, FILE *out) {
 		}
 		fprintf (o, "0};\n");
 	}
-	/* globals */
 	for (Obj *g = prog->globals; g; g = g->next) {
 		if (g->is_extern) {
 			continue; /* declared in the preamble / defined by the runtime */
@@ -814,7 +792,6 @@ static void c_emit(Program *prog, FILE *out) {
 			fprintf (o, "%s%s %s;\n", sto, scalar_ctype (g->ty), objname (g));
 		}
 	}
-	/* prototypes */
 	for (Obj *f = prog->funcs; f; f = f->next) {
 		if (f->is_extern || !f->body) {
 			continue;
@@ -823,16 +800,14 @@ static void c_emit(Program *prog, FILE *out) {
 		fprintf (o, ";\n");
 	}
 	fprintf (o, "\n");
-	/* bodies */
 	for (Obj *f = prog->funcs; f; f = f->next) {
 		if (f->is_extern || !f->body) {
 			continue;
 		}
-		emit_func (prog, f);
+		emit_func (f);
 	}
-	/* Startup is a normal hidden-pair function.  A -c module's no-argument
-	 * constructor registers it so the runtime can supply the process pair. */
-	emit_func (prog, prog->startup);
+	/* A -c module constructor registers the hidden-pair startup function. */
+	emit_func (prog->startup);
 	if (aholyc_ctor_mode) {
 		fprintf (o, "__attribute__((constructor)) static void __hc_ctor(void) {\n"
 			"\t__hc_register_start(__hc_ctor_body);\n"
@@ -848,8 +823,8 @@ static const char *pick_cc(void) {
 	return cc;
 }
 
-static int c_build_obj(const char *artifact, const char *outpath,
-                       const char *opt, bool verbose, bool keep) {
+static int c_compile(const char *artifact, const char *outpath,
+                     const char *opt, bool verbose, bool keep, bool object) {
 	(void)keep;
 	char *argv[96];
 	int i = 0;
@@ -857,42 +832,36 @@ static int c_build_obj(const char *artifact, const char *outpath,
 	argv[i++] = (char *)opt;
 	argv[i++] = "-fno-strict-aliasing";
 	argv[i++] = "-w";
-	argv[i++] = "-c";
+	if (object) {
+		argv[i++] = "-c";
+	} else {
+		argv[i++] = "-ffunction-sections";
+		argv[i++] = "-fdata-sections";
+#ifdef __APPLE__
+		argv[i++] = "-Wl,-dead_strip";
+#else
+		argv[i++] = "-Wl,--gc-sections";
+#endif
+	}
 	argv[i++] = "-o";
 	argv[i++] = (char *)outpath;
 	argv[i++] = (char *)artifact;
 	for (int k = 0; k < aholyc_nccflags; k++) {
 		argv[i++] = aholyc_ccflags[k];
+	}
+	if (!object) {
+		argv[i++] = "-lm";
 	}
 	argv[i] = NULL;
 	return run_cmd (argv, verbose);
 }
 
-static int c_build(const char *artifact, const char *outpath,
-                   const char *opt, bool verbose, bool keep) {
-	(void)keep;
-	char *argv[96];
-	int i = 0;
-	argv[i++] = (char *)pick_cc ();
-	argv[i++] = (char *)opt;
-	argv[i++] = "-fno-strict-aliasing";
-	argv[i++] = "-w";
-	argv[i++] = "-ffunction-sections";
-	argv[i++] = "-fdata-sections";
-#ifdef __APPLE__
-	argv[i++] = "-Wl,-dead_strip";
-#else
-	argv[i++] = "-Wl,--gc-sections";
-#endif
-	argv[i++] = "-o";
-	argv[i++] = (char *)outpath;
-	argv[i++] = (char *)artifact;
-	for (int k = 0; k < aholyc_nccflags; k++) {
-		argv[i++] = aholyc_ccflags[k];
-	}
-	argv[i++] = "-lm";
-	argv[i] = NULL;
-	return run_cmd (argv, verbose);
+static int c_build_obj(const char *a, const char *o, const char *opt, bool v, bool keep) {
+	return c_compile (a, o, opt, v, keep, true);
+}
+
+static int c_build(const char *a, const char *o, const char *opt, bool v, bool keep) {
+	return c_compile (a, o, opt, v, keep, false);
 }
 
 const Backend backend_c = {

@@ -147,6 +147,7 @@ grep -Eq 'define internal i64 @hc_NoInlineAdd\(.*\) noinline \{' tests/out/hints
 ./aholyc -S -b c tests/hints.HC -o tests/out/hints.c 2>tests/out/hints-c.err || hintsok=0
 grep -Eq 'signed _BitInt\(4\) l[0-9]+_signed_nibble = 0' tests/out/hints.c || hintsok=0
 grep -Eq 'unsigned _BitInt\(4\) l[0-9]+_unsigned_nibble = 0' tests/out/hints.c || hintsok=0
+grep -Eq 'unsigned _BitInt\(1\) l[0-9]+_macro_bit = 0' tests/out/hints.c || hintsok=0
 grep -Eq 'uint8_t l[0-9]+_addressed = 0' tests/out/hints.c || hintsok=0
 grep -Eq 'unsigned _BitInt\(1\)' tests/out/hints.c || hintsok=0
 grep -Eq 'int8_t l[0-9]+_signed_bit = 0' tests/out/hints.c || hintsok=0
