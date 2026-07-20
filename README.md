@@ -44,6 +44,15 @@ $ make test        # runs examples on every available backend
 $ sudo make install
 ```
 
+Backends can be left out of the compiler binary when they are not needed:
+
+```console
+$ make AHOLYC_BACKEND_C=0 AHOLYC_BACKEND_JS=0  # LLVM-only build
+```
+
+`AHOLYC_BACKEND_LLVM`, `AHOLYC_BACKEND_C`, and `AHOLYC_BACKEND_JS` default
+to `1`.  A build without the C backend does not support `#exe{}` blocks.
+
 ## Library
 
 `make` also builds `libaholyc.a` and `install` installs `<aholyc.h>`. Create

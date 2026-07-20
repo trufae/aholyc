@@ -10,6 +10,9 @@
  * token stream in place.
  */
 #include "aholyc.h"
+
+#if AHOLYC_BACKEND_C
+
 #include <dlfcn.h>
 #include <unistd.h>
 #include <time.h>
@@ -141,3 +144,14 @@ char *exe_run(Aholyc *cc, Token *block, Token **rest) {
 	*rest = run.stream;
 	return sb_take (&run.out);
 }
+
+#else
+
+char *exe_run(Aholyc *cc, Token *block, Token **rest) {
+	(void)block;
+	(void)rest;
+	error (cc, "#exe requires the C backend; rebuild with AHOLYC_BACKEND_C=1");
+	return NULL;
+}
+
+#endif

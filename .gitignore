@@ -2,6 +2,7 @@ aholyc
 src/*.o
 libaholyc.a
 src/embed.c
+src/config.h
 tests/lib_instances
 tools/file2c
 tests/out/

@@ -25,9 +25,15 @@ static void add_define(Aholyc *cc, const char *arg) {
 }
 
 static const Backend *const backends[] = {
+#if AHOLYC_BACKEND_LLVM
 	&aholyc_i_backend_ll,
+#endif
+#if AHOLYC_BACKEND_C
 	&aholyc_i_backend_c,
+#endif
+#if AHOLYC_BACKEND_JS
 	&aholyc_i_backend_js,
+#endif
 	NULL
 };
 
@@ -70,13 +76,35 @@ static const Backend *find_backend(const char *name) {
 		}
 	}
 	/* aliases */
+#if AHOLYC_BACKEND_LLVM
 	if (!strcmp (name, "llvm") || !strcmp (name, "ll") || !strcmp (name, "llvm-ir")) {
 		return &aholyc_i_backend_ll;
 	}
+#endif
+#if AHOLYC_BACKEND_JS
 	if (!strcmp (name, "javascript")) {
 		return &aholyc_i_backend_js;
 	}
+#endif
 	return NULL;
+}
+
+static const Backend *default_backend(Aholyc *cc) {
+#if AHOLYC_BACKEND_LLVM
+	if (have_cmd (cc, "clang") || have_cmd (cc, "llc")) {
+		return &aholyc_i_backend_ll;
+	}
+#endif
+#if AHOLYC_BACKEND_C
+	return &aholyc_i_backend_c;
+#elif AHOLYC_BACKEND_LLVM
+	return &aholyc_i_backend_ll;
+#elif AHOLYC_BACKEND_JS
+	return &aholyc_i_backend_js;
+#else
+	(void)cc;
+	return NULL;
+#endif
 }
 
 static void emit_file(Aholyc *cc, const Backend *be, Program *prog,
@@ -203,8 +231,10 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 			error (cc, "unknown backend '%s' (try -h)", bname);
 		}
 	} else {
-		/* default: LLVM toolchain if present, else system C compiler */
-		be = (have_cmd (cc, "clang") || have_cmd (cc, "llc"))? &aholyc_i_backend_ll: &aholyc_i_backend_c;
+		be = default_backend (cc);
+		if (!be) {
+			error (cc, "no compiler backends enabled; rebuild with AHOLYC_BACKEND_*=1");
+		}
 	}
 	if (compile_obj && nobj > 0) {
 		error (cc, "cannot mix object files with -c");
@@ -226,7 +256,7 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 		for (int i = 0; i < nsrc; i++) {
 			toks = token_join (toks, lex_file (cc, sources[i]));
 		}
-		prog = parse (cc, toks, be != &aholyc_i_backend_js);
+		prog = parse (cc, toks, strcmp (be->name, "js"));
 	}
 
 	/* stem of first source, for default -c/-S output names */
