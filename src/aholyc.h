@@ -40,6 +40,7 @@ struct Token {
 	bool has_space;    /* preceded by whitespace */
 	bool no_expand;    /* macro self-reference guard */
 	int hint_bits;      /* @bits=N attached by a preceding comment; 0 if none */
+	int hint_align;     /* @align=N, -1 for natural, 0 if absent */
 	unsigned hints;     /* HINT_* flags attached by a preceding comment */
 };
 
@@ -162,6 +163,7 @@ struct Obj {
 	bool from_prelude; /* extern declared by the prelude (runtime API) */
 	bool address_taken; /* storage is observable through a pointer */
 	unsigned hints;     /* HINT_* function attributes */
+	int align;          /* requested local alignment; 0 if absent */
 	/* functions */
 	Obj *params;       /* chain via next (separate list from locals) */
 	int nparams;
@@ -248,6 +250,7 @@ extern bool aholyc_verbose, aholyc_keep;
 
 /* Source hints are enabled by default; -fno-hints disables their use. */
 extern bool aholyc_use_hints;
+extern bool aholyc_align_hints;
 
 /* pass-through toolchain flags (-I/-L/-l), appended to cc invocations */
 extern char *aholyc_ccflags[64];

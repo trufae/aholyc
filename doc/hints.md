@@ -69,6 +69,53 @@ assumed to mean that every nonzero value is automatically converted to one.
 
 Code that requires a boolean invariant should explicitly produce `0` or `1`.
 
+## Natural alignment
+
+HolyC class fields are packed by default. Bare `@align` opts into the natural
+C-style alignment defined by each field or variable's type. `@align=N` instead
+selects an explicit byte boundary, where `N` must be a positive power of two.
+No named values are accepted. Placing the hint before a `class` or `union`
+applies that policy to every member and pads the final size to the selected
+aggregate alignment:
+
+```holyc
+/* @align */ class CHeader {
+	U8 tag;     // offset 0
+	I64 value;  // offset 8
+	U8 flags;   // offset 16; sizeof(CHeader) == 24
+};
+```
+
+For example, `@align=4` on the same class places `value` at offset 4, `flags`
+at offset 12, and pads the size to 16. It applies a uniform four-byte boundary
+to each field rather than selecting each field's natural alignment.
+
+Placing an alignment hint before one field aligns only that field. Once any
+field uses the hint, the final class size is padded to the selected aggregate
+alignment so arrays and nested instances remain correctly aligned:
+
+```holyc
+class CMixed {
+	U8 tag;
+	/* @align */ I64 value; // offset 8
+	U8 flags;               // offset 16; sizeof(CMixed) == 24
+};
+```
+
+Inside a function, the hint requests natural or explicit alignment for that
+local in the stack frame:
+
+```holyc
+/* @align */ I64 value;
+/* @align=16 */ U8 buffer[32];
+```
+
+An explicit `$$ = n` still moves the layout cursor. A subsequent aligned
+field is placed at the first requested boundary at or after that cursor.
+Without `@align`, class layout retains TempleOS-compatible packing. With
+`-fno-hints`, all `@align` annotations are ignored as ordinary comments.
+The JavaScript backend also ignores alignment hints and retains packed layout.
+
 ## Function inlining
 
 `@inline` requests inlining of a function, while `@noinline` requests that a

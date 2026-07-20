@@ -167,6 +167,32 @@ grep -Eq '(static inline hc_i64 hc_InlineAdd|noinline.*hc_NoInlineAdd)' tests/ou
 	2>tests/out/hints-no-js.err || hintsok=0
 cmp -s tests/out/hints.js tests/out/hints-no.js || hintsok=0
 
+./aholyc -S -b llvm tests/align.HC -o tests/out/align.ll || hintsok=0
+grep -Eq 'alloca i64, align 8' tests/out/align.ll || hintsok=0
+./aholyc -S -b c tests/align.HC -o tests/out/align.c || hintsok=0
+grep -Eq '_Alignas\(8\) hc_i64 .*_b' tests/out/align.c || hintsok=0
+grep -Eq '_Alignas\(16\) hc_i64 .*_wide' tests/out/align.c || hintsok=0
+grep -Eq 'alloca i64, align 16' tests/out/align.ll || hintsok=0
+
+for a in 3 c natural; do
+	printf '/* @align=%s */ class Bad { I64 x; };\n' "$a" > tests/out/align-invalid.HC
+	./aholyc -S -b c tests/out/align-invalid.HC -o tests/out/align-invalid.c \
+		>/dev/null 2>&1 && hintsok=0
+done
+./aholyc -fno-hints -S -b c tests/out/align-invalid.HC \
+	-o tests/out/align-invalid-disabled.c >/dev/null 2>&1 || hintsok=0
+
+for b in $backends; do
+	exp=tests/expected/align.out
+	[ "$b" = js ] && exp=tests/expected/align-no.out
+	./aholyc -b "$b" tests/align.HC -o "tests/out/align-$b" || hintsok=0
+	"tests/out/align-$b" >"tests/out/align-$b.txt" || hintsok=0
+	cmp -s "$exp" "tests/out/align-$b.txt" || hintsok=0
+	./aholyc -fno-hints -b "$b" tests/align.HC -o "tests/out/align-no-$b" || hintsok=0
+	"tests/out/align-no-$b" >"tests/out/align-no-$b.txt" || hintsok=0
+	cmp -s tests/expected/align-no.out "tests/out/align-no-$b.txt" || hintsok=0
+done
+
 for b in $backends; do
 	exp=tests/expected/hints.out
 	[ "$b" = js ] && exp=tests/expected/hints-no.out

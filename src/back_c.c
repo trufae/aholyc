@@ -688,17 +688,21 @@ static void emit_func(Program *prog, Obj *fn) {
 	emit_func_sig (fn);
 	fprintf (o, " {\n");
 	for (Obj *v = fn->locals; v; v = v->next) {
+		fprintf (o, "\t");
+		if (v->align) {
+			fprintf (o, "_Alignas(%d) ", v->align < v->ty->align? v->ty->align: v->align);
+		}
 		if (is_agg (v->ty)) {
-			fprintf (o, "\thc_i64 %s[%d] = {0};\n", objname (v),
+			fprintf (o, "hc_i64 %s[%d] = {0};\n", objname (v),
 				(v->ty->size + 7) / 8? (v->ty->size + 7) / 8: 1);
 		} else if (v->ty->kind == TY_F64) {
-			fprintf (o, "\thc_f64 %s = 0;\n", objname (v));
+			fprintf (o, "hc_f64 %s = 0;\n", objname (v));
 		} else if (v->ty->bits && !signed_i1 (v->ty) && !v->address_taken) {
-			fprintf (o, "\t%s _BitInt(%d) %s = 0;\n",
+			fprintf (o, "%s _BitInt(%d) %s = 0;\n",
 				v->ty->is_unsigned? "unsigned": "signed", v->ty->bits,
 				objname (v));
 		} else {
-			fprintf (o, "\t%s %s = 0;\n", scalar_ctype (v->ty), objname (v));
+			fprintf (o, "%s %s = 0;\n", scalar_ctype (v->ty), objname (v));
 		}
 	}
 	try_depth = 0;

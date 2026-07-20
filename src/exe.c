@@ -71,8 +71,10 @@ char *exe_run(Token *block, Token **rest) {
 	static int seq;
 	bool save_obj = aholyc_obj_mode;
 	bool save_ctor = aholyc_ctor_mode;
+	bool save_align = aholyc_align_hints;
 	aholyc_obj_mode = false;
 	aholyc_ctor_mode = false;
+	aholyc_align_hints = true;
 
 	/* a stand-alone program: runtime prelude, exe API, block body.
 	 * The body is preprocessed last so the exe API macros apply. */
@@ -87,6 +89,7 @@ char *exe_run(Token *block, Token **rest) {
 	}
 
 	Program *p = parse (toks);
+	aholyc_align_hints = save_align;
 
 	const char *tmp = getenv ("TMPDIR");
 	if (!tmp || !*tmp) {

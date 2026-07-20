@@ -217,18 +217,24 @@ static void expect(const char *s) {
 	}
 }
 
-static void collect_hints(Token *t, Token **bits, Token **func) {
+static void collect_hints(Token *t, Token **bits, Token **func, Token **align) {
 	if (t && t->hint_bits) {
 		if (*bits) {
 			error_tok (t, "duplicate @bits hint on declaration");
 		}
 		*bits = t;
 	}
-	if (t && t->hints) {
+	if (t && (t->hints & (HINT_INLINE | HINT_NOINLINE))) {
 		if (*func) {
 			error_tok (t, "duplicate inline hint on declaration");
 		}
 		*func = t;
+	}
+	if (t && t->hint_align) {
+		if (*align) {
+			error_tok (t, "duplicate @align hint on declaration");
+		}
+		*align = t;
 	}
 }
 
@@ -240,8 +246,21 @@ static void reject_func_hint(Token *t) {
 
 static void collect_bits_hint(Token *t, Token **bits) {
 	Token *func = NULL;
-	collect_hints (t, bits, &func);
+	Token *align = NULL;
+	collect_hints (t, bits, &func, &align);
 	reject_func_hint (func);
+	if (align) {
+		error_tok (align, "@align applies only to classes, fields, and local variables");
+	}
+}
+
+static int align_up(int n, int a) {
+	return (n + a - 1) & -a;
+}
+
+static int hint_alignment(Type *ty, Token *hint) {
+	return !hint || !aholyc_align_hints? 0:
+		hint->hint_align < 0? ty->align: hint->hint_align;
 }
 
 /* Builtin types are shared, so attach declaration metadata to a shallow copy. */
@@ -1350,8 +1369,9 @@ static Node *print_stmt(void) {
 /* variable declaration (local) starting at a type token */
 static Node *local_decl(void) {
 	Token *t = tk;
-	Token *hint = NULL;
-	collect_bits_hint (t, &hint);
+	Token *hint = NULL, *func_hint = NULL, *align_hint = NULL;
+	collect_hints (t, &hint, &func_hint, &align_hint);
+	reject_func_hint (func_hint);
 	Type *base = builtin_type (tk->str);
 	if (!base) {
 		base = find_class (tk->str);
@@ -1399,6 +1419,7 @@ static Node *local_decl(void) {
 			Type *fnty = new_type (TY_FUNC, 8, 8);
 			fnty->base = ty;
 			Obj *var = new_local (name, hinted_type (ptr_to (fnty), hint));
+			var->align = hint_alignment (var->ty, align_hint);
 			if (eat ("=")) {
 				Node *rhs = expr ();
 				Node *a = new_assign (new_var_node (var, t), rhs, t);
@@ -1419,6 +1440,7 @@ static Node *local_decl(void) {
 			ty = array_of (ty, (int)eval_const (len));
 		}
 		Obj *var = new_local (name, hinted_type (ty, hint));
+		var->align = hint_alignment (var->ty, align_hint);
 		if (eat ("=")) {
 			if (is_punct ("{")) {
 				/* brace initializer for 1-D arrays */
@@ -2053,7 +2075,7 @@ static void add_func(Obj *fn) {
 	funcs_tail = fn;
 }
 
-static void parse_class(bool is_union) {
+static void parse_class(bool is_union, int align_all) {
 	tk = tk->next; /* class/union */
 	if (tk->kind != TK_ID) {
 		error_tok (tk, "expected class name");
@@ -2091,8 +2113,10 @@ static void parse_class(bool is_union) {
 	 * most negative offset grows the class like TempleOS neg_offset. */
 	int off = ty->parent? ty->parent->size: 0;
 	int align = ty->parent? ty->parent->align: 1;
+	int layout_align = align;
 	int neg = 0;
 	int union_base = 0;
+	bool aligned_layout = align_all;
 	bool save_in_class = in_class_body;
 	in_class_body = true;
 	Member head = {0};
@@ -2120,8 +2144,10 @@ static void parse_class(bool is_union) {
 		if (!is_type_start (tk)) {
 			error_tok (tk, "expected member type");
 		}
-		Token *hint = NULL;
-		collect_bits_hint (tk, &hint);
+		Token *hint = NULL, *func_hint = NULL, *align_hint = NULL;
+		collect_hints (tk, &hint, &func_hint, &align_hint);
+		reject_func_hint (func_hint);
+		aligned_layout |= aholyc_align_hints && align_hint != NULL;
 		Type *base = parse_typespec ();
 		/* strip stars parsed by typespec: they apply to first declarator only
 		 * in C; HolyC code in practice writes one declarator per star usage.
@@ -2152,18 +2178,28 @@ static void parse_class(bool is_union) {
 			Member *m = xcalloc (1, sizeof(Member));
 			m->name = mname;
 			m->ty = hinted_type (mty, hint);
-			int a = mty->align? mty->align: 1;
+			int natural = mty->align? mty->align: 1;
+			int policy = aholyc_align_hints && align_hint?
+				align_hint->hint_align: align_all;
+			int a = policy < 0? natural: policy;
+			int pos = is_union? union_base: off;
+			if (policy) {
+				pos = align_up (pos, a);
+				if (a > layout_align) {
+					layout_align = a;
+				}
+			}
 			if (is_union) {
-				m->offset = union_base;
-				if (union_base + mty->size > off) {
-					off = union_base + mty->size;
+				m->offset = pos;
+				if (pos + mty->size > off) {
+					off = pos + mty->size;
 				}
 			} else {
-				m->offset = off;
-				off += mty->size;
+				m->offset = pos;
+				off = pos + mty->size;
 			}
-			if (a > align) {
-				align = a;
+			if (natural > align) {
+				align = natural;
 			}
 			cur->next = m;
 			cur = m;
@@ -2178,8 +2214,8 @@ static void parse_class(bool is_union) {
 	eat (";");
 	in_class_body = save_in_class;
 	ty->members = head.next;
-	ty->align = align;
-	ty->size = off + neg;
+	ty->align = aligned_layout? layout_align: align;
+	ty->size = aligned_layout? align_up (off + neg, layout_align): off + neg;
 }
 
 /* function definition or declaration after type+name(  */
@@ -2385,7 +2421,8 @@ Program *parse(Token *tok) {
 	while (tk->kind != TK_EOF) {
 		Token *hint = NULL;
 		Token *inline_tok = NULL;
-		collect_hints (tk, &hint, &inline_tok);
+		Token *align_tok = NULL;
+		collect_hints (tk, &hint, &inline_tok, &align_tok);
 		/* function attribute keywords; 'public' exports the symbol */
 		bool is_public = false;
 		while (is_kw ("public") || is_kw ("interrupt") || is_kw ("haserrcode") ||
@@ -2394,18 +2431,18 @@ Program *parse(Token *tok) {
 				is_public = true;
 			}
 			tk = tk->next;
-			collect_hints (tk, &hint, &inline_tok);
+			collect_hints (tk, &hint, &inline_tok, &align_tok);
 		}
 		bool is_extern = false;
 		if (is_kw ("extern") || is_kw ("import") || is_kw ("_extern") || is_kw ("_import")) {
 			is_extern = true;
 			tk = tk->next;
-			collect_hints (tk, &hint, &inline_tok);
+			collect_hints (tk, &hint, &inline_tok, &align_tok);
 			/* _extern SYMBOL alias form: skip the symbol token */
 			if (tk->kind == TK_ID && tk->next->kind == TK_ID &&
 			    !builtin_type (tk->str) && !find_class (tk->str)) {
 				tk = tk->next;
-				collect_hints (tk, &hint, &inline_tok);
+				collect_hints (tk, &hint, &inline_tok, &align_tok);
 			}
 		}
 		if (is_kw ("class")) {
@@ -2413,7 +2450,7 @@ Program *parse(Token *tok) {
 				error_tok (hint, "@bits applies only to integer object declarations");
 			}
 			reject_func_hint (inline_tok);
-			parse_class (false);
+			parse_class (false, align_tok && aholyc_align_hints? align_tok->hint_align: 0);
 			continue;
 		}
 		if (is_kw ("union")) {
@@ -2421,7 +2458,7 @@ Program *parse(Token *tok) {
 				error_tok (hint, "@bits applies only to integer object declarations");
 			}
 			reject_func_hint (inline_tok);
-			parse_class (true);
+			parse_class (true, align_tok && aholyc_align_hints? align_tok->hint_align: 0);
 			continue;
 		}
 		if (is_type_start (tk)) {
@@ -2441,12 +2478,18 @@ Program *parse(Token *tok) {
 				if (hint) {
 					error_tok (hint, "@bits applies only to integer object declarations");
 				}
+				if (align_tok) {
+					error_tok (align_tok, "@align does not apply to functions");
+				}
 				char *name = tk->str;
 				tk = tk->next;
 				parse_func (ret, name, is_extern, is_public, inline_tok);
 				continue;
 			}
 			reject_func_hint (inline_tok);
+			if (align_tok) {
+				error_tok (align_tok, "@align applies only to classes, fields, and local variables");
+			}
 			/* global variable(s): rewind to after base name, stars are
 			 * per-declarator in global_decl */
 			tk = save->next;
@@ -2473,6 +2516,9 @@ Program *parse(Token *tok) {
 			error_tok (hint, "@bits applies only to integer object declarations");
 		}
 		reject_func_hint (inline_tok);
+		if (align_tok) {
+			error_tok (align_tok, "@align applies only to classes, fields, and local variables");
+		}
 		/* top-level statement -> startup code */
 		Obj *save_fn = cur_fn;
 		Obj *save_locals = fn_locals;

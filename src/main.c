@@ -13,6 +13,7 @@ bool aholyc_ctor_mode = false;
 bool aholyc_verbose = false;
 bool aholyc_keep = false;
 bool aholyc_use_hints = true;
+bool aholyc_align_hints = true;
 char *aholyc_ccflags[64];
 int aholyc_nccflags = 0;
 
@@ -224,6 +225,7 @@ int main(int argc, char **argv) {
 		/* prelude first so its macros exist, then user files in order */
 		aholyc_obj_mode = compile_obj || nobj > 0;
 		aholyc_ctor_mode = compile_obj;
+		aholyc_align_hints = be != &backend_js;
 		Token *toks = lex_string (prelude_hc, "<prelude>", NULL);
 		for (int i = 0; i < nsrc; i++) {
 			toks = token_join (toks, lex_file (sources[i]));

@@ -929,17 +929,18 @@ static void emit_func(Obj *fn) {
 	}
 	/* locals */
 	for (Obj *v = fn->locals; v; v = v->next) {
+		int al = v->align? v->align: 1;
 		if (is_agg (v->ty)) {
 			int sz = v->ty->size? v->ty->size: 8;
-			fprintf (o, "  %s = alloca [%d x i8], align 8\n", objref (v), sz);
+			fprintf (o, "  %s = alloca [%d x i8], align %d\n", objref (v), sz, al);
 			fprintf (o, "  call void @llvm.memset.p0.i64(ptr %s, i8 0, i64 %d, i1 false)\n",
 				objref (v), sz);
 		} else if (v->ty->kind == TY_F64) {
-			fprintf (o, "  %s = alloca double, align 8\n", objref (v));
+			fprintf (o, "  %s = alloca double, align %d\n", objref (v), al);
 			fprintf (o, "  store double 0.0, ptr %s\n", objref (v));
 		} else {
 			int sz = store_size (v);
-			fprintf (o, "  %s = alloca %s, align 8\n", objref (v), ityp (sz));
+			fprintf (o, "  %s = alloca %s, align %d\n", objref (v), ityp (sz), al);
 			fprintf (o, "  store %s 0, ptr %s\n", ityp (sz), objref (v));
 		}
 	}

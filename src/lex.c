@@ -39,12 +39,17 @@ static Token *new_token(TokenKind kind) {
 static bool ident_start(int c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }
 static bool ident_cont(int c) { return ident_start (c) || (c >= '0' && c <= '9'); }
 static bool comment_space(int c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
+static const char *skip_comment_space(const char *p, const char *end) {
+	while (p < end && comment_space ((unsigned char)*p)) p++;
+	return p;
+}
 
 /* Extract supported source hints from a comment.  Unknown @names remain
  * ordinary comment text. */
 static void scan_comment_hint(const char *start, const char *end,
                               const char *fname, int line,
-                              int *pending_bits, unsigned *pending_hints) {
+                              int *pending_bits, int *pending_align,
+                              unsigned *pending_hints) {
 	if (!aholyc_use_hints) {
 		return;
 	}
@@ -57,11 +62,36 @@ static void scan_comment_hint(const char *start, const char *end,
 			q++;
 		}
 		int n = q - p - 1;
+		if (n == 5 && !strncmp (p + 1, "align", 5)) {
+			q = skip_comment_space (q, end);
+			int a = -1;
+			if (q < end && *q == '=') {
+				q++;
+				q = skip_comment_space (q, end);
+				a = 0;
+				while (q < end && *q >= '0' && *q <= '9') {
+					if (a <= 1048576) a = a * 10 + *q - '0';
+					q++;
+				}
+				if (a < 1 || a > 1048576 || (a & (a - 1))) {
+					error ("%s:%d: @align must be a power of two", fname, line);
+				}
+				if (q < end && !comment_space ((unsigned char)*q) && *q != '@') {
+					error ("%s:%d: malformed @align hint", fname, line);
+				}
+			}
+			if (*pending_align) {
+				error ("%s:%d: duplicate @align hint before declaration", fname, line);
+			}
+			*pending_align = a;
+			p = q - 1;
+			continue;
+		}
 		unsigned hint = n == 6 && !strncmp (p + 1, "inline", 6)? HINT_INLINE:
 			n == 8 && !strncmp (p + 1, "noinline", 8)? HINT_NOINLINE: 0;
 		if (hint) {
-			if (*pending_hints & (HINT_INLINE | HINT_NOINLINE)) {
-				error ("%s:%d: duplicate inline hint before declaration", fname, line);
+			if (*pending_hints) {
+				error ("%s:%d: duplicate hint before declaration", fname, line);
 			}
 			*pending_hints |= hint;
 			p = q - 1;
@@ -70,15 +100,11 @@ static void scan_comment_hint(const char *start, const char *end,
 		if (n != 4 || strncmp (p + 1, "bits", 4)) {
 			continue;
 		}
-		while (q < end && comment_space ((unsigned char)*q)) {
-			q++;
-		}
+		q = skip_comment_space (q, end);
 		if (q == end || *q++ != '=') {
 			error ("%s:%d: malformed @bits hint (expected @bits=N)", fname, line);
 		}
-		while (q < end && comment_space ((unsigned char)*q)) {
-			q++;
-		}
+		q = skip_comment_space (q, end);
 		if (q == end || *q < '0' || *q > '9') {
 			error ("%s:%d: malformed @bits hint (expected @bits=N)", fname, line);
 		}
@@ -158,6 +184,7 @@ static Token *tokenize(const char *src, const char *fname) {
 	const char *p = src;
 	bool bol = true, space = false;
 	int pending_bits = 0;
+	int pending_align = 0;
 	unsigned pending_hints = 0;
 
 	while (*p) {
@@ -168,7 +195,7 @@ static Token *tokenize(const char *src, const char *fname) {
 			const char *start = p + 2;
 			p = start;
 			while (*p && *p != '\n') p++;
-			scan_comment_hint (start, p, fname, line, &pending_bits, &pending_hints);
+			scan_comment_hint (start, p, fname, line, &pending_bits, &pending_align, &pending_hints);
 			continue;
 		}
 		if (p[0] == '/' && p[1] == '*') {
@@ -179,7 +206,7 @@ static Token *tokenize(const char *src, const char *fname) {
 				if (*p == '\n') cur_line++;
 				p++;
 			}
-			scan_comment_hint (start, p, fname, line, &pending_bits, &pending_hints);
+			scan_comment_hint (start, p, fname, line, &pending_bits, &pending_align, &pending_hints);
 			if (*p) p += 2;
 			space = true;
 			continue;
@@ -304,6 +331,10 @@ static Token *tokenize(const char *src, const char *fname) {
 			t->hint_bits = pending_bits;
 			pending_bits = 0;
 		}
+		if (pending_align) {
+			t->hint_align = pending_align;
+			pending_align = 0;
+		}
 		if (pending_hints) {
 			t->hints = pending_hints;
 			pending_hints = 0;
@@ -376,9 +407,16 @@ static void inherit_hint(Token *src, Token *dst) {
 		}
 		dst->hint_bits = src->hint_bits;
 	}
+	if (src->hint_align) {
+		if (dst->hint_align) {
+			error_tok (src, "duplicate @align hint on declaration");
+		}
+		dst->hint_align = src->hint_align;
+	}
 	if (src->hints) {
-		if (dst->hints) {
-			error_tok (src, "duplicate inline hint on declaration");
+		unsigned funcs = HINT_INLINE | HINT_NOINLINE;
+		if (src->hints & funcs && dst->hints & funcs) {
+			error_tok (src, "duplicate hint on declaration");
 		}
 		dst->hints |= src->hints;
 	}
