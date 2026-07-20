@@ -1,4 +1,1 @@
-augroup filetypedetect
-  au!
-  au BufRead,BufNewFile *.hc set filetype=holyc
-augroup END
+autocmd BufRead,BufNewFile *.hc,*.HC,*.hh,*.HH setfiletype holyc

@@ -17,11 +17,6 @@
 setlocal cindent
 setlocal tabstop=4 softtabstop=0 expandtab shiftwidth=2 smarttab
 
-" Keep the filetype as HC so the LSP / format keymaps still recognise it.
-if &filetype !=# "HC"
-  setlocal filetype=HC
-endif
-
 " Don't rebuild the syntax if it is already in place for this buffer.
 if exists("b:current_syntax") && b:current_syntax ==# "hc"
   finish
