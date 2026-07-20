@@ -16,6 +16,28 @@ the end.
 | `F64` | 8-byte float (there is no F32) |
 | `Bool`| alias for `U8` (prelude)   |
 
+There is currently no builtin `U128` or `I128` type.  The `@bits=N`
+source hint does not create a wider type: it narrows the value width of an
+existing integer declaration, and a hint must not exceed that declaration's
+storage width.  Consequently, `/* @bits=128 */ U64 x;` is rejected even
+though hint values up to 128 are accepted by the lexer.
+
+For a 128-bit storage object, use a class containing two 64-bit halves:
+
+```holyc
+class U128 {
+	U64 lo;
+	U64 hi;
+};
+```
+
+This provides 16 bytes of storage only; it does not provide native 128-bit
+arithmetic, comparisons, shifts, literals, or formatting.  Those operations
+must be implemented by helper functions, for example by adding the low
+halves and carrying into `hi`.  A real scalar `U128`/`I128` would require
+front-end and backend support in aholyc (including the JS backend's numeric
+representation).
+
 All values widen to 64 bits when loaded; all arithmetic happens on 64-bit
 values (or F64). Storing truncates to the declared width. Assignment
 evaluates to the *pre-truncation* value, exactly like TempleOS:
