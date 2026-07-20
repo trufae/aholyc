@@ -16,7 +16,7 @@ CFLAGS += -DAHOLYC_BACKEND_LLVM=$(AHOLYC_BACKEND_LLVM) \
 	-DAHOLYC_BACKEND_C=$(AHOLYC_BACKEND_C) \
 	-DAHOLYC_BACKEND_JS=$(AHOLYC_BACKEND_JS)
 
-LIBSRC = src/main.c src/getopt.c src/lex.c src/parse.c src/util.c src/sb.c src/exe.c src/fmt.c
+LIBSRC = src/aholyc.c src/getopt.c src/lex.c src/parse.c src/util.c src/sb.c src/exe.c src/fmt.c
 ifeq ($(AHOLYC_BACKEND_LLVM),1)
 LIBSRC += src/back_ll.c
 endif
@@ -27,12 +27,12 @@ ifeq ($(AHOLYC_BACKEND_JS),1)
 LIBSRC += src/back_js.c
 endif
 LIBOBJ = $(LIBSRC:.c=.o) src/embed.o
-OBJ = src/cli.o $(LIBOBJ)
+OBJ = src/main.o $(LIBOBJ)
 
 all: aholyc
 
-aholyc: src/cli.o libaholyc.a
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ src/cli.o libaholyc.a -ldl
+aholyc: src/main.o libaholyc.a
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ src/main.o libaholyc.a -ldl
 
 libaholyc.a: $(LIBOBJ)
 	$(AR) rcs $@ $(LIBOBJ)
