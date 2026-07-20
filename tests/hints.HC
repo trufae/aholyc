@@ -6,6 +6,9 @@ class HintBox {
 /* @bits=1 */ U8 global_bit = 2;
 /* @bits=64 */ U64 full_width = 1;
 
+/* @inline */ I64 InlineAdd(I64 x) { return x + 1; }
+/* @noinline */ I64 NoInlineAdd(I64 x) { return x + 2; }
+
 U0 ShowHints(/* @bits=4 */ I8 param)
 {
 	/* @bits=4 */ I8 signed_nibble = 15;

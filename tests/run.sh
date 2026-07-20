@@ -141,6 +141,8 @@ grep -Eq 'trunc i64 .* to i4' tests/out/hints.ll || hintsok=0
 grep -Eq 'sext i4 .* to i64' tests/out/hints.ll || hintsok=0
 grep -Eq 'zext i4 .* to i64' tests/out/hints.ll || hintsok=0
 grep -Eq '@g[0-9]+_global_bit = internal global i8 0' tests/out/hints.ll || hintsok=0
+grep -Eq 'define internal i64 @hc_InlineAdd\(.*\) alwaysinline \{' tests/out/hints.ll || hintsok=0
+grep -Eq 'define internal i64 @hc_NoInlineAdd\(.*\) noinline \{' tests/out/hints.ll || hintsok=0
 
 ./aholyc -S -b c tests/hints.HC -o tests/out/hints.c 2>tests/out/hints-c.err || hintsok=0
 grep -Eq 'signed _BitInt\(4\) l[0-9]+_signed_nibble = 0' tests/out/hints.c || hintsok=0
@@ -149,13 +151,17 @@ grep -Eq 'uint8_t l[0-9]+_addressed = 0' tests/out/hints.c || hintsok=0
 grep -Eq 'unsigned _BitInt\(1\)' tests/out/hints.c || hintsok=0
 grep -Eq 'int8_t l[0-9]+_signed_bit = 0' tests/out/hints.c || hintsok=0
 grep -Eq '(^|[^[:alnum:]_])signed _BitInt\(1\)' tests/out/hints.c && hintsok=0
+grep -Eq 'static inline hc_i64 hc_InlineAdd\(' tests/out/hints.c || hintsok=0
+grep -Eq 'static __attribute__\(\(noinline\)\) hc_i64 hc_NoInlineAdd\(' tests/out/hints.c || hintsok=0
 
 ./aholyc -fno-hints -S -b llvm tests/hints.HC -o tests/out/hints-no.ll \
 	2>tests/out/hints-no-ll.err || hintsok=0
 grep -Eq 'trunc i64 .* to i(1|3|4)' tests/out/hints-no.ll && hintsok=0
+grep -Eq '(alwaysinline|noinline)' tests/out/hints-no.ll && hintsok=0
 ./aholyc -fno-hints -S -b c tests/hints.HC -o tests/out/hints-no.c \
 	2>tests/out/hints-no-c.err || hintsok=0
 grep -q '_BitInt' tests/out/hints-no.c && hintsok=0
+grep -Eq '(static inline hc_i64 hc_InlineAdd|noinline.*hc_NoInlineAdd)' tests/out/hints-no.c && hintsok=0
 ./aholyc -S -b js tests/hints.HC -o tests/out/hints.js 2>tests/out/hints-js.err || hintsok=0
 ./aholyc -fno-hints -S -b js tests/hints.HC -o tests/out/hints-no.js \
 	2>tests/out/hints-no-js.err || hintsok=0

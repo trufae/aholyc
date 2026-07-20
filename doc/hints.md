@@ -69,6 +69,20 @@ assumed to mean that every nonzero value is automatically converted to one.
 
 Code that requires a boolean invariant should explicitly produce `0` or `1`.
 
+## Function inlining
+
+`@inline` requests inlining of a function, while `@noinline` requests that a
+function not be inlined:
+
+```holyc
+/* @inline */ I64 Small(I64 x) { return x + 1; }
+/* @noinline */ I64 Boundary(I64 x) { return Small(x); }
+```
+
+The LLVM backend emits `alwaysinline` and `noinline`, respectively. The C
+backend emits the plain `inline` keyword for `@inline` and the compiler
+`noinline` attribute for `@noinline`. The JavaScript backend ignores both.
+
 ## Exception and effect hints
 
 The compiler may infer whether a function can throw.  Optional annotations

@@ -912,7 +912,9 @@ static void emit_func(Obj *fn) {
 		fprintf (o, "%s%s %%a%d", np? ", ": "",
 			p->ty->kind == TY_F64? "double": "i64", np);
 	}
-	fprintf (o, ") {\nentry:\n");
+	fprintf (o, ")%s {\nentry:\n",
+		fn->hints & HINT_INLINE? " alwaysinline":
+		fn->hints & HINT_NOINLINE? " noinline": "");
 	blk_open = true;
 	/* param slots */
 	np = 0;
@@ -998,7 +1000,9 @@ static void ll_emit(Program *prog, FILE *out) {
 			fprintf (o, "%s%s", np? ", ": "",
 				p->ty->kind == TY_F64? "double": "i64");
 		}
-		fprintf (o, ")\n");
+		fprintf (o, ")%s\n",
+			f->hints & HINT_INLINE? " alwaysinline":
+			f->hints & HINT_NOINLINE? " noinline": "");
 	}
 	fprintf (o, "declare ptr @__hc_try_push()\n");
 	fprintf (o, "declare void @__hc_try_pop()\n");

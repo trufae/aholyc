@@ -25,6 +25,8 @@ typedef enum {
 } TokenKind;
 
 typedef struct Token Token;
+#define HINT_INLINE 1
+#define HINT_NOINLINE 2
 struct Token {
 	TokenKind kind;
 	Token *next;
@@ -38,6 +40,7 @@ struct Token {
 	bool has_space;    /* preceded by whitespace */
 	bool no_expand;    /* macro self-reference guard */
 	int hint_bits;      /* @bits=N attached by a preceding comment; 0 if none */
+	unsigned hints;     /* HINT_* flags attached by a preceding comment */
 };
 
 /* ----------------------------------------------------------------- types */
@@ -158,6 +161,7 @@ struct Obj {
 	bool is_public;    /* HolyC 'public': exported, unmangled symbol */
 	bool from_prelude; /* extern declared by the prelude (runtime API) */
 	bool address_taken; /* storage is observable through a pointer */
+	unsigned hints;     /* HINT_* function attributes */
 	/* functions */
 	Obj *params;       /* chain via next (separate list from locals) */
 	int nparams;

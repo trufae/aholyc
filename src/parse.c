@@ -217,14 +217,31 @@ static void expect(const char *s) {
 	}
 }
 
-static void collect_bits_hint(Token *t, Token **hint) {
-	if (!t || !t->hint_bits) {
-		return;
+static void collect_hints(Token *t, Token **bits, Token **func) {
+	if (t && t->hint_bits) {
+		if (*bits) {
+			error_tok (t, "duplicate @bits hint on declaration");
+		}
+		*bits = t;
 	}
-	if (*hint) {
-		error_tok (t, "duplicate @bits hint on declaration");
+	if (t && t->hints) {
+		if (*func) {
+			error_tok (t, "duplicate inline hint on declaration");
+		}
+		*func = t;
 	}
-	*hint = t;
+}
+
+static void reject_func_hint(Token *t) {
+	if (t) {
+		error_tok (t, "inline hints apply only to function declarations");
+	}
+}
+
+static void collect_bits_hint(Token *t, Token **bits) {
+	Token *func = NULL;
+	collect_hints (t, bits, &func);
+	reject_func_hint (func);
 }
 
 /* Builtin types are shared, so attach declaration metadata to a shallow copy. */
@@ -2166,7 +2183,8 @@ static void parse_class(bool is_union) {
 }
 
 /* function definition or declaration after type+name(  */
-static void parse_func(Type *ret, char *name, bool is_extern, bool is_public) {
+static void parse_func(Type *ret, char *name, bool is_extern, bool is_public,
+                       Token *inline_tok) {
 	Obj *fn = find_func (name);
 	bool fresh = !fn;
 	if (fresh) {
@@ -2177,6 +2195,12 @@ static void parse_func(Type *ret, char *name, bool is_extern, bool is_public) {
 	fnty->base = ret;
 	fn->ty = fnty;
 	fn->is_extern = is_extern;
+	if (inline_tok) {
+		if (fn->hints && fn->hints != inline_tok->hints) {
+			error_tok (inline_tok, "conflicting inline hint for function %s", name);
+		}
+		fn->hints = inline_tok->hints;
+	}
 	if (is_extern && tk->file && !strcmp (tk->file, "<prelude>")) {
 		fn->from_prelude = true;
 	}
@@ -2360,7 +2384,8 @@ Program *parse(Token *tok) {
 
 	while (tk->kind != TK_EOF) {
 		Token *hint = NULL;
-		collect_bits_hint (tk, &hint);
+		Token *inline_tok = NULL;
+		collect_hints (tk, &hint, &inline_tok);
 		/* function attribute keywords; 'public' exports the symbol */
 		bool is_public = false;
 		while (is_kw ("public") || is_kw ("interrupt") || is_kw ("haserrcode") ||
@@ -2369,24 +2394,25 @@ Program *parse(Token *tok) {
 				is_public = true;
 			}
 			tk = tk->next;
-			collect_bits_hint (tk, &hint);
+			collect_hints (tk, &hint, &inline_tok);
 		}
 		bool is_extern = false;
 		if (is_kw ("extern") || is_kw ("import") || is_kw ("_extern") || is_kw ("_import")) {
 			is_extern = true;
 			tk = tk->next;
-			collect_bits_hint (tk, &hint);
+			collect_hints (tk, &hint, &inline_tok);
 			/* _extern SYMBOL alias form: skip the symbol token */
 			if (tk->kind == TK_ID && tk->next->kind == TK_ID &&
 			    !builtin_type (tk->str) && !find_class (tk->str)) {
 				tk = tk->next;
-				collect_bits_hint (tk, &hint);
+				collect_hints (tk, &hint, &inline_tok);
 			}
 		}
 		if (is_kw ("class")) {
 			if (hint) {
 				error_tok (hint, "@bits applies only to integer object declarations");
 			}
+			reject_func_hint (inline_tok);
 			parse_class (false);
 			continue;
 		}
@@ -2394,6 +2420,7 @@ Program *parse(Token *tok) {
 			if (hint) {
 				error_tok (hint, "@bits applies only to integer object declarations");
 			}
+			reject_func_hint (inline_tok);
 			parse_class (true);
 			continue;
 		}
@@ -2416,9 +2443,10 @@ Program *parse(Token *tok) {
 				}
 				char *name = tk->str;
 				tk = tk->next;
-				parse_func (ret, name, is_extern, is_public);
+				parse_func (ret, name, is_extern, is_public, inline_tok);
 				continue;
 			}
+			reject_func_hint (inline_tok);
 			/* global variable(s): rewind to after base name, stars are
 			 * per-declarator in global_decl */
 			tk = save->next;
@@ -2444,6 +2472,7 @@ Program *parse(Token *tok) {
 		if (hint) {
 			error_tok (hint, "@bits applies only to integer object declarations");
 		}
+		reject_func_hint (inline_tok);
 		/* top-level statement -> startup code */
 		Obj *save_fn = cur_fn;
 		Obj *save_locals = fn_locals;

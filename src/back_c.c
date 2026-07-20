@@ -662,7 +662,10 @@ static void emit_func_sig(Obj *fn) {
 		ret->kind == TY_VOID? "void": "hc_i64";
 	bool exported = fn->is_public ||
 		(cur_prog && fn == cur_prog->startup && !aholyc_ctor_mode);
-	fprintf (o, "%s%s %s(", exported? "": "static ", rc, objname (fn));
+	fprintf (o, "%s%s%s%s %s(", exported?
+		(fn->hints & HINT_INLINE? "extern ": ""): "static ",
+		fn->hints & HINT_INLINE? "inline ": "",
+		fn->hints & HINT_NOINLINE? "__attribute__((noinline)) ": "", rc, objname (fn));
 	bool first = true;
 	for (Obj *p = fn->params; p; p = p->next) {
 		if (!first) {
@@ -714,7 +717,9 @@ static void emit_extern_decls(Program *prog, bool only_user) {
 			continue;
 		}
 		Type *ret = f->ty->base;
-		fprintf (o, "extern %s %s(",
+		fprintf (o, "extern %s%s%s %s(",
+			f->hints & HINT_INLINE? "inline ": "",
+			f->hints & HINT_NOINLINE? "__attribute__((noinline)) ": "",
 			ret->kind == TY_F64? "hc_f64":
 			ret->kind == TY_VOID? "void":
 			ret->kind == TY_PTR? "void *": "hc_i64", f->name);
