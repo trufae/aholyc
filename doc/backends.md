@@ -80,24 +80,24 @@ typedef struct Backend {
     const char *name;   /* -b <name> */
     const char *ext;    /* artifact extension */
     const char *descr;
-    void (*emit)(Program *prog, FILE *out);
-    int (*build)(const char *artifact, const char *outpath,
-                 const char *opt, bool verbose, bool keep);
-    int (*build_obj)(const char *artifact, const char *outpath,
-                     const char *opt, bool verbose, bool keep); /* -c; NULL if unsupported */
+    void (*emit)(Aholyc *cc, Program *prog, FILE *out,
+                 bool object_mode, bool ctor_mode);
+    int (*build)(Aholyc *cc, const char *artifact,
+                 const char *outpath, const char *opt);
+    int (*build_obj)(Aholyc *cc, const char *artifact,
+                     const char *outpath, const char *opt); /* optional */
 } Backend;
 ```
 
-When the global `aholyc_obj_mode` is set (`-c`, or `.o` inputs mixed with
-sources), `emit` must produce linkable object source: the runtime is
-*declared* instead of embedded and `public` symbols keep their unmangled names
-with external linkage. `aholyc_ctor_mode` distinguishes a true `-c` module,
-whose constructor registers its startup function with the runtime, from a
-source group linked with objects, whose startup remains the exported
-`__hc_start(argc,argv)` program entry.
+The driver passes `object_mode` explicitly for `-c` and source groups mixed
+with `.o` inputs. In that mode the runtime is declared instead of embedded and
+`public` symbols keep external linkage. `ctor_mode` distinguishes a true `-c`
+module, whose constructor registers its startup function, from a source group
+linked with objects, whose startup remains `__hc_start(argc,argv)`. Other
+driver options and diagnostics come through the `Aholyc` instance.
 
 1. Create `src/back_foo.c`, define `const Backend backend_foo`.
-2. Add it to the `backends[]` array in `src/main.c` and to `SRC` in the
+2. Add it to the `backends[]` array in `src/main.c` and to `LIBSRC` in the
    Makefile.
 
 The AST a backend receives is deliberately small. The parser has already

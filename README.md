@@ -23,6 +23,8 @@ Hello World!
 
 * Written in portable C99. **Zero external dependencies** — building aholyc
   needs only `cc` and `make`.
+* **Embeddable and parallel-safe.** `libaholyc.a` exposes four calls around
+  an opaque compiler instance; independent instances share no mutable state.
 * **Pluggable backends** selected with `-b`:
   * `llvm` — LLVM-IR text, compiled to native by clang/llc (default)
   * `c` — portable C99, compiled by the system C compiler
@@ -41,6 +43,16 @@ $ make
 $ make test        # runs examples on every available backend
 $ sudo make install
 ```
+
+## Library
+
+`make` also builds `libaholyc.a` and `install` installs `<aholyc.h>`. Create
+an instance with `aholyc_init()` (which returns `NULL` on allocation failure),
+pass the same argument vector accepted by the CLI to `aholyc_parseargv()`,
+inspect errors with `aholyc_error()`, then release it with `aholyc_fini()`.
+Calls start clean;
+instance-local state lets separate compilers run concurrently. Link with
+`libaholyc.a -ldl`.
 
 ## Layout
 

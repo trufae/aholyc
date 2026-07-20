@@ -1,6 +1,6 @@
 // aholyc #exe prelude: compiled in front of every #exe{} block.
-// The block runs inside the compiler process; these externs resolve
-// against symbols the aholyc binary exports (see src/exe.c).
+// The block runs inside the compiler process; these externs resolve to
+// a per-DSO bridge initialized with callbacks (see src/exe.c).
 
 // Token kinds, same values as TokenKind in src/aholyc.h.
 #define TK_EOF   0
@@ -30,14 +30,14 @@ class Token
   Bool at_bol;
   Bool has_space;
   Bool no_expand;
-  $$ = 64;        // sizeof matches the C struct
+  $$ = 88;        // sizeof matches the C struct (private fields follow)
 };
 
-// compiler shim, exported by the aholyc binary itself
+// compiler callbacks supplied through the generated DSO bridge
 extern U0 __StreamPutS(U8 *s);
 extern Token *ExeStream();        // tokens following this #exe block
 extern U0 ExeStreamSet(Token *t); // consume tokens from the stream
-extern I64 Cd(U8 *path);          // chdir of the compiler process
+extern I64 Cd(U8 *path);          // set this compiler instance's cwd
 extern I64 Now();                 // compile-time clock (unix seconds)
 
 // Injects text into the compile stream. Used in #exe{} blocks.

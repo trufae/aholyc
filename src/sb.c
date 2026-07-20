@@ -1,58 +1,30 @@
 #include "aholyc.h"
 
-/* Grow modestly beyond the request to amortize appends without keeping the
- * large excess capacity produced by repeated doubling. */
-static size_t growcap(size_t cap, size_t need) {
-	size_t grown = cap <= SIZE_MAX - (cap >> 3)? cap + (cap >> 3): need;
-	if (grown < need) {
-		grown = need <= SIZE_MAX - (need >> 3)? need + (need >> 3): need;
-	}
-	size_t slack = grown < 1024? 64: grown >> 4;
-	return grown <= SIZE_MAX - slack? grown + slack: grown;
-}
-
 static void reserve(StrBuf *sb, size_t n) {
 	if (n > SIZE_MAX - sb->len - 1) {
-		error ("string buffer overflow");
+		aholyc_i_error (sb->cc, "string buffer overflow");
 	}
 	size_t need = sb->len + n + 1;
 	if (need <= sb->cap) {
 		return;
 	}
-	size_t cap = growcap (sb->cap, need);
-	if (sb->data == sb->buf) {
-		sb->data = xmalloc (cap);
-		memcpy (sb->data, sb->buf, sb->len + 1);
-	} else {
-		char *p = realloc (sb->data, cap);
-		if (!p) {
-			error ("out of memory");
-		}
-		sb->data = p;
-	}
+	size_t cap = sb->cap <= SIZE_MAX / 2? sb->cap * 2: need;
+	if (cap < need) cap = need;
+	char *data = aholyc_i_xmalloc (sb->cc, cap);
+	memcpy (data, sb->data, sb->len + 1);
+	sb->data = data;
 	sb->cap = cap;
 }
 
-void sb_init(StrBuf *sb) {
+void aholyc_i_sb_init(StrBuf *sb, Aholyc *cc) {
+	sb->cc = cc;
 	sb->data = sb->buf;
 	sb->len = 0;
 	sb->cap = sizeof(sb->buf);
 	sb->buf[0] = 0;
 }
 
-void sb_reset(StrBuf *sb) {
-	sb->len = 0;
-	sb->data[0] = 0;
-}
-
-void sb_free(StrBuf *sb) {
-	if (sb->data != sb->buf) {
-		free (sb->data);
-	}
-	sb_init (sb);
-}
-
-void sb_putn(StrBuf *sb, const char *s, size_t n) {
+static void sb_putn(StrBuf *sb, const char *s, size_t n) {
 	if (!n) {
 		return;
 	}
@@ -62,17 +34,17 @@ void sb_putn(StrBuf *sb, const char *s, size_t n) {
 	sb->data[sb->len] = 0;
 }
 
-void sb_puts(StrBuf *sb, const char *s) {
+void aholyc_i_sb_puts(StrBuf *sb, const char *s) {
 	sb_putn (sb, s, strlen (s));
 }
 
-void sb_putc(StrBuf *sb, int c) {
+void aholyc_i_sb_putc(StrBuf *sb, int c) {
 	reserve (sb, 1);
 	sb->data[sb->len++] = (char)c;
 	sb->data[sb->len] = 0;
 }
 
-void sb_printf(StrBuf *sb, const char *fmt, ...) {
+void aholyc_i_sb_printf(StrBuf *sb, const char *fmt, ...) {
 	va_list ap, aq;
 	va_start (ap, fmt);
 	va_copy (aq, ap);
@@ -81,28 +53,28 @@ void sb_printf(StrBuf *sb, const char *fmt, ...) {
 	va_end (ap);
 	if (n < 0) {
 		va_end (aq);
-		error ("string formatting failed");
+		aholyc_i_error (sb->cc, "string formatting failed");
 	}
 	if ((size_t)n >= avail) {
 		reserve (sb, (size_t)n);
 		int written = vsnprintf (sb->data + sb->len, (size_t)n + 1, fmt, aq);
 		if (written != n) {
 			va_end (aq);
-			error ("string formatting failed");
+			aholyc_i_error (sb->cc, "string formatting failed");
 		}
 	}
 	va_end (aq);
 	sb->len += (size_t)n;
 }
 
-char *sb_take(StrBuf *sb) {
+char *aholyc_i_sb_take(StrBuf *sb) {
 	char *s;
 	if (sb->data == sb->buf) {
-		s = xmalloc (sb->len + 1);
+		s = aholyc_i_xmalloc (sb->cc, sb->len + 1);
 		memcpy (s, sb->buf, sb->len + 1);
 	} else {
 		s = sb->data;
 	}
-	sb_init (sb);
+	aholyc_i_sb_init (sb, sb->cc);
 	return s;
 }

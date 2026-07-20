@@ -47,11 +47,9 @@ has to become native code some other way. The options were:
 The block is compiled by the *same* lexer, parser and codegen as any
 program, using the C backend, into a temporary shared library that is
 `dlopen`ed into the running compiler and executed. One compiler, one
-set of semantics, native speed, and — because the block runs in the
-compiler's own address space — direct pointer access to compiler
-internals with zero marshalling. Compiler pointers are plain addresses
-in the same process, so they can be handed to HolyC code and even
-inlined into generated text.
+set of semantics and native speed. A small callback API gives the block
+controlled access to its compiler instance; token pointers remain plain
+addresses because the block runs in the same process.
 
 The C backend is the natural fit for the dl target: aholyc's HolyC class
 layout uses the same natural-alignment rules as C structs, so a HolyC
@@ -64,36 +62,33 @@ manipulates live compiler data through ordinary member access.
 lexer hits "#exe {"           (src/lex.c, preprocess)
   cut the {...} tokens out of the stream
   preprocess them            (same macro table: one compile stream)
-  exe_run(block, &rest)      (src/exe.c)
+  aholyc_i_exe_run(block, &rest) (src/exe.c)
     prepend runtime prelude + exe API   (runtime/exe.hc)
-    parse                    (same parser, made re-entrant)
+    parse                    (same parser, invocation-local state)
     emit C                   (same C backend, runtime embedded)
-    cc -O0 -w -shared -fPIC  -> /tmp/aholyc-exe-<pid>-<n>.so
-    dlopen(RTLD_NOW|RTLD_LOCAL); call __hc_start(0, empty_argv); dlclose
+    append callback bridge; cc -shared -> /tmp/aholyc-exe-XXXXXX/block.so
+    dlopen(RTLD_LOCAL); initialize callbacks; call __hc_start; dlclose
     collect StreamPrint text
   re-tokenize the text as "<exe>" and splice it in before rest
 ```
 
-All of the dl glue lives in `src/exe.c` (~130 lines) and
-`runtime/exe.hc` (~60 lines); the compiler proper is untouched apart
-from the `#exe` branch in the preprocessor and an eight-line reset
-that makes `parse()` re-entrant.
+The dl glue lives in `src/exe.c` and `runtime/exe.hc`. Nested parsing and
+emission use local contexts; the macro table and virtual working directory
+remain part of the containing `Aholyc` instance.
 
 ### The shim
 
-`aholyc` is linked with `-rdynamic`, so every symbol of the compiler
-binary is visible to dlopened blocks. `src/exe.c` exports the small
-API the blocks' extern declarations resolve against (`__StreamPutS`,
-`ExeStream`, `ExeStreamSet`, `Cd`, `Now`); everything else in the exe
-API is plain HolyC in `runtime/exe.hc`, compiled with the block. The
-embedded runtime inside the `.so` is `static`, so blocks never collide
-with the compiler or with each other.
+`src/exe.c` appends a tiny bridge to every generated shared library. After
+`dlopen`, the compiler initializes it with the current `Aholyc` and callbacks
+for `__StreamPutS`, `ExeStream`, `ExeStreamSet`, `Cd` and `Now`. The externs in
+`runtime/exe.hc` resolve inside that DSO, so the compiler exports no callback
+symbols and needs no global router. `RTLD_LOCAL` plus a private embedded
+runtime keeps simultaneous blocks isolated.
 
 Compiler internals keep their names on the HolyC side: `class Token`
 in `runtime/exe.hc` mirrors `struct Token` in `src/aholyc.h` — same
-member names, same offsets — and `TK_*` match `TokenKind`. Since
-`-rdynamic` exports everything, an adventurous block can declare an
-extern for *any* compiler function and call it.
+member names, same offsets — and `TK_*` match `TokenKind`. Blocks can
+inspect these tokens only through the declared callback API.
 
 ## API available inside `#exe{}`
 
@@ -105,7 +100,7 @@ try/catch, ...) plus:
 | `U0 StreamPrint(U8 *fmt, ...)` | inject formatted source text after the block (TempleOS) |
 | `Token *ExeStream()` | the compiler's live token stream right after the block |
 | `U0 ExeStreamSet(Token *t)` | advance the stream: consume tokens the block read |
-| `I64 Cd(U8 *path)` | chdir of the compiler process (TempleOS) |
+| `I64 Cd(U8 *path)` | change this compiler instance's cwd |
 | `I64 Now()` | compile-time clock, unix seconds (TempleOS: CDate) |
 | `__FILE__`, `__DIR__` | macros: file containing the block, its directory |
 | `class Token`, `TK_*` | mirror of the compiler's token structures |
@@ -143,8 +138,8 @@ Semantics worth knowing:
   Mid-expression `#exe` (TempleOS `StreamExePrint`) is not supported.
 * **No state across blocks.** Each block is its own shared library
   with its own globals; TempleOS blocks share the task's symbol table.
-  Persist through injected code, macros, files, or `Cd` (the process
-  cwd does persist).
+  Persist through injected code, macros, files, or `Cd` (the cwd persists
+  for that compiler invocation without changing the process cwd).
 * Functions and classes defined inside a block exist only during the
   block. To add them to the program, `StreamPrint` their source.
 * `Option`/`PassTrace`/`Echo` do nothing — aholyc's codegen has no
@@ -177,9 +172,9 @@ covers the use.
 
 For the other four the options mirror the `#exe` design decision:
 
-* **Link the compiler into every binary** (a `libaholyc`) — makes every
-  hello world carry a compiler. Violates the small-binary rule for
-  programs that never eval anything; rejected.
+* **Link the compiler into every produced binary** — `libaholyc.a` makes this
+  possible for host applications, but it would make every hello world carry a
+  compiler. It violates the small-binary rule for programs that never eval.
 * **A runtime interpreter** — a second implementation of HolyC
   semantics to keep in sync; rejected for `#exe`, same verdict here.
 * **Reuse the `#exe` mechanism at runtime** — the program shells out
@@ -187,18 +182,14 @@ For the other four the options mirror the `#exe` design decision:
   `#exe` blocks: emit C, `cc -O0 -w -shared -fPIC`, `dlopen` into the
   running process, call `__hc_start(0, empty_argv)`, `dlclose`. One compiler, one set
   of semantics, and the machinery already exists in `src/exe.c` — the
-  runtime version is the same ~100 lines with `exe_run`'s
+  runtime version is the same ~100 lines with `aholyc_i_exe_run`'s
   StreamPrint plumbing replaced by a result slot.
 
 The third option fits aholyc:
 
-* **Cost when unused: zero.** The whole feature is one more section
-  of `runtime/rt.c` (`fork`/`exec` + `dlopen` + the result protocol),
-  `HC_API static` like everything else, so a program that never calls
-  `ExePrint` produces a byte-identical binary. The extra link flags
-  (`-ldl`, and `-rdynamic` so chunks can call the host's `public`
-  symbols) would be added by the driver only when the program
-  references the API, keeping the exported-symbol table lean too.
+* **Cost when unused: zero.** The whole feature is one more dead-strippable
+  runtime section. Its `-ldl` link flag would be added only when referenced;
+  a generated callback bridge can connect a chunk without exporting the host.
 * **Return value.** TempleOS returns the last expression's value. The
   chunk build would compile in a "chunk mode" where the synthesized
   startup function stores the value of its last top-level expression
@@ -210,11 +201,9 @@ The third option fits aholyc:
   without a symbol table.
 * **Shared state.** Like `#exe` blocks, a chunk carries its own static
   runtime: its `Fs`, exception stack and allocator are separate from
-  the host's, and its globals die with `dlclose`. It can call the
-  host's `public` functions (via `-rdynamic`), which is also the
-  channel for sharing data. TempleOS shares the task's whole symbol
-  table; that looseness is not reproducible across a static AOT
-  boundary and would stay a documented difference.
+  the host's, and its globals die with `dlclose`. Explicit callbacks are the
+  channel for sharing data. TempleOS shares the task's whole symbol table;
+  that looseness is not reproducible across a static AOT boundary.
 * **Errors.** A failed compile makes `ExePutS` throw `'Compiler'`,
   matching the TempleOS try/catch contract.
 * **Requirements.** The *target* machine needs `aholyc`, a C compiler
@@ -235,8 +224,7 @@ patches to the running image.
 ## Debugging
 
 `aholyc -V` prints the `cc -shared` command used for each block; `-k`
-keeps the intermediates (`/tmp/aholyc-exe-<pid>-<n>.c` and `.so`) for
-inspection.
+keeps its `/tmp/aholyc-exe-XXXXXX/` directory for inspection.
 
 See `examples/exe.HC` (code generation, computed macros, config
 patterns) and `examples/exetokens.HC` (stream reflection, in-place

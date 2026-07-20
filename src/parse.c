@@ -6,48 +6,55 @@
 
 /* ------------------------------------------------------------- type pool */
 
-static Type ty_u0_ = { .kind = TY_VOID, .size = 0, .align = 1 };
-static Type ty_i8_ = { .kind = TY_INT, .size = 1, .align = 1 };
-static Type ty_u8_ = { .kind = TY_INT, .size = 1, .align = 1, .is_unsigned = true };
-static Type ty_i16_ = { .kind = TY_INT, .size = 2, .align = 2 };
-static Type ty_u16_ = { .kind = TY_INT, .size = 2, .align = 2, .is_unsigned = true };
-static Type ty_i32_ = { .kind = TY_INT, .size = 4, .align = 4 };
-static Type ty_u32_ = { .kind = TY_INT, .size = 4, .align = 4, .is_unsigned = true };
-static Type ty_i64_ = { .kind = TY_INT, .size = 8, .align = 8 };
-static Type ty_u64_ = { .kind = TY_INT, .size = 8, .align = 8, .is_unsigned = true };
-static Type ty_f64_ = { .kind = TY_F64, .size = 8, .align = 8 };
+static const Type ty_u0_ = { .kind = TY_VOID, .size = 0, .align = 1 };
+static const Type ty_i8_ = { .kind = TY_INT, .size = 1, .align = 1 };
+static const Type ty_u8_ = { .kind = TY_INT, .size = 1, .align = 1, .is_unsigned = true };
+static const Type ty_i16_ = { .kind = TY_INT, .size = 2, .align = 2 };
+static const Type ty_u16_ = { .kind = TY_INT, .size = 2, .align = 2, .is_unsigned = true };
+static const Type ty_i32_ = { .kind = TY_INT, .size = 4, .align = 4 };
+static const Type ty_u32_ = { .kind = TY_INT, .size = 4, .align = 4, .is_unsigned = true };
+static const Type ty_i64_ = { .kind = TY_INT, .size = 8, .align = 8 };
+static const Type ty_u64_ = { .kind = TY_INT, .size = 8, .align = 8, .is_unsigned = true };
+static const Type ty_f64_ = { .kind = TY_F64, .size = 8, .align = 8 };
 
-Type *ty_u0 = &ty_u0_, *ty_i8 = &ty_i8_, *ty_u8 = &ty_u8_,
-	*ty_i16 = &ty_i16_, *ty_u16 = &ty_u16_, *ty_i32 = &ty_i32_,
-	*ty_u32 = &ty_u32_, *ty_i64 = &ty_i64_, *ty_u64 = &ty_u64_,
-	*ty_f64 = &ty_f64_;
+/* Type links predate const-qualified AST types. These private aliases are
+ * read-only; declaration hints always copy before modifying a primitive. */
+static Type *const ty_u0 = (Type *)(const void *)&ty_u0_;
+static Type *const ty_i8 = (Type *)(const void *)&ty_i8_;
+static Type *const ty_u8 = (Type *)(const void *)&ty_u8_;
+static Type *const ty_i16 = (Type *)(const void *)&ty_i16_;
+static Type *const ty_u16 = (Type *)(const void *)&ty_u16_;
+static Type *const ty_i32 = (Type *)(const void *)&ty_i32_;
+static Type *const ty_u32 = (Type *)(const void *)&ty_u32_;
+static Type *const ty_i64 = (Type *)(const void *)&ty_i64_;
+static Type *const ty_u64 = (Type *)(const void *)&ty_u64_;
+static Type *const ty_f64 = (Type *)(const void *)&ty_f64_;
 
-static Type *new_type(TypeKind k, int size, int align) {
-	Type *t = xcalloc (1, sizeof(Type));
+static Type *new_type(Aholyc *cc, TypeKind k, int size, int align) {
+	Type *t = aholyc_i_xcalloc (cc, 1, sizeof(Type));
 	t->kind = k;
 	t->size = size;
 	t->align = align;
 	return t;
 }
 
-Type *ptr_to(Type *base) {
-	Type *t = new_type (TY_PTR, 8, 8);
+static Type *ptr_to(Aholyc *cc, Type *base) {
+	Type *t = new_type (cc, TY_PTR, 8, 8);
 	t->base = base;
 	return t;
 }
 
-Type *array_of(Type *base, int len) {
-	Type *t = new_type (TY_ARRAY, base->size * len, base->align);
+static Type *array_of(Aholyc *cc, Type *base, int len) {
+	Type *t = new_type (cc, TY_ARRAY, base->size * len, base->align);
 	t->base = base;
 	t->array_len = len;
 	return t;
 }
 
-bool is_integer(Type *ty) { return ty->kind == TY_INT; }
-bool is_numeric(Type *ty) { return ty->kind == TY_INT || ty->kind == TY_F64; }
+static bool is_integer(Type *ty) { return ty->kind == TY_INT; }
 static bool is_ptrish(Type *ty) { return ty->kind == TY_PTR || ty->kind == TY_ARRAY; }
 
-Member *find_member(Type *ty, char *name) {
+static Member *find_member(Type *ty, char *name) {
 	for (; ty; ty = ty->parent) {
 		for (Member *m = ty->members; m; m = m->next) {
 			if (!strcmp (m->name, name)) {
@@ -68,43 +75,42 @@ struct Scope { Scope *next; VarScope *vars; };
 
 typedef struct SwGroup SwGroup;
 
-static Token *tk;              /* cursor */
-static Scope *scope;
-static Obj *cur_fn;
-static Obj *fn_locals;         /* locals of function being parsed */
-static Program *prog;
-static Obj *funcs_tail, *globals_tail;
-static int uid_counter = 1;
-static int label_counter = 1;
-static char *break_label;      /* innermost break target (NULL outside) */
-
 typedef struct ClassEnt ClassEnt;
 struct ClassEnt { ClassEnt *next; char *name; Type *ty; };
-static ClassEnt *classes;
-
-/* '$$' inside a class/union body is the offset where the next member will
- * land (TempleOS class_dol_offset); outside it is the current code address. */
-static bool in_class_body;
-static int class_dol_offset;
 
 typedef struct LabelRef LabelRef;
 struct LabelRef { LabelRef *next; char *name; Token *tok; bool defined; };
-static LabelRef *fn_labels;
+
+typedef struct {
+	Aholyc *cc;
+	Token *tk;
+	Scope *scope;
+	Program *prog;
+	Obj *cur_fn, *fn_locals, *funcs_tail, *globals_tail;
+	char *break_label;
+	ClassEnt *classes;
+	LabelRef *fn_labels;
+	int uid_counter, label_counter, class_dol_offset;
+	bool in_class_body, align_hints;
+} Parser;
+
+/* '$$' inside a class/union body is the offset where the next member will
+ * land (TempleOS class_dol_offset); outside it is the current code address. */
 
 /* ------------------------------------------------------------- helpers */
 
-static void enter_scope(void) {
-	Scope *s = xcalloc (1, sizeof(Scope));
-	s->next = scope;
-	scope = s;
+static void enter_scope(Parser *ps) {
+	Scope *s = aholyc_i_xcalloc (ps->cc, 1, sizeof(Scope));
+	s->next = ps->scope;
+	ps->scope = s;
 }
 
-static void leave_scope(void) {
-	scope = scope->next;
+static void leave_scope(Parser *ps) {
+	ps->scope = ps->scope->next;
 }
 
-static Obj *find_var(const char *name) {
-	for (Scope *s = scope; s; s = s->next) {
+static Obj *find_var(Parser *ps, const char *name) {
+	for (Scope *s = ps->scope; s; s = s->next) {
 		for (VarScope *v = s->vars; v; v = v->next) {
 			if (!strcmp (v->name, name)) {
 				return v->var;
@@ -115,8 +121,8 @@ static Obj *find_var(const char *name) {
 	 * Its argc/argv pair is intentionally visible only there: putting these
 	 * names in global scope would let ordinary functions capture parameters
 	 * that do not belong to their frame. */
-	if (prog && cur_fn == prog->startup) {
-		for (Obj *p = prog->startup->params; p; p = p->next) {
+	if (ps->prog && ps->cur_fn == ps->prog->startup) {
+		for (Obj *p = ps->prog->startup->params; p; p = p->next) {
 			if (!strcmp (p->name, name)) {
 				return p;
 			}
@@ -125,8 +131,8 @@ static Obj *find_var(const char *name) {
 	return NULL;
 }
 
-static Obj *find_func(const char *name) {
-	for (Obj *f = prog->funcs; f; f = f->next) {
+static Obj *find_func(Parser *ps, const char *name) {
+	for (Obj *f = ps->prog->funcs; f; f = f->next) {
 		if (!strcmp (f->name, name)) {
 			return f;
 		}
@@ -134,8 +140,8 @@ static Obj *find_func(const char *name) {
 	return NULL;
 }
 
-static Type *find_class(const char *name) {
-	for (ClassEnt *c = classes; c; c = c->next) {
+static Type *find_class(Parser *ps, const char *name) {
+	for (ClassEnt *c = ps->classes; c; c = c->next) {
 		if (!strcmp (c->name, name)) {
 			return c->ty;
 		}
@@ -143,114 +149,114 @@ static Type *find_class(const char *name) {
 	return NULL;
 }
 
-static void scope_push(char *name, Obj *var) {
-	VarScope *v = xcalloc (1, sizeof(VarScope));
+static void scope_push(Parser *ps, char *name, Obj *var) {
+	VarScope *v = aholyc_i_xcalloc (ps->cc, 1, sizeof(VarScope));
 	v->name = name;
 	v->var = var;
-	v->next = scope->vars;
-	scope->vars = v;
+	v->next = ps->scope->vars;
+	ps->scope->vars = v;
 }
 
-static Obj *new_obj(char *name, Type *ty) {
-	Obj *o = xcalloc (1, sizeof(Obj));
+static Obj *new_obj(Parser *ps, char *name, Type *ty) {
+	Obj *o = aholyc_i_xcalloc (ps->cc, 1, sizeof(Obj));
 	o->name = name;
 	o->ty = ty;
-	o->uid = uid_counter++;
+	o->uid = ps->uid_counter++;
 	return o;
 }
 
-static Obj *new_local(char *name, Type *ty) {
-	Obj *o = new_obj (name, ty);
-	o->next = fn_locals;
-	fn_locals = o;
-	scope_push (name, o);
+static Obj *new_local(Parser *ps, char *name, Type *ty) {
+	Obj *o = new_obj (ps, name, ty);
+	o->next = ps->fn_locals;
+	ps->fn_locals = o;
+	scope_push (ps, name, o);
 	return o;
 }
 
-static Obj *new_temp(Type *ty) {
-	char *name = xasprintf ("tmp%d", uid_counter);
-	Obj *o = new_obj (name, ty);
-	o->next = fn_locals;
-	fn_locals = o;
+static Obj *new_temp(Parser *ps, Type *ty) {
+	char *name = aholyc_i_xasprintf (ps->cc, "tmp%d", ps->uid_counter);
+	Obj *o = new_obj (ps, name, ty);
+	o->next = ps->fn_locals;
+	ps->fn_locals = o;
 	/* not in scope: invisible to source code */
 	return o;
 }
 
-static Obj *new_global(char *name, Type *ty) {
-	Obj *o = new_obj (name, ty);
+static Obj *new_global(Parser *ps, char *name, Type *ty) {
+	Obj *o = new_obj (ps, name, ty);
 	o->is_global = true;
 	o->is_static_dur = true;
-	if (globals_tail) {
-		globals_tail->next = o;
+	if (ps->globals_tail) {
+		ps->globals_tail->next = o;
 	} else {
-		prog->globals = o;
+		ps->prog->globals = o;
 	}
-	globals_tail = o;
-	scope_push (name, o);
+	ps->globals_tail = o;
+	scope_push (ps, name, o);
 	return o;
 }
 
-static char *new_label(const char *hint) {
-	return xasprintf (".%s%d", hint, label_counter++);
+static char *new_label(Parser *ps, const char *hint) {
+	return aholyc_i_xasprintf (ps->cc, ".%s%d", hint, ps->label_counter++);
 }
 
 /* token cursor */
-static bool is_punct(const char *s) {
-	return tk->kind == TK_PUNCT && !strcmp (tk->str, s);
+static bool is_punct(Parser *ps, const char *s) {
+	return ps->tk->kind == TK_PUNCT && !strcmp (ps->tk->str, s);
 }
 
-static bool is_kw(const char *s) {
-	return tk->kind == TK_ID && !strcmp (tk->str, s);
+static bool is_kw(Parser *ps, const char *s) {
+	return ps->tk->kind == TK_ID && !strcmp (ps->tk->str, s);
 }
 
-static bool eat(const char *s) {
-	if ((tk->kind == TK_PUNCT || tk->kind == TK_ID) && tk->str && !strcmp (tk->str, s)) {
-		tk = tk->next;
+static bool eat(Parser *ps, const char *s) {
+	if ((ps->tk->kind == TK_PUNCT || ps->tk->kind == TK_ID) && ps->tk->str && !strcmp (ps->tk->str, s)) {
+		ps->tk = ps->tk->next;
 		return true;
 	}
 	return false;
 }
 
-static void expect(const char *s) {
-	if (!eat (s)) {
-		error_tok (tk, "expected '%s'", s);
+static void expect(Parser *ps, const char *s) {
+	if (!eat (ps, s)) {
+		aholyc_i_error_tok (ps->cc, ps->tk, "expected '%s'", s);
 	}
 }
 
-static void collect_hints(Token *t, Token **bits, Token **func, Token **align) {
+static void collect_hints(Parser *ps, Token *t, Token **bits, Token **func, Token **align) {
 	if (t && t->hint_bits) {
 		if (*bits) {
-			error_tok (t, "duplicate @bits hint on declaration");
+			aholyc_i_error_tok (ps->cc, t, "duplicate @bits hint on declaration");
 		}
 		*bits = t;
 	}
 	if (t && (t->hints & (HINT_INLINE | HINT_NOINLINE))) {
 		if (*func) {
-			error_tok (t, "duplicate inline hint on declaration");
+			aholyc_i_error_tok (ps->cc, t, "duplicate inline hint on declaration");
 		}
 		*func = t;
 	}
 	if (t && t->hint_align) {
 		if (*align) {
-			error_tok (t, "duplicate @align hint on declaration");
+			aholyc_i_error_tok (ps->cc, t, "duplicate @align hint on declaration");
 		}
 		*align = t;
 	}
 }
 
-static void reject_func_hint(Token *t) {
+static void reject_func_hint(Parser *ps, Token *t) {
 	if (t) {
-		error_tok (t, "inline hints apply only to function declarations");
+		aholyc_i_error_tok (ps->cc, t, "inline hints apply only to function declarations");
 	}
 }
 
-static void collect_bits_hint(Token *t, Token **bits) {
+static void collect_bits_hint(Parser *ps, Token *t, Token **bits) {
 	Token *func = NULL;
 	Token *align = NULL;
-	collect_hints (t, bits, &func, &align);
-	reject_func_hint (func);
+	collect_hints (ps, t, bits, &func, &align);
+	reject_func_hint (ps, func);
 	if (align) {
-		error_tok (align, "@align applies only to classes, fields, and local variables");
+		aholyc_i_error_tok (ps->cc, align, "@align applies only to classes, fields, and local variables");
 	}
 }
 
@@ -258,25 +264,25 @@ static int align_up(int n, int a) {
 	return (n + a - 1) & -a;
 }
 
-static int hint_alignment(Type *ty, Token *hint) {
-	return !hint || !aholyc_align_hints? 0:
+static int hint_alignment(Parser *ps, Type *ty, Token *hint) {
+	return !hint || !ps->align_hints? 0:
 		hint->hint_align < 0? ty->align: hint->hint_align;
 }
 
 /* Builtin types are shared, so attach declaration metadata to a shallow copy. */
-static Type *hinted_type(Type *ty, Token *hint) {
+static Type *hinted_type(Parser *ps, Type *ty, Token *hint) {
 	if (!hint) {
 		return ty;
 	}
 	if (!is_integer (ty)) {
-		error_tok (hint, "@bits requires an integer declaration");
+		aholyc_i_error_tok (ps->cc, hint, "@bits requires an integer declaration");
 	}
 	int bits = hint->hint_bits;
 	if (bits > ty->size * 8) {
-		error_tok (hint, "@bits=%d exceeds the declared %d-bit integer width",
+		aholyc_i_error_tok (ps->cc, hint, "@bits=%d exceeds the declared %d-bit integer width",
 			bits, ty->size * 8);
 	}
-	Type *t = xmalloc (sizeof(*t));
+	Type *t = aholyc_i_xmalloc (ps->cc, sizeof(*t));
 	*t = *ty;
 	t->bits = bits;
 	return t;
@@ -285,7 +291,7 @@ static Type *hinted_type(Type *ty, Token *hint) {
 /* ------------------------------------------------------------ AST nodes */
 
 static Node *new_node(NodeKind kind, Token *tok) {
-	Node *n = xcalloc (1, sizeof(Node));
+	Node *n = aholyc_i_xcalloc (tok->cc, 1, sizeof(Node));
 	n->kind = kind;
 	n->tok = tok;
 	return n;
@@ -323,12 +329,12 @@ static Node *new_cast(Node *expr, Type *ty) {
 }
 
 /* value type after loading: everything widens to 64-bit */
-static Type *value_type(Type *ty) {
+static Type *value_type(Aholyc *cc, Type *ty) {
 	if (ty->kind == TY_INT) {
 		return ty->is_unsigned? ty_u64: ty_i64;
 	}
 	if (ty->kind == TY_ARRAY) {
-		return ptr_to (ty->base);
+		return ptr_to (cc, ty->base);
 	}
 	return ty;
 }
@@ -338,18 +344,18 @@ static Node *rvalize(Node *n) {
 	if (n->ty && n->ty->kind == TY_ARRAY) {
 		Node *a = new_node (ND_ADDR, n->tok);
 		a->lhs = n;
-		a->ty = ptr_to (n->ty->base);
+		a->ty = ptr_to (n->tok->cc, n->ty->base);
 		return a;
 	}
 	return n;
 }
 
-static Node *new_binary(NodeKind kind, Node *lhs, Node *rhs, Token *tok);
+static Node *new_binary(Parser *ps, NodeKind kind, Node *lhs, Node *rhs, Token *tok);
 
 /* convert to boolean context i64 */
-static Node *to_bool(Node *n) {
+static Node *to_bool(Parser *ps, Node *n) {
 	if (n->ty->kind == TY_F64) {
-		return new_binary (ND_NE, n, new_fnum (0.0, n->tok), n->tok);
+		return new_binary (ps, ND_NE, n, new_fnum (0.0, n->tok), n->tok);
 	}
 	return n;
 }
@@ -365,7 +371,7 @@ static Node *to_int(Node *n) {
 	return n;
 }
 
-static Node *new_binary(NodeKind kind, Node *lhs, Node *rhs, Token *tok) {
+static Node *new_binary(Parser *ps, NodeKind kind, Node *lhs, Node *rhs, Token *tok) {
 	lhs = rvalize (lhs);
 	rhs = rvalize (rhs);
 	Node *n = new_node (kind, tok);
@@ -396,8 +402,8 @@ static Node *new_binary(NodeKind kind, Node *lhs, Node *rhs, Token *tok) {
 			rhs = to_f64 (rhs);
 			n->ty = ty_f64;
 		} else {
-			n->ty = (value_type (lhs->ty)->is_unsigned ||
-			         value_type (rhs->ty)->is_unsigned)? ty_u64: ty_i64;
+			n->ty = (value_type (ps->cc, lhs->ty)->is_unsigned ||
+			         value_type (ps->cc, rhs->ty)->is_unsigned)? ty_u64: ty_i64;
 		}
 		break;
 	case ND_MOD:
@@ -408,8 +414,8 @@ static Node *new_binary(NodeKind kind, Node *lhs, Node *rhs, Token *tok) {
 	case ND_SHR:
 		lhs = to_int (lhs);
 		rhs = to_int (rhs);
-		n->ty = (value_type (lhs->ty)->is_unsigned ||
-		         value_type (rhs->ty)->is_unsigned)? ty_u64: ty_i64;
+		n->ty = (value_type (ps->cc, lhs->ty)->is_unsigned ||
+		         value_type (ps->cc, rhs->ty)->is_unsigned)? ty_u64: ty_i64;
 		break;
 	case ND_POW:
 		lhs = to_f64 (lhs);
@@ -429,8 +435,8 @@ static Node *new_binary(NodeKind kind, Node *lhs, Node *rhs, Token *tok) {
 	case ND_LOGAND:
 	case ND_LOGOR:
 	case ND_LOGXOR:
-		lhs = to_bool (lhs);
-		rhs = to_bool (rhs);
+		lhs = to_bool (ps, lhs);
+		rhs = to_bool (ps, rhs);
 		n->ty = ty_i64;
 		break;
 	case ND_COMMA:
@@ -445,7 +451,7 @@ static Node *new_binary(NodeKind kind, Node *lhs, Node *rhs, Token *tok) {
 	return n;
 }
 
-static Node *new_unary(NodeKind kind, Node *lhs, Token *tok) {
+static Node *new_unary(Parser *ps, NodeKind kind, Node *lhs, Token *tok) {
 	Node *n = new_node (kind, tok);
 	n->lhs = lhs;
 	if (kind == ND_ADDR && lhs->kind == ND_VAR) {
@@ -456,7 +462,7 @@ static Node *new_unary(NodeKind kind, Node *lhs, Token *tok) {
 		n->ty = lhs->ty->kind == TY_F64? ty_f64: ty_i64;
 		break;
 	case ND_NOT:
-		n->lhs = to_bool (rvalize (lhs));
+		n->lhs = to_bool (ps, rvalize (lhs));
 		n->ty = ty_i64;
 		break;
 	case ND_BITNOT:
@@ -474,12 +480,12 @@ static bool is_lvalue(Node *n) {
 	return n->kind == ND_VAR || n->kind == ND_DEREF || n->kind == ND_MEMBER;
 }
 
-static Node *new_assign(Node *lhs, Node *rhs, Token *tok) {
+static Node *new_assign(Parser *ps, Node *lhs, Node *rhs, Token *tok) {
 	if (!is_lvalue (lhs)) {
-		error_tok (tok, "not an assignable expression");
+		aholyc_i_error_tok (ps->cc, tok, "not an assignable expression");
 	}
 	if (lhs->ty->kind == TY_ARRAY) {
-		error_tok (tok, "cannot assign to an array");
+		aholyc_i_error_tok (ps->cc, tok, "cannot assign to an array");
 	}
 	rhs = rvalize (rhs);
 	/* implicit conversion to stored type */
@@ -491,7 +497,7 @@ static Node *new_assign(Node *lhs, Node *rhs, Token *tok) {
 	Node *n = new_node (ND_ASSIGN, tok);
 	n->lhs = lhs;
 	n->rhs = rhs;
-	n->ty = value_type (lhs->ty);
+	n->ty = value_type (ps->cc, lhs->ty);
 	return n;
 }
 
@@ -511,104 +517,105 @@ static Type *builtin_type(const char *s) {
 	return NULL;
 }
 
-static bool is_type_start(Token *t) {
+static bool is_type_start(Parser *ps, Token *t) {
 	if (t->kind != TK_ID) {
 		return false;
 	}
-	return builtin_type (t->str) || find_class (t->str);
+	return builtin_type (t->str) || find_class (ps, t->str);
 }
 
 /* parse base type + leading stars */
-static Type *parse_typespec(void) {
-	Type *ty = builtin_type (tk->str);
+static Type *parse_typespec(Parser *ps) {
+	Type *ty = builtin_type (ps->tk->str);
 	if (!ty) {
-		ty = find_class (tk->str);
+		ty = find_class (ps, ps->tk->str);
 	}
 	if (!ty) {
-		error_tok (tk, "unknown type '%s'", tk->str);
+		aholyc_i_error_tok (ps->cc, ps->tk, "unknown type '%s'", ps->tk->str);
 	}
-	tk = tk->next;
-	while (is_punct ("*")) {
-		tk = tk->next;
-		ty = ptr_to (ty);
+	ps->tk = ps->tk->next;
+	while (is_punct (ps, "*")) {
+		ps->tk = ps->tk->next;
+		ty = ptr_to (ps->cc, ty);
 	}
 	return ty;
 }
 
 /* --------------------------------------------------------- const eval */
 
-static int64_t eval_const(Node *n) {
+static int64_t eval_const(Parser *ps, Node *n) {
 	switch (n->kind) {
 	case ND_NUM: return n->ival;
 	case ND_FNUM: return (int64_t)n->fval;
-	case ND_NEG: return -eval_const (n->lhs);
-	case ND_BITNOT: return ~eval_const (n->lhs);
-	case ND_NOT: return !eval_const (n->lhs);
-	case ND_CAST: return eval_const (n->lhs);
-	case ND_ADD: return eval_const (n->lhs) + eval_const (n->rhs);
-	case ND_SUB: return eval_const (n->lhs) - eval_const (n->rhs);
-	case ND_MUL: return eval_const (n->lhs) * eval_const (n->rhs);
+	case ND_NEG: return -eval_const (ps, n->lhs);
+	case ND_BITNOT: return ~eval_const (ps, n->lhs);
+	case ND_NOT: return !eval_const (ps, n->lhs);
+	case ND_CAST: return eval_const (ps, n->lhs);
+	case ND_ADD: return eval_const (ps, n->lhs) + eval_const (ps, n->rhs);
+	case ND_SUB: return eval_const (ps, n->lhs) - eval_const (ps, n->rhs);
+	case ND_MUL: return eval_const (ps, n->lhs) * eval_const (ps, n->rhs);
 	case ND_DIV: {
-		int64_t d = eval_const (n->rhs);
-		if (!d) error_tok (n->tok, "division by zero in constant");
-		return eval_const (n->lhs) / d;
+		int64_t d = eval_const (ps, n->rhs);
+		if (!d) aholyc_i_error_tok (ps->cc, n->tok, "division by zero in constant");
+		return eval_const (ps, n->lhs) / d;
 	}
 	case ND_MOD: {
-		int64_t d = eval_const (n->rhs);
-		if (!d) error_tok (n->tok, "division by zero in constant");
-		return eval_const (n->lhs) % d;
+		int64_t d = eval_const (ps, n->rhs);
+		if (!d) aholyc_i_error_tok (ps->cc, n->tok, "division by zero in constant");
+		return eval_const (ps, n->lhs) % d;
 	}
-	case ND_AND: return eval_const (n->lhs) & eval_const (n->rhs);
-	case ND_OR: return eval_const (n->lhs) | eval_const (n->rhs);
-	case ND_XOR: return eval_const (n->lhs) ^ eval_const (n->rhs);
-	case ND_SHL: return eval_const (n->lhs) << (eval_const (n->rhs) & 63);
+	case ND_AND: return eval_const (ps, n->lhs) & eval_const (ps, n->rhs);
+	case ND_OR: return eval_const (ps, n->lhs) | eval_const (ps, n->rhs);
+	case ND_XOR: return eval_const (ps, n->lhs) ^ eval_const (ps, n->rhs);
+	case ND_SHL: return eval_const (ps, n->lhs) << (eval_const (ps, n->rhs) & 63);
 	case ND_SHR: {
-		Type *t = value_type (n->lhs->ty);
+		Type *t = value_type (ps->cc, n->lhs->ty);
 		if (t->is_unsigned) {
-			return (int64_t)((uint64_t)eval_const (n->lhs) >> (eval_const (n->rhs) & 63));
+			return (int64_t)((uint64_t)eval_const (ps, n->lhs) >> (eval_const (ps, n->rhs) & 63));
 		}
-		return eval_const (n->lhs) >> (eval_const (n->rhs) & 63);
+		return eval_const (ps, n->lhs) >> (eval_const (ps, n->rhs) & 63);
 	}
-	case ND_EQ: return eval_const (n->lhs) == eval_const (n->rhs);
-	case ND_NE: return eval_const (n->lhs) != eval_const (n->rhs);
-	case ND_LT: return eval_const (n->lhs) < eval_const (n->rhs);
-	case ND_LE: return eval_const (n->lhs) <= eval_const (n->rhs);
+	case ND_EQ: return eval_const (ps, n->lhs) == eval_const (ps, n->rhs);
+	case ND_NE: return eval_const (ps, n->lhs) != eval_const (ps, n->rhs);
+	case ND_LT: return eval_const (ps, n->lhs) < eval_const (ps, n->rhs);
+	case ND_LE: return eval_const (ps, n->lhs) <= eval_const (ps, n->rhs);
 	default:
-		error_tok (n->tok, "not a constant expression");
+		aholyc_i_error_tok (ps->cc, n->tok, "not a constant expression");
 		return 0;
 	}
 }
 
 /* ---------------------------------------------------------- expressions */
 
-static Node *expr(void);        /* assignment level */
-static Node *comma_expr(void);
-static Node *unary(void);
-static Node *stmt(void);
-static Node *block_stmt(void);
+static Node *expr(Parser *ps);        /* assignment level */
+static Node *comma_expr(Parser *ps);
+static Node *unary(Parser *ps);
+static Node *stmt(Parser *ps);
+static Node *block_stmt(Parser *ps);
 
-static Node *new_str_node(char *data, int len, Token *tok) {
+static Node *new_str_node(Parser *ps, char *data, int len, Token *tok) {
 	Node *n = new_node (ND_STR, tok);
-	StrLit *s = xcalloc (1, sizeof(StrLit));
+	StrLit *s = aholyc_i_xcalloc (ps->cc, 1, sizeof(StrLit));
 	s->data = data;
 	s->len = len;
-	s->id = prog->nstrings++;
-	s->next = prog->strings;
-	prog->strings = s;
+	s->id = ps->prog->nstrings++;
+	s->next = ps->prog->strings;
+	ps->prog->strings = s;
 	n->str = data;
 	n->str_len = len;
 	n->str_id = s->id;
-	n->ty = ptr_to (ty_u8);
+	n->ty = ptr_to (ps->cc, ty_u8);
 	return n;
 }
 
-static Node *make_call(Obj *fn, Node *args, int nargs, Token *tok);
+static Node *make_call(Parser *ps, Obj *fn, Node *args, int nargs, Token *tok);
 
 /* sentinel default for `=lastclass` params, resolved per call site */
-static Node nd_lastclass;
+static const Node nd_lastclass_;
+static Node *const nd_lastclass = (Node *)(const void *)&nd_lastclass_;
 
 /* HolyC name of a type with pointer/array levels stripped (for lastclass) */
-static char *holyc_type_name(Type *ty) {
+static const char *holyc_type_name(Type *ty) {
 	while (ty->kind == TY_PTR || ty->kind == TY_ARRAY) {
 		ty = ty->base;
 	}
@@ -617,7 +624,7 @@ static char *holyc_type_name(Type *ty) {
 	case TY_F64: return "F64";
 	case TY_VOID: return "U0";
 	case TY_INT: {
-		static char *names[2][4] = {
+		static const char *const names[2][4] = {
 			{ "I8", "I16", "I32", "I64" },
 			{ "U8", "U16", "U32", "U64" },
 		};
@@ -629,32 +636,32 @@ static char *holyc_type_name(Type *ty) {
 }
 
 /* Build a direct call to a runtime/prelude function by name. */
-static Node *call_named(const char *name, Node *args, int nargs, Token *tok) {
-	Obj *fn = find_func (name);
+static Node *call_named(Parser *ps, const char *name, Node *args, int nargs, Token *tok) {
+	Obj *fn = find_func (ps, name);
 	if (!fn) {
-		error_tok (tok, "runtime function '%s' is not declared (missing prelude?)", name);
+		aholyc_i_error_tok (ps->cc, tok, "runtime function '%s' is not declared (missing prelude?)", name);
 	}
-	return make_call (fn, args, nargs, tok);
+	return make_call (ps, fn, args, nargs, tok);
 }
 
 /* Fill default arguments, verify count, insert conversions. args is the
  * chain of provided args, NULL nodes mark holes from `f(,x)`. */
-static Node *make_call(Obj *fn, Node *args, int nargs, Token *tok) {
+static Node *make_call(Parser *ps, Obj *fn, Node *args, int nargs, Token *tok) {
 	Node *n = new_node (ND_CALL, tok);
 	n->func = fn;
-	n->ty = value_type (fn->ty->base? fn->ty->base: ty_i64);
+	n->ty = value_type (ps->cc, fn->ty->base? fn->ty->base: ty_i64);
 	/* collect into array for easy manipulation */
 	Node *argv[256];
 	int i, argc = 0;
 	for (Node *a = args; a; a = a->next) {
 		if (argc >= 256) {
-			error_tok (tok, "too many arguments");
+			aholyc_i_error_tok (ps->cc, tok, "too many arguments");
 		}
 		argv[argc++] = a;
 	}
 	(void)nargs;
 	if (!fn->is_variadic && argc > fn->nparams) {
-		error_tok (tok, "too many arguments to %s() (takes %d)", fn->name, fn->nparams);
+		aholyc_i_error_tok (ps->cc, tok, "too many arguments to %s() (takes %d)", fn->name, fn->nparams);
 	}
 	int nfixed = fn->nparams < argc? fn->nparams: argc;
 	Obj *p = fn->params;
@@ -666,15 +673,15 @@ static Node *make_call(Obj *fn, Node *args, int nargs, Token *tok) {
 		}
 		if (!a) {
 			if (!fn->defaults || !fn->defaults[i]) {
-				error_tok (tok, "missing argument %d in call to %s() and no default", i + 1, fn->name);
+				aholyc_i_error_tok (ps->cc, tok, "missing argument %d in call to %s() and no default", i + 1, fn->name);
 			}
 			a = fn->defaults[i];
-			if (a == &nd_lastclass) {
+			if (a == nd_lastclass) {
 				if (!prev_ty) {
-					error_tok (tok, "lastclass argument %d in call to %s() has no previous argument", i + 1, fn->name);
+					aholyc_i_error_tok (ps->cc, tok, "lastclass argument %d in call to %s() has no previous argument", i + 1, fn->name);
 				}
-				char *nm = holyc_type_name (prev_ty);
-				a = new_str_node (xstrdup (nm), strlen (nm), tok);
+				const char *nm = holyc_type_name (prev_ty);
+				a = new_str_node (ps, aholyc_i_xstrdup (ps->cc, nm), strlen (nm), tok);
 			}
 		}
 		a = rvalize (a);
@@ -691,7 +698,7 @@ static Node *make_call(Obj *fn, Node *args, int nargs, Token *tok) {
 	/* variadic extras keep their own types (F64 slots bit-copied) */
 	for (i = fn->nparams; i < argc; i++) {
 		if (argv[i]->kind == ND_NOP) {
-			error_tok (tok, "empty variadic argument");
+			aholyc_i_error_tok (ps->cc, tok, "empty variadic argument");
 		}
 		argv[i] = rvalize (argv[i]);
 	}
@@ -704,7 +711,7 @@ static Node *make_call(Obj *fn, Node *args, int nargs, Token *tok) {
 	for (i = 0; i < total; i++) {
 		/* shallow-clone: default exprs are shared between call sites, so
 		 * never relink the original nodes' next pointers */
-		Node *c = xmalloc (sizeof(Node));
+		Node *c = aholyc_i_xmalloc (ps->cc, sizeof(Node));
 		*c = *argv[i];
 		c->next = NULL;
 		cur->next = c;
@@ -716,17 +723,17 @@ static Node *make_call(Obj *fn, Node *args, int nargs, Token *tok) {
 }
 
 /* indirect call through pointer value */
-static Node *make_indirect_call(Node *callee, Node *args, Token *tok) {
+static Node *make_indirect_call(Parser *ps, Node *callee, Node *args, Token *tok) {
 	Node *n = new_node (ND_CALL, tok);
 	n->lhs = callee;
 	Type *fnty = NULL;
 	if (callee->ty->kind == TY_PTR && callee->ty->base && callee->ty->base->kind == TY_FUNC) {
 		fnty = callee->ty->base;
 	}
-	n->ty = fnty && fnty->base? value_type (fnty->base): ty_i64;
+	n->ty = fnty && fnty->base? value_type (ps->cc, fnty->base): ty_i64;
 	for (Node *a = args; a; a = a->next) {
 		if (a->kind == ND_NOP) {
-			error_tok (tok, "default arguments require a direct call");
+			aholyc_i_error_tok (ps->cc, tok, "default arguments require a direct call");
 		}
 	}
 	n->args = args;
@@ -736,48 +743,48 @@ static Node *make_indirect_call(Node *callee, Node *args, Token *tok) {
 	return n;
 }
 
-static Node *parse_args(void) {
+static Node *parse_args(Parser *ps) {
 	/* returns chain; holes become ND_NOP nodes */
 	Node head = {0};
 	Node *cur = &head;
 	bool first = true;
-	while (!is_punct (")")) {
+	while (!is_punct (ps, ")")) {
 		if (!first) {
-			expect (",");
+			expect (ps, ",");
 		}
 		first = false;
-		if (is_punct (",") || is_punct (")")) {
-			Node *hole = new_node (ND_NOP, tk);
+		if (is_punct (ps, ",") || is_punct (ps, ")")) {
+			Node *hole = new_node (ND_NOP, ps->tk);
 			hole->ty = ty_i64;
 			cur->next = hole;
 			cur = hole;
 			continue;
 		}
-		Node *a = rvalize (expr ());
+		Node *a = rvalize (expr (ps));
 		cur->next = a;
 		cur = a;
 	}
-	expect (")");
+	expect (ps, ")");
 	return head.next;
 }
 
-static Node *primary(void) {
-	Token *t = tk;
-	if (eat ("(")) {
-		Node *n = comma_expr ();
-		expect (")");
+static Node *primary(Parser *ps) {
+	Token *t = ps->tk;
+	if (eat (ps, "(")) {
+		Node *n = comma_expr (ps);
+		expect (ps, ")");
 		return n;
 	}
 	if (t->kind == TK_NUM) {
-		tk = tk->next;
+		ps->tk = ps->tk->next;
 		return new_num (t->ival, t);
 	}
 	if (t->kind == TK_CHR) {
-		tk = tk->next;
+		ps->tk = ps->tk->next;
 		return new_num (t->ival, t);
 	}
 	if (t->kind == TK_FNUM) {
-		tk = tk->next;
+		ps->tk = ps->tk->next;
 		return new_fnum (t->fval, t);
 	}
 	if (t->kind == TK_STR) {
@@ -788,119 +795,119 @@ static Node *primary(void) {
 			len += q->len;
 			q = q->next;
 		}
-		char *buf = xmalloc (len + 1);
+		char *buf = aholyc_i_xmalloc (ps->cc, len + 1);
 		int off = 0;
 		for (Token *s = t; s != q; s = s->next) {
 			memcpy (buf + off, s->str, s->len);
 			off += s->len;
 		}
 		buf[len] = 0;
-		tk = q;
-		return new_str_node (buf, len, t);
+		ps->tk = q;
+		return new_str_node (ps, buf, len, t);
 	}
-	if (is_kw ("sizeof")) {
-		tk = tk->next;
-		bool paren = eat ("(");
+	if (is_kw (ps, "sizeof")) {
+		ps->tk = ps->tk->next;
+		bool paren = eat (ps, "(");
 		Node *n;
-		if (paren && is_type_start (tk)) {
-			Type *ty = parse_typespec ();
+		if (paren && is_type_start (ps, ps->tk)) {
+			Type *ty = parse_typespec (ps);
 			n = new_num (ty->size, t);
 		} else {
-			Node *e = paren? comma_expr (): unary ();
+			Node *e = paren? comma_expr (ps): unary (ps);
 			n = new_num (e->ty->size, t);
 		}
 		if (paren) {
-			expect (")");
+			expect (ps, ")");
 		}
 		return n;
 	}
-	if (is_kw ("offset")) {
-		tk = tk->next;
-		expect ("(");
-		Type *cls = is_type_start (tk)? parse_typespec (): NULL;
+	if (is_kw (ps, "offset")) {
+		ps->tk = ps->tk->next;
+		expect (ps, "(");
+		Type *cls = is_type_start (ps, ps->tk)? parse_typespec (ps): NULL;
 		if (!cls || cls->kind != TY_CLASS) {
-			error_tok (t, "offset(Class.member) expects a class name");
+			aholyc_i_error_tok (ps->cc, t, "offset(Class.member) expects a class name");
 		}
-		expect (".");
-		if (tk->kind != TK_ID) {
-			error_tok (tk, "expected member name");
+		expect (ps, ".");
+		if (ps->tk->kind != TK_ID) {
+			aholyc_i_error_tok (ps->cc, ps->tk, "expected member name");
 		}
-		Member *m = find_member (cls, tk->str);
+		Member *m = find_member (cls, ps->tk->str);
 		if (!m) {
-			error_tok (tk, "no member '%s' in class %s", tk->str, cls->name);
+			aholyc_i_error_tok (ps->cc, ps->tk, "no member '%s' in class %s", ps->tk->str, cls->name);
 		}
-		tk = tk->next;
-		expect (")");
+		ps->tk = ps->tk->next;
+		expect (ps, ")");
 		return new_num (m->offset, t);
 	}
-	if (is_punct ("$$")) {
-		tk = tk->next;
-		if (in_class_body) {
-			return new_num (class_dol_offset, t);
+	if (is_punct (ps, "$$")) {
+		ps->tk = ps->tk->next;
+		if (ps->in_class_body) {
+			return new_num (ps->class_dol_offset, t);
 		}
 		/* current address in the generated code (TempleOS RIP) */
-		Obj *fn = find_func ("__hc_rip");
+		Obj *fn = find_func (ps, "__hc_rip");
 		if (!fn) {
-			error_tok (t, "'$$' needs the runtime prelude");
+			aholyc_i_error_tok (ps->cc, t, "'$$' needs the runtime prelude");
 		}
-		return make_call (fn, NULL, 0, t);
+		return make_call (ps, fn, NULL, 0, t);
 	}
 	if (t->kind == TK_ID) {
-		Obj *var = find_var (t->str);
+		Obj *var = find_var (ps, t->str);
 		if (var) {
-			tk = tk->next;
+			ps->tk = ps->tk->next;
 			return new_var_node (var, t);
 		}
-		Obj *fn = find_func (t->str);
+		Obj *fn = find_func (ps, t->str);
 		if (fn) {
-			tk = tk->next;
-			if (eat ("(")) {
-				Node *args = parse_args ();
-				return make_call (fn, args, 0, t);
+			ps->tk = ps->tk->next;
+			if (eat (ps, "(")) {
+				Node *args = parse_args (ps);
+				return make_call (ps, fn, args, 0, t);
 			}
 			/* paren-less call: Dir; Ret = F; etc. */
-			return make_call (fn, NULL, 0, t);
+			return make_call (ps, fn, NULL, 0, t);
 		}
-		error_tok (t, "undefined symbol '%s'", t->str);
+		aholyc_i_error_tok (ps->cc, t, "undefined symbol '%s'", t->str);
 	}
-	error_tok (t, "expected an expression");
+	aholyc_i_error_tok (ps->cc, t, "expected an expression");
 	return NULL;
 }
 
 /* lower `lval OP= x` and ++/-- via pointer temp when lval is complex */
-static Node *lval_addr_temp(Node *lval, Node **out_deref, Token *t) {
+static Node *lval_addr_temp(Parser *ps, Node *lval, Node **out_deref, Token *t) {
 	if (lval->kind == ND_VAR) {
 		*out_deref = lval;
 		return NULL; /* no setup needed */
 	}
-	Obj *tmp = new_temp (ptr_to (lval->ty));
-	Node *addr = new_unary (ND_ADDR, lval, t);
-	addr->ty = ptr_to (lval->ty);
-	Node *setup = new_assign (new_var_node (tmp, t), addr, t);
-	Node *deref = new_unary (ND_DEREF, new_var_node (tmp, t), t);
+	Obj *tmp = new_temp (ps, ptr_to (ps->cc, lval->ty));
+	Node *addr = new_unary (ps, ND_ADDR, lval, t);
+	addr->ty = ptr_to (ps->cc, lval->ty);
+	Node *setup = new_assign (ps, new_var_node (tmp, t), addr, t);
+	Node *deref = new_unary (ps, ND_DEREF, new_var_node (tmp, t), t);
 	deref->ty = lval->ty;
 	*out_deref = deref;
 	return setup;
 }
 
-static Node *incdec(Node *lval, int delta, bool post, Token *t) {
+static Node *incdec(Parser *ps, Node *lval, int delta, bool post, Token *t) {
 	if (!is_lvalue (lval)) {
-		error_tok (t, "++/-- needs an lvalue");
+		aholyc_i_error_tok (ps->cc, t, "++/-- needs an lvalue");
 	}
-	Node *place, *setup = lval_addr_temp (lval, &place, t);
+	Node *place, *setup = lval_addr_temp (ps, lval, &place, t);
 	Node *one = new_num (delta, t);
 	Node *val;
 	if (post) {
 		/* (old = place, place = old + 1, old) */
-		Obj *old = new_temp (value_type (place->ty));
-		Node *save = new_assign (new_var_node (old, t), place, t);
-		Node *upd = new_assign (place, new_binary (ND_ADD, new_var_node (old, t), one, t), t);
-		val = new_binary (ND_COMMA, save, new_binary (ND_COMMA, upd, new_var_node (old, t), t), t);
+		Obj *old = new_temp (ps, value_type (ps->cc, place->ty));
+		Node *save = new_assign (ps, new_var_node (old, t), place, t);
+		Node *upd = new_assign (ps, place, new_binary (ps, ND_ADD, new_var_node (old, t), one, t), t);
+		val = new_binary (ps, ND_COMMA, save, new_binary (ps, ND_COMMA, upd, new_var_node (old, t), t), t);
 	} else {
-		val = new_assign (place, new_binary (ND_ADD, place, one, t), t);
+		val = new_assign (ps, place, new_binary (ps, ND_ADD, place, one, t), t);
 	}
 	if (setup) {
-		val = new_binary (ND_COMMA, setup, val, t);
+		val = new_binary (ps, ND_COMMA, setup, val, t);
 	}
 	return val;
 }
@@ -920,106 +927,107 @@ static Type *subint_view_type(const char *name) {
  * of q, q.u8[0] = x stores one byte, and views chain: q.i32[1].u8[2].
  * Lowered to *(view(*)[n])&base so the regular subscript, assignment and
  * decay machinery does the rest. */
-static Node *subint_access(Node *base, Token *t) {
-	Type *view = subint_view_type (tk->str);
+static Node *subint_access(Parser *ps, Node *base, Token *t) {
+	Type *view = subint_view_type (ps->tk->str);
 	if (!view) {
-		error_tok (tk, "no member '%s' in an integer", tk->str);
+		aholyc_i_error_tok (ps->cc, ps->tk, "no member '%s' in an integer", ps->tk->str);
 	}
 	if (view->size >= base->ty->size) {
-		error_tok (tk, "sub-int view '%s' needs a wider int than %s",
-			tk->str, base->ty->size == 1? "a byte":
+		aholyc_i_error_tok (ps->cc, ps->tk, "sub-int view '%s' needs a wider int than %s",
+			ps->tk->str, base->ty->size == 1? "a byte":
 			base->ty->size == 2? "U16": "U32");
 	}
 	if (!is_lvalue (base)) {
-		error_tok (t, "sub-int access needs an addressable value");
+		aholyc_i_error_tok (ps->cc, t, "sub-int access needs an addressable value");
 	}
 	/* narrow params live sign-extended in a full 64-bit slot; a store
 	 * through a view would leave the slot badly extended */
 	if (base->kind == ND_VAR && base->var->is_param && base->ty->size < 8) {
-		error_tok (t, "sub-int access on a narrow parameter; copy it to a local");
+		aholyc_i_error_tok (ps->cc, t, "sub-int access on a narrow parameter; copy it to a local");
 	}
-	Type *arr = array_of (view, base->ty->size / view->size);
-	Node *a = new_unary (ND_ADDR, base, t);
-	a->ty = ptr_to (base->ty);
-	Node *d = new_unary (ND_DEREF, new_cast (a, ptr_to (arr)), t);
+	Type *arr = array_of (ps->cc, view, base->ty->size / view->size);
+	Node *a = new_unary (ps, ND_ADDR, base, t);
+	a->ty = ptr_to (ps->cc, base->ty);
+	Node *d = new_unary (ps, ND_DEREF,
+		new_cast (a, ptr_to (ps->cc, arr)), t);
 	d->ty = arr;
-	tk = tk->next;
+	ps->tk = ps->tk->next;
 	return d;
 }
 
-static Node *postfix(void) {
-	Node *n = primary ();
+static Node *postfix(Parser *ps) {
+	Node *n = primary (ps);
 	for (;;) {
-		Token *t = tk;
-		if (is_punct ("(")) {
+		Token *t = ps->tk;
+		if (is_punct (ps, "(")) {
 			/* postfix cast or indirect call */
-			if (is_type_start (tk->next)) {
-				tk = tk->next;
-				Type *ty = parse_typespec ();
-				expect (")");
+			if (is_type_start (ps, ps->tk->next)) {
+				ps->tk = ps->tk->next;
+				Type *ty = parse_typespec (ps);
+				expect (ps, ")");
 				n = new_cast (rvalize (n), ty);
 				continue;
 			}
-			tk = tk->next;
-			Node *args = parse_args ();
-			n = make_indirect_call (rvalize (n), args, t);
+			ps->tk = ps->tk->next;
+			Node *args = parse_args (ps);
+			n = make_indirect_call (ps, rvalize (n), args, t);
 			continue;
 		}
-		if (eat ("[")) {
-			Node *idx = comma_expr ();
-			expect ("]");
-			Node *sum = new_binary (ND_ADD, n, idx, t);
+		if (eat (ps, "[")) {
+			Node *idx = comma_expr (ps);
+			expect (ps, "]");
+			Node *sum = new_binary (ps, ND_ADD, n, idx, t);
 			if (!is_ptrish (sum->ty) && sum->ty->kind != TY_PTR) {
-				error_tok (t, "subscript on a non-pointer");
+				aholyc_i_error_tok (ps->cc, t, "subscript on a non-pointer");
 			}
-			Node *d = new_unary (ND_DEREF, sum, t);
+			Node *d = new_unary (ps, ND_DEREF, sum, t);
 			if (sum->ty->kind != TY_PTR || !sum->ty->base) {
-				error_tok (t, "cannot index this expression");
+				aholyc_i_error_tok (ps->cc, t, "cannot index this expression");
 			}
 			d->ty = sum->ty->base;
 			n = d;
 			continue;
 		}
-		if (is_punct (".") || is_punct ("->")) {
-			bool arrow = is_punct ("->");
-			tk = tk->next;
-			if (tk->kind != TK_ID) {
-				error_tok (tk, "expected member name");
+		if (is_punct (ps, ".") || is_punct (ps, "->")) {
+			bool arrow = is_punct (ps, "->");
+			ps->tk = ps->tk->next;
+			if (ps->tk->kind != TK_ID) {
+				aholyc_i_error_tok (ps->cc, ps->tk, "expected member name");
 			}
 			Node *base = n;
 			if (arrow) {
 				base = rvalize (n);
 				if (base->ty->kind != TY_PTR || !base->ty->base) {
-					error_tok (t, "'->' on a non-pointer");
+					aholyc_i_error_tok (ps->cc, t, "'->' on a non-pointer");
 				}
-				Node *d = new_unary (ND_DEREF, base, t);
+				Node *d = new_unary (ps, ND_DEREF, base, t);
 				d->ty = base->ty->base;
 				base = d;
 			}
 			if (base->ty->kind == TY_INT) {
-				n = subint_access (base, t);
+				n = subint_access (ps, base, t);
 				continue;
 			}
 			if (base->ty->kind != TY_CLASS) {
-				error_tok (t, "member access on a non-class value");
+				aholyc_i_error_tok (ps->cc, t, "member access on a non-class value");
 			}
-			Member *m = find_member (base->ty, tk->str);
+			Member *m = find_member (base->ty, ps->tk->str);
 			if (!m) {
-				error_tok (tk, "no member '%s' in class %s", tk->str,
+				aholyc_i_error_tok (ps->cc, ps->tk, "no member '%s' in class %s", ps->tk->str,
 					base->ty->name? base->ty->name: "?");
 			}
 			Node *mn = new_node (ND_MEMBER, t);
 			mn->lhs = base;
 			mn->member_ref = m;
 			mn->ty = m->ty;
-			tk = tk->next;
+			ps->tk = ps->tk->next;
 			n = mn;
 			continue;
 		}
-		if (is_punct ("++") || is_punct ("--")) {
-			int d = is_punct ("++")? 1: -1;
-			tk = tk->next;
-			n = incdec (n, d, true, t);
+		if (is_punct (ps, "++") || is_punct (ps, "--")) {
+			int d = is_punct (ps, "++")? 1: -1;
+			ps->tk = ps->tk->next;
+			n = incdec (ps, n, d, true, t);
 			continue;
 		}
 		break;
@@ -1027,13 +1035,13 @@ static Node *postfix(void) {
 	return n;
 }
 
-static Node *unary(void) {
-	Token *t = tk;
-	if (eat ("+")) {
-		return unary ();
+static Node *unary(Parser *ps) {
+	Token *t = ps->tk;
+	if (eat (ps, "+")) {
+		return unary (ps);
 	}
-	if (eat ("-")) {
-		Node *n = rvalize (unary ());
+	if (eat (ps, "-")) {
+		Node *n = rvalize (unary (ps));
 		if (n->kind == ND_NUM) {
 			n->ival = -n->ival;
 			return n;
@@ -1042,125 +1050,125 @@ static Node *unary(void) {
 			n->fval = -n->fval;
 			return n;
 		}
-		return new_unary (ND_NEG, n, t);
+		return new_unary (ps, ND_NEG, n, t);
 	}
-	if (eat ("!")) {
-		return new_unary (ND_NOT, unary (), t);
+	if (eat (ps, "!")) {
+		return new_unary (ps, ND_NOT, unary (ps), t);
 	}
-	if (eat ("~")) {
-		return new_unary (ND_BITNOT, unary (), t);
+	if (eat (ps, "~")) {
+		return new_unary (ps, ND_BITNOT, unary (ps), t);
 	}
-	if (eat ("*")) {
-		Node *n = rvalize (unary ());
+	if (eat (ps, "*")) {
+		Node *n = rvalize (unary (ps));
 		if (n->ty->kind != TY_PTR || !n->ty->base) {
-			error_tok (t, "dereference of a non-pointer");
+			aholyc_i_error_tok (ps->cc, t, "dereference of a non-pointer");
 		}
-		Node *d = new_unary (ND_DEREF, n, t);
+		Node *d = new_unary (ps, ND_DEREF, n, t);
 		d->ty = n->ty->base;
 		return d;
 	}
-	if (eat ("&")) {
+	if (eat (ps, "&")) {
 		/* &FuncName -> function pointer */
-		if (tk->kind == TK_ID && !find_var (tk->str)) {
-			Obj *fn = find_func (tk->str);
+		if (ps->tk->kind == TK_ID && !find_var (ps, ps->tk->str)) {
+			Obj *fn = find_func (ps, ps->tk->str);
 			if (fn) {
 				Node *n = new_node (ND_FUNCNAME, t);
 				n->func = fn;
-				n->ty = ptr_to (fn->ty);
-				tk = tk->next;
+				n->ty = ptr_to (ps->cc, fn->ty);
+				ps->tk = ps->tk->next;
 				return n;
 			}
 		}
-		Node *n = unary ();
+		Node *n = unary (ps);
 		if (!is_lvalue (n)) {
-			error_tok (t, "'&' needs an lvalue");
+			aholyc_i_error_tok (ps->cc, t, "'&' needs an lvalue");
 		}
-		Node *a = new_unary (ND_ADDR, n, t);
-		a->ty = ptr_to (n->ty);
+		Node *a = new_unary (ps, ND_ADDR, n, t);
+		a->ty = ptr_to (ps->cc, n->ty);
 		return a;
 	}
-	if (is_punct ("++") || is_punct ("--")) {
-		int d = is_punct ("++")? 1: -1;
-		tk = tk->next;
-		return incdec (unary (), d, false, t);
+	if (is_punct (ps, "++") || is_punct (ps, "--")) {
+		int d = is_punct (ps, "++")? 1: -1;
+		ps->tk = ps->tk->next;
+		return incdec (ps, unary (ps), d, false, t);
 	}
-	return postfix ();
+	return postfix (ps);
 }
 
 /* HolyC precedence, tightest first:
  *   ` << >>  |  * / %  |  &  |  ^  |  |  |  + -  |  < > <= >= (chained)
  *   |  == !=  |  &&  |  ^^  |  ||  |  assignment
  */
-static Node *powshift(void) {
-	Node *n = unary ();
+static Node *powshift(Parser *ps) {
+	Node *n = unary (ps);
 	for (;;) {
-		Token *t = tk;
-		if (eat ("`")) {
-			n = new_binary (ND_POW, n, unary (), t);
-		} else if (eat ("<<")) {
-			n = new_binary (ND_SHL, n, unary (), t);
-		} else if (eat (">>")) {
-			n = new_binary (ND_SHR, n, unary (), t);
+		Token *t = ps->tk;
+		if (eat (ps, "`")) {
+			n = new_binary (ps, ND_POW, n, unary (ps), t);
+		} else if (eat (ps, "<<")) {
+			n = new_binary (ps, ND_SHL, n, unary (ps), t);
+		} else if (eat (ps, ">>")) {
+			n = new_binary (ps, ND_SHR, n, unary (ps), t);
 		} else {
 			return n;
 		}
 	}
 }
 
-static Node *mul(void) {
-	Node *n = powshift ();
+static Node *mul(Parser *ps) {
+	Node *n = powshift (ps);
 	for (;;) {
-		Token *t = tk;
-		if (eat ("*")) {
-			n = new_binary (ND_MUL, n, powshift (), t);
-		} else if (eat ("/")) {
-			n = new_binary (ND_DIV, n, powshift (), t);
-		} else if (eat ("%")) {
-			n = new_binary (ND_MOD, n, powshift (), t);
+		Token *t = ps->tk;
+		if (eat (ps, "*")) {
+			n = new_binary (ps, ND_MUL, n, powshift (ps), t);
+		} else if (eat (ps, "/")) {
+			n = new_binary (ps, ND_DIV, n, powshift (ps), t);
+		} else if (eat (ps, "%")) {
+			n = new_binary (ps, ND_MOD, n, powshift (ps), t);
 		} else {
 			return n;
 		}
 	}
 }
 
-static Node *bitand_(void) {
-	Node *n = mul ();
-	while (is_punct ("&")) {
-		Token *t = tk;
-		tk = tk->next;
-		n = new_binary (ND_AND, n, mul (), t);
+static Node *bitand_(Parser *ps) {
+	Node *n = mul (ps);
+	while (is_punct (ps, "&")) {
+		Token *t = ps->tk;
+		ps->tk = ps->tk->next;
+		n = new_binary (ps, ND_AND, n, mul (ps), t);
 	}
 	return n;
 }
 
-static Node *bitxor_(void) {
-	Node *n = bitand_ ();
-	while (is_punct ("^")) {
-		Token *t = tk;
-		tk = tk->next;
-		n = new_binary (ND_XOR, n, bitand_ (), t);
+static Node *bitxor_(Parser *ps) {
+	Node *n = bitand_ (ps);
+	while (is_punct (ps, "^")) {
+		Token *t = ps->tk;
+		ps->tk = ps->tk->next;
+		n = new_binary (ps, ND_XOR, n, bitand_ (ps), t);
 	}
 	return n;
 }
 
-static Node *bitor_(void) {
-	Node *n = bitxor_ ();
-	while (is_punct ("|")) {
-		Token *t = tk;
-		tk = tk->next;
-		n = new_binary (ND_OR, n, bitxor_ (), t);
+static Node *bitor_(Parser *ps) {
+	Node *n = bitxor_ (ps);
+	while (is_punct (ps, "|")) {
+		Token *t = ps->tk;
+		ps->tk = ps->tk->next;
+		n = new_binary (ps, ND_OR, n, bitxor_ (ps), t);
 	}
 	return n;
 }
 
-static Node *addsub(void) {
-	Node *n = bitor_ ();
+static Node *addsub(Parser *ps) {
+	Node *n = bitor_ (ps);
 	for (;;) {
-		Token *t = tk;
-		if (eat ("+")) {
-			n = new_binary (ND_ADD, n, bitor_ (), t);
-		} else if (eat ("-")) {
-			n = new_binary (ND_SUB, n, bitor_ (), t);
+		Token *t = ps->tk;
+		if (eat (ps, "+")) {
+			n = new_binary (ps, ND_ADD, n, bitor_ (ps), t);
+		} else if (eat (ps, "-")) {
+			n = new_binary (ps, ND_SUB, n, bitor_ (ps), t);
 		} else {
 			return n;
 		}
@@ -1168,31 +1176,31 @@ static Node *addsub(void) {
 }
 
 /* relational with HolyC chaining: a<b<c => (a < (t=b)) && (t < c) */
-static Node *relational(void) {
-	Node *n = addsub ();
+static Node *relational(Parser *ps) {
+	Node *n = addsub (ps);
 	Node *chain = NULL;
 	for (;;) {
-		Token *t = tk;
+		Token *t = ps->tk;
 		NodeKind k;
 		bool swap = false;
-		if (is_punct ("<")) k = ND_LT;
-		else if (is_punct ("<=")) k = ND_LE;
-		else if (is_punct (">")) { k = ND_LT; swap = true; }
-		else if (is_punct (">=")) { k = ND_LE; swap = true; }
+		if (is_punct (ps, "<")) k = ND_LT;
+		else if (is_punct (ps, "<=")) k = ND_LE;
+		else if (is_punct (ps, ">")) { k = ND_LT; swap = true; }
+		else if (is_punct (ps, ">=")) { k = ND_LE; swap = true; }
 		else break;
-		tk = tk->next;
-		Node *rhs = rvalize (addsub ());
+		ps->tk = ps->tk->next;
+		Node *rhs = rvalize (addsub (ps));
 		/* peek: is another relational op coming? */
-		bool more = is_punct ("<") || is_punct ("<=") || is_punct (">") || is_punct (">=");
+		bool more = is_punct (ps, "<") || is_punct (ps, "<=") || is_punct (ps, ">") || is_punct (ps, ">=");
 		Node *rhs_val = rhs;
 		if (more) {
-			Obj *tmp = new_temp (value_type (rhs->ty));
-			rhs = new_assign (new_var_node (tmp, t), rhs, t);
+			Obj *tmp = new_temp (ps, value_type (ps->cc, rhs->ty));
+			rhs = new_assign (ps, new_var_node (tmp, t), rhs, t);
 			rhs_val = new_var_node (tmp, t);
 		}
-		Node *cmp = swap? new_binary (k, rhs, rvalize (n), t)
-		                : new_binary (k, rvalize (n), rhs, t);
-		chain = chain? new_binary (ND_LOGAND, chain, cmp, t): cmp;
+		Node *cmp = swap? new_binary (ps, k, rhs, rvalize (n), t)
+		                : new_binary (ps, k, rvalize (n), rhs, t);
+		chain = chain? new_binary (ps, ND_LOGAND, chain, cmp, t): cmp;
 		if (!more) {
 			return chain;
 		}
@@ -1201,87 +1209,87 @@ static Node *relational(void) {
 	return chain? chain: n;
 }
 
-static Node *equality(void) {
-	Node *n = relational ();
+static Node *equality(Parser *ps) {
+	Node *n = relational (ps);
 	for (;;) {
-		Token *t = tk;
-		if (eat ("==")) {
-			n = new_binary (ND_EQ, n, relational (), t);
-		} else if (eat ("!=")) {
-			n = new_binary (ND_NE, n, relational (), t);
+		Token *t = ps->tk;
+		if (eat (ps, "==")) {
+			n = new_binary (ps, ND_EQ, n, relational (ps), t);
+		} else if (eat (ps, "!=")) {
+			n = new_binary (ps, ND_NE, n, relational (ps), t);
 		} else {
 			return n;
 		}
 	}
 }
 
-static Node *logand(void) {
-	Node *n = equality ();
-	while (is_punct ("&&")) {
-		Token *t = tk;
-		tk = tk->next;
-		n = new_binary (ND_LOGAND, n, equality (), t);
+static Node *logand(Parser *ps) {
+	Node *n = equality (ps);
+	while (is_punct (ps, "&&")) {
+		Token *t = ps->tk;
+		ps->tk = ps->tk->next;
+		n = new_binary (ps, ND_LOGAND, n, equality (ps), t);
 	}
 	return n;
 }
 
-static Node *logxor(void) {
-	Node *n = logand ();
-	while (is_punct ("^^")) {
-		Token *t = tk;
-		tk = tk->next;
-		n = new_binary (ND_LOGXOR, n, logand (), t);
+static Node *logxor(Parser *ps) {
+	Node *n = logand (ps);
+	while (is_punct (ps, "^^")) {
+		Token *t = ps->tk;
+		ps->tk = ps->tk->next;
+		n = new_binary (ps, ND_LOGXOR, n, logand (ps), t);
 	}
 	return n;
 }
 
-static Node *logor(void) {
-	Node *n = logxor ();
-	while (is_punct ("||")) {
-		Token *t = tk;
-		tk = tk->next;
-		n = new_binary (ND_LOGOR, n, logxor (), t);
+static Node *logor(Parser *ps) {
+	Node *n = logxor (ps);
+	while (is_punct (ps, "||")) {
+		Token *t = ps->tk;
+		ps->tk = ps->tk->next;
+		n = new_binary (ps, ND_LOGOR, n, logxor (ps), t);
 	}
 	return n;
 }
 
-static Node *assign(void) {
-	Node *n = logor ();
-	Token *t = tk;
+static Node *assign(Parser *ps) {
+	Node *n = logor (ps);
+	Token *t = ps->tk;
 	static const struct { const char *op; NodeKind k; } comp[] = {
 		{ "+=", ND_ADD }, { "-=", ND_SUB }, { "*=", ND_MUL },
 		{ "/=", ND_DIV }, { "%=", ND_MOD }, { "&=", ND_AND },
 		{ "|=", ND_OR }, { "^=", ND_XOR }, { "<<=", ND_SHL },
 		{ ">>=", ND_SHR }, { NULL, 0 }
 	};
-	if (eat ("=")) {
-		return new_assign (n, assign (), t);
+	if (eat (ps, "=")) {
+		return new_assign (ps, n, assign (ps), t);
 	}
 	for (int i = 0; comp[i].op; i++) {
-		if (is_punct (comp[i].op)) {
-			tk = tk->next;
+		if (is_punct (ps, comp[i].op)) {
+			ps->tk = ps->tk->next;
 			if (!is_lvalue (n)) {
-				error_tok (t, "not an assignable expression");
+				aholyc_i_error_tok (ps->cc, t, "not an assignable expression");
 			}
-			Node *rhs = assign ();
-			Node *place, *setup = lval_addr_temp (n, &place, t);
-			Node *res = new_assign (place, new_binary (comp[i].k, place, rhs, t), t);
-			return setup? new_binary (ND_COMMA, setup, res, t): res;
+			Node *rhs = assign (ps);
+			Node *place, *setup = lval_addr_temp (ps, n, &place, t);
+			Node *res = new_assign (ps, place, new_binary (ps, comp[i].k, place, rhs, t), t);
+			return setup? new_binary (ps, ND_COMMA, setup, res, t): res;
 		}
 	}
 	return n;
 }
 
-static Node *expr(void) {
-	return assign ();
+static Node *expr(Parser *ps) {
+	return assign (ps);
 }
 
-static Node *comma_expr(void) {
-	Node *n = expr ();
-	while (is_punct (",")) {
-		Token *t = tk;
-		tk = tk->next;
-		n = new_binary (ND_COMMA, n, expr (), t);
+static Node *comma_expr(Parser *ps) {
+	Node *n = expr (ps);
+	while (is_punct (ps, ",")) {
+		Token *t = ps->tk;
+		ps->tk = ps->tk->next;
+		n = new_binary (ps, ND_COMMA, n, expr (ps), t);
 	}
 	return n;
 }
@@ -1306,8 +1314,8 @@ static Node *new_labelstmt(char *label, Token *t) {
 	return n;
 }
 
-static void label_use(char *name, Token *t, bool define) {
-	for (LabelRef *l = fn_labels; l; l = l->next) {
+static void label_use(Parser *ps, char *name, Token *t, bool define) {
+	for (LabelRef *l = ps->fn_labels; l; l = l->next) {
 		if (!strcmp (l->name, name)) {
 			if (define) {
 				l->defined = true;
@@ -1315,17 +1323,17 @@ static void label_use(char *name, Token *t, bool define) {
 			return;
 		}
 	}
-	LabelRef *l = xcalloc (1, sizeof(LabelRef));
+	LabelRef *l = aholyc_i_xcalloc (ps->cc, 1, sizeof(LabelRef));
 	l->name = name;
 	l->tok = t;
 	l->defined = define;
-	l->next = fn_labels;
-	fn_labels = l;
+	l->next = ps->fn_labels;
+	ps->fn_labels = l;
 }
 
 /* implicit Print/PutChars statements */
-static Node *print_stmt(void) {
-	Token *t = tk;
+static Node *print_stmt(Parser *ps) {
+	Token *t = ps->tk;
 	bool ischar = t->kind == TK_CHR;
 	Node *fmt = NULL;
 	Node head = {0};
@@ -1334,157 +1342,158 @@ static Node *print_stmt(void) {
 	if (ischar) {
 		if (t->len == 0) {
 			/* '' expr : PutChars(expr) */
-			tk = tk->next;
-			Node *e = rvalize (expr ());
-			expect (";");
+			ps->tk = ps->tk->next;
+			Node *e = rvalize (expr (ps));
+			expect (ps, ";");
 			cur->next = e;
-			return new_expr_stmt (call_named ("PutChars", head.next, 1, t), t);
+			return new_expr_stmt (call_named (ps, "PutChars", head.next, 1, t), t);
 		}
-		tk = tk->next;
-		expect (";");
+		ps->tk = ps->tk->next;
+		expect (ps, ";");
 		cur->next = new_num (t->ival, t);
-		return new_expr_stmt (call_named ("PutChars", head.next, 1, t), t);
+		return new_expr_stmt (call_named (ps, "PutChars", head.next, 1, t), t);
 	}
 	/* string statement */
-	Node *s = primary (); /* handles adjacent concat */
-	if (s->str_len == 0 && !is_punct (";") && !is_punct (",")) {
+	Node *s = primary (ps); /* handles adjacent concat */
+	if (s->str_len == 0 && !is_punct (ps, ";") && !is_punct (ps, ",")) {
 		/* "" fmt,args : variable format string */
-		fmt = rvalize (expr ());
+		fmt = rvalize (expr (ps));
 	} else {
 		fmt = s;
 	}
 	cur->next = fmt;
 	cur = fmt;
 	nargs = 1;
-	while (eat (",")) {
-		Node *a = rvalize (expr ());
+	while (eat (ps, ",")) {
+		Node *a = rvalize (expr (ps));
 		cur->next = a;
 		cur = a;
 		nargs++;
 	}
-	expect (";");
-	return new_expr_stmt (call_named ("Print", head.next, nargs, t), t);
+	expect (ps, ";");
+	return new_expr_stmt (call_named (ps, "Print", head.next, nargs, t), t);
 }
 
 /* variable declaration (local) starting at a type token */
-static Node *local_decl(void) {
-	Token *t = tk;
+static Node *local_decl(Parser *ps) {
+	Token *t = ps->tk;
 	Token *hint = NULL, *func_hint = NULL, *align_hint = NULL;
-	collect_hints (t, &hint, &func_hint, &align_hint);
-	reject_func_hint (func_hint);
-	Type *base = builtin_type (tk->str);
+	collect_hints (ps, t, &hint, &func_hint, &align_hint);
+	reject_func_hint (ps, func_hint);
+	Type *base = builtin_type (ps->tk->str);
 	if (!base) {
-		base = find_class (tk->str);
+		base = find_class (ps, ps->tk->str);
 	}
-	tk = tk->next;
+	ps->tk = ps->tk->next;
 	Node head = {0};
 	Node *cur = &head;
 	bool first = true;
-	while (!is_punct (";")) {
+	while (!is_punct (ps, ";")) {
 		if (!first) {
-			expect (",");
+			expect (ps, ",");
 		}
 		first = false;
 		Type *ty = base;
-		while (eat ("*")) {
-			ty = ptr_to (ty);
+		while (eat (ps, "*")) {
+			ty = ptr_to (ps->cc, ty);
 		}
 		/* reg/noreg/no_warn qualifiers: skip */
-		while (is_kw ("reg") || is_kw ("noreg")) {
-			bool was_reg = is_kw ("reg");
-			tk = tk->next;
+		while (is_kw (ps, "reg") || is_kw (ps, "noreg")) {
+			bool was_reg = is_kw (ps, "reg");
+			ps->tk = ps->tk->next;
 			/* optional register name after 'reg' */
-			if (was_reg && tk->kind == TK_ID && tk->next->kind == TK_ID) {
-				tk = tk->next;
+			if (was_reg && ps->tk->kind == TK_ID && ps->tk->next->kind == TK_ID) {
+				ps->tk = ps->tk->next;
 			}
 		}
 		/* function pointer declarator: (*name)(params) */
-		if (is_punct ("(")) {
-			tk = tk->next;
-			expect ("*");
-			if (tk->kind != TK_ID) {
-				error_tok (tk, "expected name");
+		if (is_punct (ps, "(")) {
+			ps->tk = ps->tk->next;
+			expect (ps, "*");
+			if (ps->tk->kind != TK_ID) {
+				aholyc_i_error_tok (ps->cc, ps->tk, "expected name");
 			}
-			char *name = tk->str;
-			tk = tk->next;
-			expect (")");
-			expect ("(");
+			char *name = ps->tk->str;
+			ps->tk = ps->tk->next;
+			expect (ps, ")");
+			expect (ps, "(");
 			/* skip param list: types only matter for docs */
 			int depth = 1;
-			while (depth > 0 && tk->kind != TK_EOF) {
-				if (is_punct ("(")) depth++;
-				if (is_punct (")")) depth--;
-				tk = tk->next;
+			while (depth > 0 && ps->tk->kind != TK_EOF) {
+				if (is_punct (ps, "(")) depth++;
+				if (is_punct (ps, ")")) depth--;
+				ps->tk = ps->tk->next;
 			}
-			Type *fnty = new_type (TY_FUNC, 8, 8);
+			Type *fnty = new_type (ps->cc, TY_FUNC, 8, 8);
 			fnty->base = ty;
-			Obj *var = new_local (name, hinted_type (ptr_to (fnty), hint));
-			var->align = hint_alignment (var->ty, align_hint);
-			if (eat ("=")) {
-				Node *rhs = expr ();
-				Node *a = new_assign (new_var_node (var, t), rhs, t);
+			Obj *var = new_local (ps, name,
+				hinted_type (ps, ptr_to (ps->cc, fnty), hint));
+			var->align = hint_alignment (ps, var->ty, align_hint);
+			if (eat (ps, "=")) {
+				Node *rhs = expr (ps);
+				Node *a = new_assign (ps, new_var_node (var, t), rhs, t);
 				cur->next = new_expr_stmt (a, t);
 				cur = cur->next;
 			}
 			continue;
 		}
-		if (tk->kind != TK_ID) {
-			error_tok (tk, "expected variable name");
+		if (ps->tk->kind != TK_ID) {
+			aholyc_i_error_tok (ps->cc, ps->tk, "expected variable name");
 		}
-		char *name = tk->str;
-		Token *nt = tk;
-		tk = tk->next;
-		while (eat ("[")) {
-			Node *len = comma_expr ();
-			expect ("]");
-			ty = array_of (ty, (int)eval_const (len));
+		char *name = ps->tk->str;
+		Token *nt = ps->tk;
+		ps->tk = ps->tk->next;
+		while (eat (ps, "[")) {
+			Node *len = comma_expr (ps);
+			expect (ps, "]");
+			ty = array_of (ps->cc, ty, (int)eval_const (ps, len));
 		}
-		Obj *var = new_local (name, hinted_type (ty, hint));
-		var->align = hint_alignment (var->ty, align_hint);
-		if (eat ("=")) {
-			if (is_punct ("{")) {
+		Obj *var = new_local (ps, name, hinted_type (ps, ty, hint));
+		var->align = hint_alignment (ps, var->ty, align_hint);
+		if (eat (ps, "=")) {
+			if (is_punct (ps, "{")) {
 				/* brace initializer for 1-D arrays */
 				if (ty->kind != TY_ARRAY) {
-					error_tok (tk, "brace initializer needs an array");
+					aholyc_i_error_tok (ps->cc, ps->tk, "brace initializer needs an array");
 				}
-				tk = tk->next;
+				ps->tk = ps->tk->next;
 				int idx = 0;
-				while (!is_punct ("}")) {
+				while (!is_punct (ps, "}")) {
 					if (idx) {
-						expect (",");
+						expect (ps, ",");
 					}
-					if (is_punct ("}")) {
+					if (is_punct (ps, "}")) {
 						break;
 					}
-					Node *v = expr ();
+					Node *v = expr (ps);
 					Node *dst = new_node (ND_DEREF, nt);
-					Node *addr = new_binary (ND_ADD, new_var_node (var, nt), new_num (idx, nt), nt);
+					Node *addr = new_binary (ps, ND_ADD, new_var_node (var, nt), new_num (idx, nt), nt);
 					dst->lhs = addr;
 					dst->ty = ty->base;
-					cur->next = new_expr_stmt (new_assign (dst, v, nt), nt);
+					cur->next = new_expr_stmt (new_assign (ps, dst, v, nt), nt);
 					cur = cur->next;
 					idx++;
 				}
-				expect ("}");
+				expect (ps, "}");
 			} else {
-				Node *rhs = expr ();
+				Node *rhs = expr (ps);
 				if (ty->kind == TY_ARRAY && rhs->kind == ND_STR) {
 					/* U8 buf[N] = "str": copy bytes incl. NUL */
 					Node *a1 = new_var_node (var, nt);
 					Node *args = rvalize (a1);
 					args->next = rhs;
 					rhs->next = new_num (rhs->str_len + 1, nt);
-					cur->next = new_expr_stmt (call_named ("MemCpy", args, 3, nt), nt);
+					cur->next = new_expr_stmt (call_named (ps, "MemCpy", args, 3, nt), nt);
 					cur = cur->next;
 				} else {
-					Node *a = new_assign (new_var_node (var, nt), rhs, nt);
+					Node *a = new_assign (ps, new_var_node (var, nt), rhs, nt);
 					cur->next = new_expr_stmt (a, nt);
 					cur = cur->next;
 				}
 			}
 		}
 	}
-	expect (";");
+	expect (ps, ";");
 	if (!head.next) {
 		return new_node (ND_NOP, t);
 	}
@@ -1534,50 +1543,50 @@ static void sw_append(SwCtx *sw, Node *n) {
 	}
 }
 
-static Node *switch_stmt(Token *t) {
-	bool nobound = is_punct ("[");
+static Node *switch_stmt(Parser *ps, Token *t) {
+	bool nobound = is_punct (ps, "[");
 	Node *cond;
 	if (nobound) {
-		expect ("[");
-		cond = comma_expr ();
-		expect ("]");
+		expect (ps, "[");
+		cond = comma_expr (ps);
+		expect (ps, "]");
 	} else {
-		expect ("(");
-		cond = comma_expr ();
-		expect (")");
+		expect (ps, "(");
+		cond = comma_expr (ps);
+		expect (ps, ")");
 	}
-	expect ("{");
+	expect (ps, "{");
 
 	SwCtx sw = {0};
-	sw.exit_label = new_label ("swend");
+	sw.exit_label = new_label (ps, "swend");
 	sw.cur_group = -1;
 	sw.next_case_val = 0;
 
-	Obj *swval = new_temp (ty_i64);
-	Node *setup = new_expr_stmt (new_assign (new_var_node (swval, t), rvalize (cond), t), t);
+	Obj *swval = new_temp (ps, ty_i64);
+	Node *setup = new_expr_stmt (new_assign (ps, new_var_node (swval, t), rvalize (cond), t), t);
 
-	char *save_break = break_label;
-	break_label = sw.exit_label;
+	char *save_break = ps->break_label;
+	ps->break_label = sw.exit_label;
 
 	/* First pass: parse body statements, recording case labels inline. */
-	enter_scope ();
-	while (!is_punct ("}")) {
-		Token *ct = tk;
-		if (is_kw ("case")) {
-			tk = tk->next;
-			SwCase *c = xcalloc (1, sizeof(SwCase));
-			if (is_punct (":")) {
+	enter_scope (ps);
+	while (!is_punct (ps, "}")) {
+		Token *ct = ps->tk;
+		if (is_kw (ps, "case")) {
+			ps->tk = ps->tk->next;
+			SwCase *c = aholyc_i_xcalloc (ps->cc, 1, sizeof(SwCase));
+			if (is_punct (ps, ":")) {
 				c->lo = c->hi = sw.next_case_val;
 			} else {
-				c->lo = eval_const (expr ());
+				c->lo = eval_const (ps, expr (ps));
 				c->hi = c->lo;
-				if (eat ("...")) {
-					c->hi = eval_const (expr ());
+				if (eat (ps, "...")) {
+					c->hi = eval_const (ps, expr (ps));
 				}
 			}
-			expect (":");
+			expect (ps, ":");
 			sw.next_case_val = c->hi + 1;
-			c->label = new_label ("case");
+			c->label = new_label (ps, "case");
 			c->group = sw.cur_group;
 			if (sw.cases_tail) {
 				sw.cases_tail->next = c;
@@ -1591,19 +1600,19 @@ static Node *switch_stmt(Token *t) {
 				sw.grp_first_case = c;
 				/* porch dispatch emitted in pass 2 (needs all group cases) */
 				Node *anchor = new_node (ND_NOP, ct);
-				anchor->label = xasprintf ("porch%d", sw.cur_group);
+				anchor->label = aholyc_i_xasprintf (ps->cc, "porch%d", sw.cur_group);
 				sw_append (&sw, anchor);
 				sw.porch_dispatch_anchor = anchor;
 			}
 			sw_append (&sw, new_labelstmt (c->label, ct));
 			continue;
 		}
-		if (is_kw ("default")) {
-			tk = tk->next;
-			expect (":");
-			SwCase *c = xcalloc (1, sizeof(SwCase));
+		if (is_kw (ps, "default")) {
+			ps->tk = ps->tk->next;
+			expect (ps, ":");
+			SwCase *c = aholyc_i_xcalloc (ps->cc, 1, sizeof(SwCase));
 			c->is_default = true;
-			c->label = new_label ("default");
+			c->label = new_label (ps, "default");
 			c->group = sw.cur_group;
 			if (sw.cases_tail) {
 				sw.cases_tail->next = c;
@@ -1614,48 +1623,48 @@ static Node *switch_stmt(Token *t) {
 			sw_append (&sw, new_labelstmt (c->label, ct));
 			continue;
 		}
-		if (is_kw ("start") && tk->next->kind == TK_PUNCT && !strcmp (tk->next->str, ":")) {
-			tk = tk->next->next;
+		if (is_kw (ps, "start") && ps->tk->next->kind == TK_PUNCT && !strcmp (ps->tk->next->str, ":")) {
+			ps->tk = ps->tk->next->next;
 			if (sw.cur_group >= 0) {
-				error_tok (ct, "nested start:/end: groups are not supported");
+				aholyc_i_error_tok (ps->cc, ct, "nested start:/end: groups are not supported");
 			}
 			if (sw.ngroups >= 64) {
-				error_tok (ct, "too many sub_switch groups");
+				aholyc_i_error_tok (ps->cc, ct, "too many sub_switch groups");
 			}
 			sw.cur_group = sw.ngroups++;
 			if (!sw.grp_var) {
-				sw.grp_var = new_temp (ty_i64);
+				sw.grp_var = new_temp (ps, ty_i64);
 			}
-			sw.group_porch[sw.cur_group] = new_label ("porch");
-			sw.group_end[sw.cur_group] = new_label ("gend");
+			sw.group_porch[sw.cur_group] = new_label (ps, "porch");
+			sw.group_end[sw.cur_group] = new_label (ps, "gend");
 			sw.in_porch = true;
 			/* falling into the porch selects the first case of the group */
-			sw_append (&sw, new_expr_stmt (new_assign (
+			sw_append (&sw, new_expr_stmt (new_assign (ps,
 				new_var_node (sw.grp_var, ct), new_num (-1, ct), ct), ct));
 			sw_append (&sw, new_labelstmt (sw.group_porch[sw.cur_group], ct));
-			break_label = sw.group_end[sw.cur_group];
+			ps->break_label = sw.group_end[sw.cur_group];
 			continue;
 		}
-		if (is_kw ("end") && tk->next->kind == TK_PUNCT && !strcmp (tk->next->str, ":")) {
-			Token *et = tk;
-			tk = tk->next->next;
+		if (is_kw (ps, "end") && ps->tk->next->kind == TK_PUNCT && !strcmp (ps->tk->next->str, ":")) {
+			Token *et = ps->tk;
+			ps->tk = ps->tk->next->next;
 			if (sw.cur_group < 0) {
-				error_tok (et, "end: without start:");
+				aholyc_i_error_tok (ps->cc, et, "end: without start:");
 			}
 			sw_append (&sw, new_labelstmt (sw.group_end[sw.cur_group], et));
 			sw.cur_group = -1;
-			break_label = sw.exit_label;
+			ps->break_label = sw.exit_label;
 			continue;
 		}
-		Node *s = stmt ();
+		Node *s = stmt (ps);
 		sw_append (&sw, s);
 	}
-	expect ("}");
-	leave_scope ();
-	break_label = save_break;
+	expect (ps, "}");
+	leave_scope (ps);
+	ps->break_label = save_break;
 
 	if (sw.cur_group >= 0) {
-		error_tok (t, "start: without end: in switch");
+		aholyc_i_error_tok (ps->cc, t, "start: without end: in switch");
 	}
 
 	/* Pass 2: build dispatch. */
@@ -1680,11 +1689,11 @@ static Node *switch_stmt(Token *t) {
 		Node *test;
 		Node *v = new_var_node (swval, t);
 		if (c->lo == c->hi) {
-			test = new_binary (ND_EQ, v, new_num (c->lo, t), t);
+			test = new_binary (ps, ND_EQ, v, new_num (c->lo, t), t);
 		} else {
-			Node *ge = new_binary (ND_LE, new_num (c->lo, t), new_var_node (swval, t), t);
-			Node *le = new_binary (ND_LE, new_var_node (swval, t), new_num (c->hi, t), t);
-			test = new_binary (ND_LOGAND, ge, le, t);
+			Node *ge = new_binary (ps, ND_LE, new_num (c->lo, t), new_var_node (swval, t), t);
+			Node *le = new_binary (ps, ND_LE, new_var_node (swval, t), new_num (c->hi, t), t);
+			test = new_binary (ps, ND_LOGAND, ge, le, t);
 		}
 		Node *br = new_node (ND_IF, t);
 		br->cond = test;
@@ -1693,7 +1702,7 @@ static Node *switch_stmt(Token *t) {
 			int idx = case_idx_in_group[c->group]++;
 			c->hi = idx; /* reuse: idx within group for porch dispatch */
 			Node *stub = new_node (ND_BLOCK, t);
-			Node *sel = new_expr_stmt (new_assign (
+			Node *sel = new_expr_stmt (new_assign (ps,
 				new_var_node (sw.grp_var, t), new_num (idx, t), t), t);
 			sel->next = new_goto (sw.group_porch[c->group], t);
 			stub->body = sel;
@@ -1720,7 +1729,7 @@ static Node *switch_stmt(Token *t) {
 					continue;
 				}
 				Node *br = new_node (ND_IF, t);
-				br->cond = new_binary (ND_EQ, new_var_node (sw.grp_var, t),
+				br->cond = new_binary (ps, ND_EQ, new_var_node (sw.grp_var, t),
 					new_num (c->hi, t), t); /* hi = idx in group */
 				br->then = new_goto (c->label, t);
 				dc->next = br;
@@ -1745,108 +1754,108 @@ static Node *switch_stmt(Token *t) {
 
 /* ------------------------------------------------------------- stmt */
 
-static Node *stmt(void) {
-	Token *t = tk;
-	if (is_punct ("{")) {
-		return block_stmt ();
+static Node *stmt(Parser *ps) {
+	Token *t = ps->tk;
+	if (is_punct (ps, "{")) {
+		return block_stmt (ps);
 	}
-	if (eat (";")) {
+	if (eat (ps, ";")) {
 		return new_node (ND_NOP, t);
 	}
-	if (is_kw ("if")) {
-		tk = tk->next;
-		expect ("(");
+	if (is_kw (ps, "if")) {
+		ps->tk = ps->tk->next;
+		expect (ps, "(");
 		Node *n = new_node (ND_IF, t);
-		n->cond = to_bool (rvalize (comma_expr ()));
-		expect (")");
-		n->then = stmt ();
-		if (is_kw ("else")) {
-			tk = tk->next;
-			n->els = stmt ();
+		n->cond = to_bool (ps, rvalize (comma_expr (ps)));
+		expect (ps, ")");
+		n->then = stmt (ps);
+		if (is_kw (ps, "else")) {
+			ps->tk = ps->tk->next;
+			n->els = stmt (ps);
 		}
 		return n;
 	}
-	if (is_kw ("while")) {
-		tk = tk->next;
-		expect ("(");
+	if (is_kw (ps, "while")) {
+		ps->tk = ps->tk->next;
+		expect (ps, "(");
 		Node *n = new_node (ND_WHILE, t);
-		n->cond = to_bool (rvalize (comma_expr ()));
-		expect (")");
-		char *end = new_label ("wend");
-		char *save = break_label;
-		break_label = end;
-		n->then = stmt ();
-		break_label = save;
+		n->cond = to_bool (ps, rvalize (comma_expr (ps)));
+		expect (ps, ")");
+		char *end = new_label (ps, "wend");
+		char *save = ps->break_label;
+		ps->break_label = end;
+		n->then = stmt (ps);
+		ps->break_label = save;
 		Node *blk = new_node (ND_BLOCK, t);
 		blk->body = n;
 		n->next = new_labelstmt (end, t);
 		return blk;
 	}
-	if (is_kw ("do")) {
-		tk = tk->next;
+	if (is_kw (ps, "do")) {
+		ps->tk = ps->tk->next;
 		Node *n = new_node (ND_DOWHILE, t);
-		char *end = new_label ("dend");
-		char *save = break_label;
-		break_label = end;
-		n->then = stmt ();
-		break_label = save;
-		if (!is_kw ("while")) {
-			error_tok (tk, "expected 'while' after do body");
+		char *end = new_label (ps, "dend");
+		char *save = ps->break_label;
+		ps->break_label = end;
+		n->then = stmt (ps);
+		ps->break_label = save;
+		if (!is_kw (ps, "while")) {
+			aholyc_i_error_tok (ps->cc, ps->tk, "expected 'while' after do body");
 		}
-		tk = tk->next;
-		expect ("(");
-		n->cond = to_bool (rvalize (comma_expr ()));
-		expect (")");
-		expect (";");
+		ps->tk = ps->tk->next;
+		expect (ps, "(");
+		n->cond = to_bool (ps, rvalize (comma_expr (ps)));
+		expect (ps, ")");
+		expect (ps, ";");
 		Node *blk = new_node (ND_BLOCK, t);
 		blk->body = n;
 		n->next = new_labelstmt (end, t);
 		return blk;
 	}
-	if (is_kw ("for")) {
-		tk = tk->next;
-		expect ("(");
+	if (is_kw (ps, "for")) {
+		ps->tk = ps->tk->next;
+		expect (ps, "(");
 		Node *n = new_node (ND_FOR, t);
-		enter_scope ();
-		if (!is_punct (";")) {
-			if (is_type_start (tk) && tk->next->kind == TK_ID) {
-				n->init = local_decl ();
+		enter_scope (ps);
+		if (!is_punct (ps, ";")) {
+			if (is_type_start (ps, ps->tk) && ps->tk->next->kind == TK_ID) {
+				n->init = local_decl (ps);
 			} else {
-				n->init = new_expr_stmt (comma_expr (), t);
-				expect (";");
+				n->init = new_expr_stmt (comma_expr (ps), t);
+				expect (ps, ";");
 			}
 		} else {
-			expect (";");
+			expect (ps, ";");
 		}
-		if (!is_punct (";")) {
-			n->cond = to_bool (rvalize (comma_expr ()));
+		if (!is_punct (ps, ";")) {
+			n->cond = to_bool (ps, rvalize (comma_expr (ps)));
 		}
-		expect (";");
-		if (!is_punct (")")) {
-			n->inc = new_expr_stmt (comma_expr (), t);
+		expect (ps, ";");
+		if (!is_punct (ps, ")")) {
+			n->inc = new_expr_stmt (comma_expr (ps), t);
 		}
-		expect (")");
-		char *end = new_label ("fend");
-		char *save = break_label;
-		break_label = end;
-		n->then = stmt ();
-		break_label = save;
-		leave_scope ();
+		expect (ps, ")");
+		char *end = new_label (ps, "fend");
+		char *save = ps->break_label;
+		ps->break_label = end;
+		n->then = stmt (ps);
+		ps->break_label = save;
+		leave_scope (ps);
 		Node *blk = new_node (ND_BLOCK, t);
 		blk->body = n;
 		n->next = new_labelstmt (end, t);
 		return blk;
 	}
-	if (is_kw ("switch")) {
-		tk = tk->next;
-		return switch_stmt (t);
+	if (is_kw (ps, "switch")) {
+		ps->tk = ps->tk->next;
+		return switch_stmt (ps, t);
 	}
-	if (is_kw ("return")) {
-		tk = tk->next;
+	if (is_kw (ps, "return")) {
+		ps->tk = ps->tk->next;
 		Node *n = new_node (ND_RETURN, t);
-		if (!is_punct (";")) {
-			Node *e = rvalize (comma_expr ());
-			Type *rt = cur_fn->ty->base;
+		if (!is_punct (ps, ";")) {
+			Node *e = rvalize (comma_expr (ps));
+			Type *rt = ps->cur_fn->ty->base;
 			if (rt && rt->kind == TY_F64) {
 				e = to_f64 (e);
 			} else if (rt && rt->kind != TY_VOID && e->ty->kind == TY_F64) {
@@ -1859,74 +1868,74 @@ static Node *stmt(void) {
 				Node *es = new_expr_stmt (e, t);
 				es->next = n;
 				blk->body = es;
-				expect (";");
+				expect (ps, ";");
 				return blk;
 			}
 			n->lhs = e;
 		}
-		expect (";");
+		expect (ps, ";");
 		return n;
 	}
-	if (is_kw ("break")) {
-		tk = tk->next;
-		expect (";");
-		if (!break_label) {
-			error_tok (t, "break outside of a loop or switch");
+	if (is_kw (ps, "break")) {
+		ps->tk = ps->tk->next;
+		expect (ps, ";");
+		if (!ps->break_label) {
+			aholyc_i_error_tok (ps->cc, t, "break outside of a loop or switch");
 		}
-		return new_goto (break_label, t);
+		return new_goto (ps->break_label, t);
 	}
-	if (is_kw ("continue")) {
-		error_tok (t, "HolyC has no 'continue' statement; use goto (see doc/language.md)");
+	if (is_kw (ps, "continue")) {
+		aholyc_i_error_tok (ps->cc, t, "HolyC has no 'continue' statement; use goto (see doc/language.md)");
 	}
-	if (is_kw ("goto")) {
-		tk = tk->next;
-		if (tk->kind != TK_ID) {
-			error_tok (tk, "expected label after goto");
+	if (is_kw (ps, "goto")) {
+		ps->tk = ps->tk->next;
+		if (ps->tk->kind != TK_ID) {
+			aholyc_i_error_tok (ps->cc, ps->tk, "expected label after goto");
 		}
-		char *name = tk->str;
-		tk = tk->next;
-		expect (";");
-		label_use (name, t, false);
-		return new_goto (xasprintf ("u_%s", name), t);
+		char *name = ps->tk->str;
+		ps->tk = ps->tk->next;
+		expect (ps, ";");
+		label_use (ps, name, t, false);
+		return new_goto (aholyc_i_xasprintf (ps->cc, "u_%s", name), t);
 	}
-	if (is_kw ("try")) {
-		tk = tk->next;
+	if (is_kw (ps, "try")) {
+		ps->tk = ps->tk->next;
 		Node *n = new_node (ND_TRY, t);
-		n->then = block_stmt ();
-		if (!is_kw ("catch")) {
-			error_tok (tk, "expected 'catch' after try block");
+		n->then = block_stmt (ps);
+		if (!is_kw (ps, "catch")) {
+			aholyc_i_error_tok (ps->cc, ps->tk, "expected 'catch' after try block");
 		}
-		tk = tk->next;
-		n->els = block_stmt ();
+		ps->tk = ps->tk->next;
+		n->els = block_stmt (ps);
 		return n;
 	}
-	if (is_kw ("no_warn")) {
-		while (!eat (";")) {
-			if (tk->kind == TK_EOF) {
-				error_tok (t, "unterminated no_warn");
+	if (is_kw (ps, "no_warn")) {
+		while (!eat (ps, ";")) {
+			if (ps->tk->kind == TK_EOF) {
+				aholyc_i_error_tok (ps->cc, t, "unterminated no_warn");
 			}
-			tk = tk->next;
+			ps->tk = ps->tk->next;
 		}
 		return new_node (ND_NOP, t);
 	}
-	if (is_kw ("asm")) {
-		error_tok (t, "inline asm is not supported by aholyc (portable backends only)");
+	if (is_kw (ps, "asm")) {
+		aholyc_i_error_tok (ps->cc, t, "inline asm is not supported by aholyc (portable backends only)");
 	}
-	if (is_kw ("lock")) {
+	if (is_kw (ps, "lock")) {
 		/* compile the block without lock semantics */
-		tk = tk->next;
-		return block_stmt ();
+		ps->tk = ps->tk->next;
+		return block_stmt (ps);
 	}
 	/* label? ident ':' (not '::') */
 	if (t->kind == TK_ID && t->next && t->next->kind == TK_PUNCT &&
-	    !strcmp (t->next->str, ":") && !is_type_start (t)) {
+	    !strcmp (t->next->str, ":") && !is_type_start (ps, t)) {
 		char *name = t->str;
-		tk = t->next->next;
-		label_use (name, t, true);
-		return new_labelstmt (xasprintf ("u_%s", name), t);
+		ps->tk = t->next->next;
+		label_use (ps, name, t, true);
+		return new_labelstmt (aholyc_i_xasprintf (ps->cc, "u_%s", name), t);
 	}
 	/* declaration? */
-	if (is_type_start (t)) {
+	if (is_type_start (ps, t)) {
 		Token *n1 = t->next;
 		/* distinguish `I64 x;` from expression starting with cast-able name */
 		if (n1->kind == TK_ID || (n1->kind == TK_PUNCT &&
@@ -1935,37 +1944,37 @@ static Node *stmt(void) {
 			if (n1->kind == TK_ID || !strcmp (n1->str, "*") ||
 			    (n1->kind == TK_PUNCT && !strcmp (n1->str, "(") &&
 			     n1->next && n1->next->kind == TK_PUNCT && !strcmp (n1->next->str, "*"))) {
-				return local_decl ();
+				return local_decl (ps);
 			}
 		}
 	}
 	/* implicit print statements */
 	if (t->kind == TK_STR || t->kind == TK_CHR) {
-		return print_stmt ();
+		return print_stmt (ps);
 	}
-	Node *e = comma_expr ();
-	expect (";");
+	Node *e = comma_expr (ps);
+	expect (ps, ";");
 	return new_expr_stmt (e, t);
 }
 
-static Node *block_stmt(void) {
-	Token *t = tk;
-	expect ("{");
-	enter_scope ();
+static Node *block_stmt(Parser *ps) {
+	Token *t = ps->tk;
+	expect (ps, "{");
+	enter_scope (ps);
 	Node head = {0};
 	Node *cur = &head;
-	while (!is_punct ("}")) {
-		if (tk->kind == TK_EOF) {
-			error_tok (t, "unterminated block");
+	while (!is_punct (ps, "}")) {
+		if (ps->tk->kind == TK_EOF) {
+			aholyc_i_error_tok (ps->cc, t, "unterminated block");
 		}
-		Node *s = stmt ();
+		Node *s = stmt (ps);
 		cur->next = s;
 		while (cur->next) {
 			cur = cur->next;
 		}
 	}
-	expect ("}");
-	leave_scope ();
+	expect (ps, "}");
+	leave_scope (ps);
 	Node *n = new_node (ND_BLOCK, t);
 	n->body = head.next;
 	return n;
@@ -1973,67 +1982,67 @@ static Node *block_stmt(void) {
 
 /* --------------------------------------------------------- declarations */
 
-static void check_labels(void) {
-	for (LabelRef *l = fn_labels; l; l = l->next) {
+static void check_labels(Parser *ps) {
+	for (LabelRef *l = ps->fn_labels; l; l = l->next) {
 		if (!l->defined) {
-			error_tok (l->tok, "goto to undefined label '%s'", l->name);
+			aholyc_i_error_tok (ps->cc, l->tok, "goto to undefined label '%s'", l->name);
 		}
 	}
-	fn_labels = NULL;
+	ps->fn_labels = NULL;
 }
 
 /* parse params: (type name=dft, ..., ...) — returns param chain */
-static void parse_params(Obj *fn) {
-	expect ("(");
+static void parse_params(Parser *ps, Obj *fn) {
+	expect (ps, "(");
 	Obj head = {0};
 	Obj *cur = &head;
 	Node *defaults[256];
 	int n = 0;
 	bool first = true;
-	while (!is_punct (")")) {
+	while (!is_punct (ps, ")")) {
 		if (!first) {
-			expect (",");
+			expect (ps, ",");
 		}
 		first = false;
-		if (eat ("...")) {
+		if (eat (ps, "...")) {
 			fn->is_variadic = true;
 			break;
 		}
-		if (!is_type_start (tk)) {
-			error_tok (tk, "expected parameter type");
+		if (!is_type_start (ps, ps->tk)) {
+			aholyc_i_error_tok (ps->cc, ps->tk, "expected parameter type");
 		}
 		Token *hint = NULL;
-		collect_bits_hint (tk, &hint);
-		Type *ty = parse_typespec ();
+		collect_bits_hint (ps, ps->tk, &hint);
+		Type *ty = parse_typespec (ps);
 		/* (U0) means no params */
-		if (ty == ty_u0 && is_punct (")") && n == 0) {
-			hinted_type (ty, hint);
+		if (ty == ty_u0 && is_punct (ps, ")") && n == 0) {
+			hinted_type (ps, ty, hint);
 			break;
 		}
 		char *name = NULL;
-		if (tk->kind == TK_ID) {
-			name = tk->str;
-			tk = tk->next;
+		if (ps->tk->kind == TK_ID) {
+			name = ps->tk->str;
+			ps->tk = ps->tk->next;
 		}
-		while (eat ("[")) {
+		while (eat (ps, "[")) {
 			/* array param decays to pointer; size ignored */
-			if (!is_punct ("]")) {
-				eval_const (expr ());
+			if (!is_punct (ps, "]")) {
+				eval_const (ps, expr (ps));
 			}
-			expect ("]");
-			ty = ptr_to (ty);
+			expect (ps, "]");
+			ty = ptr_to (ps->cc, ty);
 		}
 		if (ty->kind == TY_CLASS) {
-			error_tok (tk, "class values cannot be parameters; pass a pointer");
+			aholyc_i_error_tok (ps->cc, ps->tk, "class values cannot be parameters; pass a pointer");
 		}
-		Obj *p = new_obj (name? name: xasprintf ("arg%d", n),
-			hinted_type (ty, hint));
+		Obj *p = new_obj (ps, name? name: aholyc_i_xasprintf (ps->cc, "arg%d", n),
+			hinted_type (ps, ty, hint));
 		defaults[n] = NULL;
-		if (eat ("=")) {
-			if (eat ("lastclass")) {
-				defaults[n] = &nd_lastclass;
+		if (eat (ps, "=")) {
+			if (eat (ps, "lastclass")) {
+				defaults[n] = nd_lastclass;
 			} else {
-				defaults[n] = rvalize (expr ());
+				defaults[n] = rvalize (expr (ps));
 				if (ty->kind == TY_F64) {
 					defaults[n] = to_f64 (defaults[n]);
 				} else if (defaults[n]->ty->kind == TY_F64) {
@@ -2043,16 +2052,17 @@ static void parse_params(Obj *fn) {
 		}
 		n++;
 		if (n >= 250) {
-			error_tok (tk, "too many parameters");
+			aholyc_i_error_tok (ps->cc, ps->tk, "too many parameters");
 		}
 		cur->next = p;
 		cur = p;
 	}
-	expect (")");
+	expect (ps, ")");
 	if (fn->is_variadic) {
 		/* implicit argc/argv params */
-		Obj *pargc = new_obj (xstrdup ("argc"), ty_i64);
-		Obj *pargv = new_obj (xstrdup ("argv"), ptr_to (ty_i64));
+		Obj *pargc = new_obj (ps, aholyc_i_xstrdup (ps->cc, "argc"), ty_i64);
+		Obj *pargv = new_obj (ps, aholyc_i_xstrdup (ps->cc, "argv"),
+			ptr_to (ps->cc, ty_i64));
 		cur->next = pargc;
 		pargc->next = pargv;
 		cur = pargv;
@@ -2062,52 +2072,52 @@ static void parse_params(Obj *fn) {
 	}
 	fn->params = head.next;
 	fn->nparams = n;
-	fn->defaults = xmalloc (sizeof(Node *) * (n? n: 1));
+	fn->defaults = aholyc_i_xmalloc (ps->cc, sizeof(Node *) * (n? n: 1));
 	memcpy (fn->defaults, defaults, sizeof(Node *) * n);
 }
 
-static void add_func(Obj *fn) {
-	if (funcs_tail) {
-		funcs_tail->next = fn;
+static void add_func(Parser *ps, Obj *fn) {
+	if (ps->funcs_tail) {
+		ps->funcs_tail->next = fn;
 	} else {
-		prog->funcs = fn;
+		ps->prog->funcs = fn;
 	}
-	funcs_tail = fn;
+	ps->funcs_tail = fn;
 }
 
-static void parse_class(bool is_union, int align_all) {
-	tk = tk->next; /* class/union */
-	if (tk->kind != TK_ID) {
-		error_tok (tk, "expected class name");
+static void parse_class(Parser *ps, bool is_union, int align_all) {
+	ps->tk = ps->tk->next; /* class/union */
+	if (ps->tk->kind != TK_ID) {
+		aholyc_i_error_tok (ps->cc, ps->tk, "expected class name");
 	}
-	char *name = tk->str;
-	tk = tk->next;
-	Type *ty = find_class (name);
+	char *name = ps->tk->str;
+	ps->tk = ps->tk->next;
+	Type *ty = find_class (ps, name);
 	if (!ty) {
-		ty = new_type (TY_CLASS, 0, 1);
+		ty = new_type (ps->cc, TY_CLASS, 0, 1);
 		ty->name = name;
 		ty->is_union = is_union;
-		ClassEnt *c = xcalloc (1, sizeof(ClassEnt));
+		ClassEnt *c = aholyc_i_xcalloc (ps->cc, 1, sizeof(ClassEnt));
 		c->name = name;
 		c->ty = ty;
-		c->next = classes;
-		classes = c;
+		c->next = ps->classes;
+		ps->classes = c;
 	}
-	if (eat (";")) {
+	if (eat (ps, ";")) {
 		return; /* forward declaration */
 	}
-	if (eat (":")) {
-		if (tk->kind != TK_ID) {
-			error_tok (tk, "expected parent class name");
+	if (eat (ps, ":")) {
+		if (ps->tk->kind != TK_ID) {
+			aholyc_i_error_tok (ps->cc, ps->tk, "expected parent class name");
 		}
-		Type *parent = find_class (tk->str);
+		Type *parent = find_class (ps, ps->tk->str);
 		if (!parent) {
-			error_tok (tk, "unknown parent class '%s'", tk->str);
+			aholyc_i_error_tok (ps->cc, ps->tk, "unknown parent class '%s'", ps->tk->str);
 		}
 		ty->parent = parent;
-		tk = tk->next;
+		ps->tk = ps->tk->next;
 	}
-	expect ("{");
+	expect (ps, "{");
 	/* TempleOS layout: members are packed back to back, no alignment or
 	 * padding.  "$$ = expr;" moves the offset for the next member; the
 	 * most negative offset grows the class like TempleOS neg_offset. */
@@ -2117,20 +2127,20 @@ static void parse_class(bool is_union, int align_all) {
 	int neg = 0;
 	int union_base = 0;
 	bool aligned_layout = align_all;
-	bool save_in_class = in_class_body;
-	in_class_body = true;
+	bool save_in_class = ps->in_class_body;
+	ps->in_class_body = true;
 	Member head = {0};
 	Member *cur = &head;
-	while (!is_punct ("}")) {
-		class_dol_offset = is_union? union_base: off;
-		if (eat (";")) {
+	while (!is_punct (ps, "}")) {
+		ps->class_dol_offset = is_union? union_base: off;
+		if (eat (ps, ";")) {
 			continue;
 		}
-		if (is_punct ("$$")) {
-			tk = tk->next;
-			expect ("=");
-			int v = (int)eval_const (expr ());
-			expect (";");
+		if (is_punct (ps, "$$")) {
+			ps->tk = ps->tk->next;
+			expect (ps, "=");
+			int v = (int)eval_const (ps, expr (ps));
+			expect (ps, ";");
 			if (-v > neg) {
 				neg = -v;
 			}
@@ -2141,14 +2151,14 @@ static void parse_class(bool is_union, int align_all) {
 			}
 			continue;
 		}
-		if (!is_type_start (tk)) {
-			error_tok (tk, "expected member type");
+		if (!is_type_start (ps, ps->tk)) {
+			aholyc_i_error_tok (ps->cc, ps->tk, "expected member type");
 		}
 		Token *hint = NULL, *func_hint = NULL, *align_hint = NULL;
-		collect_hints (tk, &hint, &func_hint, &align_hint);
-		reject_func_hint (func_hint);
-		aligned_layout |= aholyc_align_hints && align_hint != NULL;
-		Type *base = parse_typespec ();
+		collect_hints (ps, ps->tk, &hint, &func_hint, &align_hint);
+		reject_func_hint (ps, func_hint);
+		aligned_layout |= ps->align_hints && align_hint != NULL;
+		Type *base = parse_typespec (ps);
 		/* strip stars parsed by typespec: they apply to first declarator only
 		 * in C; HolyC code in practice writes one declarator per star usage.
 		 * parse_typespec consumed them, keep as-is for first; extra
@@ -2157,29 +2167,29 @@ static void parse_class(bool is_union, int align_all) {
 		for (;;) {
 			Type *mty = base;
 			if (!first) {
-				while (eat ("*")) {
-					mty = ptr_to (mty);
+				while (eat (ps, "*")) {
+					mty = ptr_to (ps->cc, mty);
 				}
 			}
 			first = false;
-			if (tk->kind != TK_ID) {
-				error_tok (tk, "expected member name");
+			if (ps->tk->kind != TK_ID) {
+				aholyc_i_error_tok (ps->cc, ps->tk, "expected member name");
 			}
-			char *mname = tk->str;
-			tk = tk->next;
-			while (eat ("[")) {
-				Node *len = comma_expr ();
-				expect ("]");
-				mty = array_of (mty, (int)eval_const (len));
+			char *mname = ps->tk->str;
+			ps->tk = ps->tk->next;
+			while (eat (ps, "[")) {
+				Node *len = comma_expr (ps);
+				expect (ps, "]");
+				mty = array_of (ps->cc, mty, (int)eval_const (ps, len));
 			}
 			if (mty->kind == TY_CLASS && mty->size == 0) {
-				error_tok (tk, "member of incomplete class type");
+				aholyc_i_error_tok (ps->cc, ps->tk, "member of incomplete class type");
 			}
-			Member *m = xcalloc (1, sizeof(Member));
+			Member *m = aholyc_i_xcalloc (ps->cc, 1, sizeof(Member));
 			m->name = mname;
-			m->ty = hinted_type (mty, hint);
+			m->ty = hinted_type (ps, mty, hint);
 			int natural = mty->align? mty->align: 1;
-			int policy = aholyc_align_hints && align_hint?
+			int policy = ps->align_hints && align_hint?
 				align_hint->hint_align: align_all;
 			int a = policy < 0? natural: policy;
 			int pos = is_union? union_base: off;
@@ -2203,304 +2213,301 @@ static void parse_class(bool is_union, int align_all) {
 			}
 			cur->next = m;
 			cur = m;
-			class_dol_offset = is_union? union_base: off;
-			if (!eat (",")) {
+			ps->class_dol_offset = is_union? union_base: off;
+			if (!eat (ps, ",")) {
 				break;
 			}
 		}
-		expect (";");
+		expect (ps, ";");
 	}
-	expect ("}");
-	eat (";");
-	in_class_body = save_in_class;
+	expect (ps, "}");
+	eat (ps, ";");
+	ps->in_class_body = save_in_class;
 	ty->members = head.next;
 	ty->align = aligned_layout? layout_align: align;
 	ty->size = aligned_layout? align_up (off + neg, layout_align): off + neg;
 }
 
 /* function definition or declaration after type+name(  */
-static void parse_func(Type *ret, char *name, bool is_extern, bool is_public,
+static void parse_func(Parser *ps, Type *ret, char *name, bool is_extern, bool is_public,
                        Token *inline_tok) {
-	Obj *fn = find_func (name);
+	Obj *fn = find_func (ps, name);
 	bool fresh = !fn;
 	if (fresh) {
-		fn = new_obj (name, NULL);
+		fn = new_obj (ps, name, NULL);
 		fn->is_func = true;
 	}
-	Type *fnty = new_type (TY_FUNC, 8, 8);
+	Type *fnty = new_type (ps->cc, TY_FUNC, 8, 8);
 	fnty->base = ret;
 	fn->ty = fnty;
 	fn->is_extern = is_extern;
 	if (inline_tok) {
 		if (fn->hints && fn->hints != inline_tok->hints) {
-			error_tok (inline_tok, "conflicting inline hint for function %s", name);
+			aholyc_i_error_tok (ps->cc, inline_tok, "conflicting inline hint for function %s", name);
 		}
 		fn->hints = inline_tok->hints;
 	}
-	if (is_extern && tk->file && !strcmp (tk->file, "<prelude>")) {
+	if (is_extern && ps->tk->file && !strcmp (ps->tk->file, "<prelude>")) {
 		fn->from_prelude = true;
 	}
 	if (is_public) {
 		fn->is_public = true;
 	}
-	enter_scope ();
-	Obj *save_locals = fn_locals;
-	Obj *save_fn = cur_fn;
-	LabelRef *save_labels = fn_labels;
-	fn_locals = NULL;
-	fn_labels = NULL;
-	cur_fn = fn;
-	parse_params (fn);
+	enter_scope (ps);
+	Obj *save_locals = ps->fn_locals;
+	Obj *save_fn = ps->cur_fn;
+	LabelRef *save_labels = ps->fn_labels;
+	ps->fn_locals = NULL;
+	ps->fn_labels = NULL;
+	ps->cur_fn = fn;
+	parse_params (ps, fn);
 	if (fresh) {
-		add_func (fn);
+		add_func (ps, fn);
 	}
-	if (eat (";")) {
-		leave_scope ();
-		fn_locals = save_locals;
-		fn_labels = save_labels;
-		cur_fn = save_fn;
+	if (eat (ps, ";")) {
+		leave_scope (ps);
+		ps->fn_locals = save_locals;
+		ps->fn_labels = save_labels;
+		ps->cur_fn = save_fn;
 		return;
 	}
 	if (fn->body) {
-		error_tok (tk, "redefinition of function %s", name);
+		aholyc_i_error_tok (ps->cc, ps->tk, "redefinition of function %s", name);
 	}
 	/* params visible in body scope */
 	for (Obj *p = fn->params; p; p = p->next) {
-		scope_push (p->name, p);
+		scope_push (ps, p->name, p);
 	}
-	fn->body = block_stmt ();
-	check_labels ();
-	fn->locals = fn_locals;
-	leave_scope ();
-	fn_locals = save_locals;
-	fn_labels = save_labels;
-	cur_fn = save_fn;
+	fn->body = block_stmt (ps);
+	check_labels (ps);
+	fn->locals = ps->fn_locals;
+	leave_scope (ps);
+	ps->fn_locals = save_locals;
+	ps->fn_labels = save_labels;
+	ps->cur_fn = save_fn;
 }
 
 /* global variable declaration(s); initializers become startup stmts */
-static Node *global_decl(Type *base, bool is_extern, bool is_public,
+static Node *global_decl(Parser *ps, Type *base, bool is_extern, bool is_public,
                          Token *hint) {
 	Node head = {0};
 	Node *cur = &head;
 	bool first = true;
-	Token *t = tk;
-	while (!is_punct (";")) {
+	Token *t = ps->tk;
+	while (!is_punct (ps, ";")) {
 		if (!first) {
-			expect (",");
+			expect (ps, ",");
 		}
 		first = false;
 		Type *ty = base;
 		if (!first) {
 			/* stars per declarator after the first */
 		}
-		while (eat ("*")) {
-			ty = ptr_to (ty);
+		while (eat (ps, "*")) {
+			ty = ptr_to (ps->cc, ty);
 		}
-		if (is_punct ("(")) {
+		if (is_punct (ps, "(")) {
 			/* global function pointer */
-			tk = tk->next;
-			expect ("*");
-			char *name = tk->str;
-			tk = tk->next;
-			expect (")");
-			expect ("(");
+			ps->tk = ps->tk->next;
+			expect (ps, "*");
+			char *name = ps->tk->str;
+			ps->tk = ps->tk->next;
+			expect (ps, ")");
+			expect (ps, "(");
 			int depth = 1;
-			while (depth > 0 && tk->kind != TK_EOF) {
-				if (is_punct ("(")) depth++;
-				if (is_punct (")")) depth--;
-				tk = tk->next;
+			while (depth > 0 && ps->tk->kind != TK_EOF) {
+				if (is_punct (ps, "(")) depth++;
+				if (is_punct (ps, ")")) depth--;
+				ps->tk = ps->tk->next;
 			}
-			Type *fnty = new_type (TY_FUNC, 8, 8);
+			Type *fnty = new_type (ps->cc, TY_FUNC, 8, 8);
 			fnty->base = ty;
-			Obj *var = new_global (name, hinted_type (ptr_to (fnty), hint));
+			Obj *var = new_global (ps, name,
+				hinted_type (ps, ptr_to (ps->cc, fnty), hint));
 			var->is_extern = is_extern;
 			var->is_public = is_public;
-			if (eat ("=")) {
-				Node *rhs = expr ();
-				cur->next = new_expr_stmt (new_assign (new_var_node (var, t), rhs, t), t);
+			if (eat (ps, "=")) {
+				Node *rhs = expr (ps);
+				cur->next = new_expr_stmt (new_assign (ps, new_var_node (var, t), rhs, t), t);
 				cur = cur->next;
 			}
 			continue;
 		}
-		if (tk->kind != TK_ID) {
-			error_tok (tk, "expected variable name");
+		if (ps->tk->kind != TK_ID) {
+			aholyc_i_error_tok (ps->cc, ps->tk, "expected variable name");
 		}
-		char *name = tk->str;
-		Token *nt = tk;
-		tk = tk->next;
-		while (eat ("[")) {
-			Node *len = comma_expr ();
-			expect ("]");
-			ty = array_of (ty, (int)eval_const (len));
+		char *name = ps->tk->str;
+		Token *nt = ps->tk;
+		ps->tk = ps->tk->next;
+		while (eat (ps, "[")) {
+			Node *len = comma_expr (ps);
+			expect (ps, "]");
+			ty = array_of (ps->cc, ty, (int)eval_const (ps, len));
 		}
-		Obj *var = new_global (name, hinted_type (ty, hint));
+		Obj *var = new_global (ps, name, hinted_type (ps, ty, hint));
 		var->is_extern = is_extern;
 		var->is_public = is_public;
 		if (is_extern && nt->file && !strcmp (nt->file, "<prelude>")) {
 			var->from_prelude = true;
 		}
-		if (eat ("=")) {
-			if (is_punct ("{")) {
+		if (eat (ps, "=")) {
+			if (is_punct (ps, "{")) {
 				if (ty->kind != TY_ARRAY) {
-					error_tok (tk, "brace initializer needs an array");
+					aholyc_i_error_tok (ps->cc, ps->tk, "brace initializer needs an array");
 				}
-				tk = tk->next;
+				ps->tk = ps->tk->next;
 				int idx = 0;
-				while (!is_punct ("}")) {
+				while (!is_punct (ps, "}")) {
 					if (idx) {
-						expect (",");
+						expect (ps, ",");
 					}
-					if (is_punct ("}")) {
+					if (is_punct (ps, "}")) {
 						break;
 					}
-					Node *v = expr ();
+					Node *v = expr (ps);
 					Node *dst = new_node (ND_DEREF, nt);
-					dst->lhs = new_binary (ND_ADD, new_var_node (var, nt), new_num (idx, nt), nt);
+					dst->lhs = new_binary (ps, ND_ADD, new_var_node (var, nt), new_num (idx, nt), nt);
 					dst->ty = ty->base;
-					cur->next = new_expr_stmt (new_assign (dst, v, nt), nt);
+					cur->next = new_expr_stmt (new_assign (ps, dst, v, nt), nt);
 					cur = cur->next;
 					idx++;
 				}
-				expect ("}");
+				expect (ps, "}");
 			} else {
-				Node *rhs = expr ();
+				Node *rhs = expr (ps);
 				if (ty->kind == TY_ARRAY && rhs->kind == ND_STR) {
 					Node *args = rvalize (new_var_node (var, nt));
 					args->next = rhs;
 					rhs->next = new_num (rhs->str_len + 1, nt);
-					cur->next = new_expr_stmt (call_named ("MemCpy", args, 3, nt), nt);
+					cur->next = new_expr_stmt (call_named (ps, "MemCpy", args, 3, nt), nt);
 					cur = cur->next;
 				} else {
-					cur->next = new_expr_stmt (new_assign (new_var_node (var, nt), rhs, nt), nt);
+					cur->next = new_expr_stmt (new_assign (ps, new_var_node (var, nt), rhs, nt), nt);
 					cur = cur->next;
 				}
 			}
 		}
 	}
-	expect (";");
+	expect (ps, ";");
 	return head.next;
 }
 
 /* ------------------------------------------------------------- top level */
 
-Program *parse(Token *tok) {
-	/* reset state: #exe blocks compile a nested program before the
-	 * outer parse runs, so parse() must be re-entrant */
-	prog = xcalloc (1, sizeof(Program));
-	tk = tok;
-	scope = NULL;
-	classes = NULL;
-	funcs_tail = globals_tail = NULL;
-	cur_fn = NULL;
-	fn_locals = NULL;
-	fn_labels = NULL;
-	break_label = NULL;
-	enter_scope (); /* global scope */
+Program *aholyc_i_parse(Aholyc *cc, Token *tok, bool align_hints) {
+	Parser state = {
+		.cc = cc, .tk = tok, .uid_counter = 1, .label_counter = 1,
+		.align_hints = align_hints,
+	};
+	Parser *ps = &state;
+	ps->prog = aholyc_i_xcalloc (ps->cc, 1, sizeof(Program));
+	enter_scope (ps); /* global scope */
 
-	Obj *startup = new_obj (xstrdup ("__hc_start"), NULL);
+	Obj *startup = new_obj (ps, aholyc_i_xstrdup (ps->cc, "__hc_start"), NULL);
 	startup->is_func = true;
-	Type *fnty = new_type (TY_FUNC, 8, 8);
+	Type *fnty = new_type (ps->cc, TY_FUNC, 8, 8);
 	/* Falling off global startup succeeds; an explicit top-level return
 	 * becomes the hosted process exit status. */
 	fnty->base = ty_i64;
 	startup->ty = fnty;
 	/* Like a variadic function, global-space startup receives a hidden
 	 * count/vector pair.  CLI vector elements are pointer-sized I64 slots. */
-	Obj *pargc = new_obj (xstrdup ("argc"), ty_i64);
-	Obj *pargv = new_obj (xstrdup ("argv"), ptr_to (ty_i64));
+	Obj *pargc = new_obj (ps, aholyc_i_xstrdup (ps->cc, "argc"), ty_i64);
+	Obj *pargv = new_obj (ps, aholyc_i_xstrdup (ps->cc, "argv"),
+		ptr_to (ps->cc, ty_i64));
 	pargc->is_param = pargv->is_param = true;
 	pargc->next = pargv;
 	startup->params = pargc;
 	startup->is_variadic = true;
-	startup->defaults = xmalloc (sizeof(Node *));
-	prog->startup = startup;
+	startup->defaults = aholyc_i_xmalloc (ps->cc, sizeof(Node *));
+	ps->prog->startup = startup;
 
 	Node top_head = {0};
 	Node *top_cur = &top_head;
 
-	while (tk->kind != TK_EOF) {
+	while (ps->tk->kind != TK_EOF) {
 		Token *hint = NULL;
 		Token *inline_tok = NULL;
 		Token *align_tok = NULL;
-		collect_hints (tk, &hint, &inline_tok, &align_tok);
+		collect_hints (ps, ps->tk, &hint, &inline_tok, &align_tok);
 		/* function attribute keywords; 'public' exports the symbol */
 		bool is_public = false;
-		while (is_kw ("public") || is_kw ("interrupt") || is_kw ("haserrcode") ||
-		       is_kw ("argpop") || is_kw ("noargpop")) {
-			if (is_kw ("public")) {
+		while (is_kw (ps, "public") || is_kw (ps, "interrupt") || is_kw (ps, "haserrcode") ||
+		       is_kw (ps, "argpop") || is_kw (ps, "noargpop")) {
+			if (is_kw (ps, "public")) {
 				is_public = true;
 			}
-			tk = tk->next;
-			collect_hints (tk, &hint, &inline_tok, &align_tok);
+			ps->tk = ps->tk->next;
+			collect_hints (ps, ps->tk, &hint, &inline_tok, &align_tok);
 		}
 		bool is_extern = false;
-		if (is_kw ("extern") || is_kw ("import") || is_kw ("_extern") || is_kw ("_import")) {
+		if (is_kw (ps, "extern") || is_kw (ps, "import") || is_kw (ps, "_extern") || is_kw (ps, "_import")) {
 			is_extern = true;
-			tk = tk->next;
-			collect_hints (tk, &hint, &inline_tok, &align_tok);
+			ps->tk = ps->tk->next;
+			collect_hints (ps, ps->tk, &hint, &inline_tok, &align_tok);
 			/* _extern SYMBOL alias form: skip the symbol token */
-			if (tk->kind == TK_ID && tk->next->kind == TK_ID &&
-			    !builtin_type (tk->str) && !find_class (tk->str)) {
-				tk = tk->next;
-				collect_hints (tk, &hint, &inline_tok, &align_tok);
+			if (ps->tk->kind == TK_ID && ps->tk->next->kind == TK_ID &&
+			    !builtin_type (ps->tk->str) && !find_class (ps, ps->tk->str)) {
+				ps->tk = ps->tk->next;
+				collect_hints (ps, ps->tk, &hint, &inline_tok, &align_tok);
 			}
 		}
-		if (is_kw ("class")) {
+		if (is_kw (ps, "class")) {
 			if (hint) {
-				error_tok (hint, "@bits applies only to integer object declarations");
+				aholyc_i_error_tok (ps->cc, hint, "@bits applies only to integer object declarations");
 			}
-			reject_func_hint (inline_tok);
-			parse_class (false, align_tok && aholyc_align_hints? align_tok->hint_align: 0);
+			reject_func_hint (ps, inline_tok);
+			parse_class (ps, false, align_tok && ps->align_hints? align_tok->hint_align: 0);
 			continue;
 		}
-		if (is_kw ("union")) {
+		if (is_kw (ps, "union")) {
 			if (hint) {
-				error_tok (hint, "@bits applies only to integer object declarations");
+				aholyc_i_error_tok (ps->cc, hint, "@bits applies only to integer object declarations");
 			}
-			reject_func_hint (inline_tok);
-			parse_class (true, align_tok && aholyc_align_hints? align_tok->hint_align: 0);
+			reject_func_hint (ps, inline_tok);
+			parse_class (ps, true, align_tok && ps->align_hints? align_tok->hint_align: 0);
 			continue;
 		}
-		if (is_type_start (tk)) {
+		if (is_type_start (ps, ps->tk)) {
 			/* type [stars] ident '(' => function; else global var(s) */
-			Token *save = tk;
-			Type *base = builtin_type (tk->str);
+			Token *save = ps->tk;
+			Type *base = builtin_type (ps->tk->str);
 			if (!base) {
-				base = find_class (tk->str);
+				base = find_class (ps, ps->tk->str);
 			}
-			tk = tk->next;
+			ps->tk = ps->tk->next;
 			Type *ret = base;
-			while (eat ("*")) {
-				ret = ptr_to (ret);
+			while (eat (ps, "*")) {
+				ret = ptr_to (ps->cc, ret);
 			}
-			if (tk->kind == TK_ID && tk->next && tk->next->kind == TK_PUNCT &&
-			    !strcmp (tk->next->str, "(")) {
+			if (ps->tk->kind == TK_ID && ps->tk->next && ps->tk->next->kind == TK_PUNCT &&
+			    !strcmp (ps->tk->next->str, "(")) {
 				if (hint) {
-					error_tok (hint, "@bits applies only to integer object declarations");
+					aholyc_i_error_tok (ps->cc, hint, "@bits applies only to integer object declarations");
 				}
 				if (align_tok) {
-					error_tok (align_tok, "@align does not apply to functions");
+					aholyc_i_error_tok (ps->cc, align_tok, "@align does not apply to functions");
 				}
-				char *name = tk->str;
-				tk = tk->next;
-				parse_func (ret, name, is_extern, is_public, inline_tok);
+				char *name = ps->tk->str;
+				ps->tk = ps->tk->next;
+				parse_func (ps, ret, name, is_extern, is_public, inline_tok);
 				continue;
 			}
-			reject_func_hint (inline_tok);
+			reject_func_hint (ps, inline_tok);
 			if (align_tok) {
-				error_tok (align_tok, "@align applies only to classes, fields, and local variables");
+				aholyc_i_error_tok (ps->cc, align_tok, "@align applies only to classes, fields, and local variables");
 			}
 			/* global variable(s): rewind to after base name, stars are
 			 * per-declarator in global_decl */
-			tk = save->next;
-			Obj *save_fn = cur_fn;
-			Obj *save_locals = fn_locals;
-			cur_fn = startup;
-			fn_locals = startup->locals;
-			Node *init = global_decl (base, is_extern, is_public, hint);
-			startup->locals = fn_locals;
-			fn_locals = save_locals;
-			cur_fn = save_fn;
+			ps->tk = save->next;
+			Obj *save_fn = ps->cur_fn;
+			Obj *save_locals = ps->fn_locals;
+			ps->cur_fn = startup;
+			ps->fn_locals = startup->locals;
+			Node *init = global_decl (ps, base, is_extern, is_public, hint);
+			startup->locals = ps->fn_locals;
+			ps->fn_locals = save_locals;
+			ps->cur_fn = save_fn;
 			if (init) {
 				top_cur->next = init;
 				while (top_cur->next) {
@@ -2510,33 +2517,33 @@ Program *parse(Token *tok) {
 			continue;
 		}
 		if (is_extern) {
-			error_tok (tk, "expected declaration after extern");
+			aholyc_i_error_tok (ps->cc, ps->tk, "expected declaration after extern");
 		}
 		if (hint) {
-			error_tok (hint, "@bits applies only to integer object declarations");
+			aholyc_i_error_tok (ps->cc, hint, "@bits applies only to integer object declarations");
 		}
-		reject_func_hint (inline_tok);
+		reject_func_hint (ps, inline_tok);
 		if (align_tok) {
-			error_tok (align_tok, "@align applies only to classes, fields, and local variables");
+			aholyc_i_error_tok (ps->cc, align_tok, "@align applies only to classes, fields, and local variables");
 		}
 		/* top-level statement -> startup code */
-		Obj *save_fn = cur_fn;
-		Obj *save_locals = fn_locals;
-		cur_fn = startup;
-		fn_locals = startup->locals;
-		Node *s = stmt ();
-		startup->locals = fn_locals;
-		fn_locals = save_locals;
-		cur_fn = save_fn;
+		Obj *save_fn = ps->cur_fn;
+		Obj *save_locals = ps->fn_locals;
+		ps->cur_fn = startup;
+		ps->fn_locals = startup->locals;
+		Node *s = stmt (ps);
+		startup->locals = ps->fn_locals;
+		ps->fn_locals = save_locals;
+		ps->cur_fn = save_fn;
 		top_cur->next = s;
 		while (top_cur->next) {
 			top_cur = top_cur->next;
 		}
 	}
-	check_labels (); /* top-level gotos */
+	check_labels (ps); /* top-level gotos */
 
 	Node *body = new_node (ND_BLOCK, tok);
 	body->body = top_head.next;
 	startup->body = body;
-	return prog;
+	return ps->prog;
 }

@@ -11,6 +11,12 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <setjmp.h>
+#include "../include/aholyc.h"
+
+typedef struct AholyIncDir AholyIncDir;
+typedef struct AholyMacro AholyMacro;
+typedef struct { void (*fn)(void *); void *arg; } AholyCleanup;
 
 /* ---------------------------------------------------------------- tokens */
 
@@ -42,6 +48,7 @@ struct Token {
 	int hint_bits;      /* @bits=N attached by a preceding comment; 0 if none */
 	int hint_align;     /* @align=N, -1 for natural, 0 if absent */
 	unsigned hints;     /* HINT_* flags attached by a preceding comment */
+	Aholyc *cc;         /* owning compiler */
 };
 
 /* ----------------------------------------------------------------- types */
@@ -82,15 +89,6 @@ struct Type {
 	Type *parent;      /* single inheritance */
 	bool is_union;
 };
-
-extern Type *ty_u0, *ty_i8, *ty_u8, *ty_i16, *ty_u16, *ty_i32, *ty_u32,
-	*ty_i64, *ty_u64, *ty_f64;
-
-Type *ptr_to(Type *base);
-Type *array_of(Type *base, int len);
-bool is_integer(Type *ty);
-bool is_numeric(Type *ty);
-Member *find_member(Type *ty, char *name);
 
 /* ------------------------------------------------------------------- AST */
 
@@ -181,6 +179,7 @@ typedef struct StrLit StrLit;
 
 /* Small-string optimized growable buffer. data is always NUL-terminated. */
 typedef struct {
+	Aholyc *cc;
 	char *data;
 	size_t len;
 	size_t cap;
@@ -201,31 +200,48 @@ typedef struct {
 	int nstrings;
 } Program;
 
+/* ------------------------------------------------------------- compiler */
+
+struct Aholyc {
+	void *allocs;
+	AholyIncDir *inc_dirs;
+	AholyMacro *macros;
+	char *cwd, *ccflags[64];
+	FILE *diagnostics;
+	AholyCleanup cleanups[8];
+	jmp_buf error_jmp;
+	char error[1024];
+	int nccflags, ncleanups;
+	bool verbose, keep, use_hints, error_active;
+};
+
 /* ---------------------------------------------------------------- lexer */
 
-Token *lex_file(const char *path);
-Token *lex_string(const char *src, const char *fake_name, Token *chain_after);
-Token *lex_preprocess(Token *raw);
-Token *token_join(Token *a, Token *b);
-void lex_add_include_dir(const char *dir);
-void lex_define(const char *name, const char *value);
+Token *aholyc_i_lex_file(Aholyc *cc, const char *path);
+Token *aholyc_i_lex_string(Aholyc *cc, const char *src, const char *fake_name,
+	Token *chain_after);
+Token *aholyc_i_lex_preprocess(Aholyc *cc, Token *raw);
+Token *aholyc_i_token_join(Token *a, Token *b);
+void aholyc_i_lex_add_include_dir(Aholyc *cc, const char *dir);
+void aholyc_i_lex_define(Aholyc *cc, const char *name, const char *value);
+bool aholyc_i_lex_set_cwd(Aholyc *cc, const char *path);
+void aholyc_i_lex_reset(Aholyc *cc);
 
 /* ---------------------------------------------------------------- parser */
 
-Program *parse(Token *tok);
+Program *aholyc_i_parse(Aholyc *cc, Token *tok, bool align_hints);
 
 /* ------------------------------------------------------------------ #exe
  * Compile-time execution (exe.c): the block is compiled with the C
  * backend into a shared library, dlopened into the compiler process
  * and run; its StreamPrint output is returned for stream splicing.
  * *rest is the token stream after the block; the block may advance it. */
-char *exe_run(Token *block, Token **rest);
+char *aholyc_i_exe_run(Aholyc *cc, Token *block, Token **rest);
 
 /* ------------------------------------------------------------ diagnostics */
 
-void error(const char *fmt, ...);
-void error_tok(Token *tok, const char *fmt, ...);
-void warn_tok(Token *tok, const char *fmt, ...);
+void aholyc_i_error(Aholyc *cc, const char *fmt, ...);
+void aholyc_i_error_tok(Aholyc *cc, Token *tok, const char *fmt, ...);
 
 /* ---------------------------------------------------------------- backend
  * Pluggable codegen. A backend turns the AST into a source artifact
@@ -237,64 +253,46 @@ typedef struct Backend {
 	const char *ext;    /* artifact extension, e.g. ".ll" */
 	const char *descr;
 	/* Emit program as source text to out. */
-	void (*emit)(Program *prog, FILE *out);
+	void (*emit)(Aholyc *cc, Program *prog, FILE *out,
+		bool object_mode, bool ctor_mode);
 	/* Build executable from emitted artifact. Returns 0 on success.
 	 * opt: optimization flag string, e.g. "-Os". */
-	int (*build)(const char *artifact, const char *outpath,
-	             const char *opt, bool verbose, bool keep);
+	int (*build)(Aholyc *cc, const char *artifact,
+		const char *outpath, const char *opt);
 	/* Build a relocatable object (-c). NULL if unsupported. */
-	int (*build_obj)(const char *artifact, const char *outpath,
-	                 const char *opt, bool verbose, bool keep);
+	int (*build_obj)(Aholyc *cc, const char *artifact,
+		const char *outpath, const char *opt);
 } Backend;
 
-/* Object code uses an external runtime.  A true -c module additionally has a
- * constructor that registers its startup with that runtime; source linked
- * with .o inputs still supplies the final program entry point. */
-extern bool aholyc_obj_mode;
-extern bool aholyc_ctor_mode;
-
-/* -V / -k driver flags, also honored by #exe builds */
-extern bool aholyc_verbose, aholyc_keep;
-
-/* Source hints are enabled by default; -fno-hints disables their use. */
-extern bool aholyc_use_hints;
-extern bool aholyc_align_hints;
-
-/* pass-through toolchain flags (-I/-L/-l), appended to cc invocations */
-extern char *aholyc_ccflags[64];
-extern int aholyc_nccflags;
-
-extern const Backend backend_ll;
-extern const Backend backend_c;
-extern const Backend backend_js;
+extern const Backend aholyc_i_backend_ll, aholyc_i_backend_c, aholyc_i_backend_js;
 
 /* Embedded runtime sources (generated by tools/file2c) */
-extern const char rt_c_src[];
-extern const char rt_js_src[];
-extern const char prelude_hc[];
-extern const char exe_hc[];
+extern const char aholyc_i_rt_c_src[], aholyc_i_rt_js_src[], aholyc_i_prelude_hc[], aholyc_i_exe_hc[];
 
 /* driver helpers */
-int run_cmd(char *const argv[], bool verbose);
-bool have_cmd(const char *name);
+int aholyc_i_run_cmd(Aholyc *cc, char *const argv[]);
+int aholyc_i_run_cc(Aholyc *cc, const char *tool, const char *opt, const char *out,
+	const char *const inputs[], int ninputs, bool object, bool gc);
+bool aholyc_i_have_cmd(Aholyc *cc, const char *name);
 
 /* 'aholyc fmt' source formatter (fmt.c, self-contained; doc/format.md) */
-int fmt_main(int argc, char **argv);
+int aholyc_i_fmt_main(Aholyc *cc, int argc, char **argv);
 
 /* misc */
-char *read_source(const char *path);
-char *xstrdup(const char *s);
-char *xasprintf(const char *fmt, ...);
-void *xmalloc(size_t n);
-void *xcalloc(size_t n, size_t m);
+char *aholyc_i_read_source(Aholyc *cc, const char *path);
+char *aholyc_i_xstrdup(Aholyc *cc, const char *s);
+char *aholyc_i_xasprintf(Aholyc *cc, const char *fmt, ...);
+void *aholyc_i_xmalloc(Aholyc *cc, size_t n);
+void *aholyc_i_xcalloc(Aholyc *cc, size_t n, size_t m);
+void aholyc_i_xfree_to(Aholyc *cc, void *mark);
+void aholyc_i_cleanup_push(Aholyc *cc, void (*fn)(void *), void *arg);
+static inline void aholyc_i_cleanup_pop(Aholyc *cc) { cc->ncleanups--; }
+static inline void aholyc_i_cleanup_file(void *file) { fclose (file); }
 
-void sb_init(StrBuf *sb);
-void sb_reset(StrBuf *sb);
-void sb_free(StrBuf *sb);
-void sb_putn(StrBuf *sb, const char *s, size_t n);
-void sb_puts(StrBuf *sb, const char *s);
-void sb_putc(StrBuf *sb, int c);
-void sb_printf(StrBuf *sb, const char *fmt, ...);
-char *sb_take(StrBuf *sb);
+void aholyc_i_sb_init(StrBuf *sb, Aholyc *cc);
+void aholyc_i_sb_puts(StrBuf *sb, const char *s);
+void aholyc_i_sb_putc(StrBuf *sb, int c);
+void aholyc_i_sb_printf(StrBuf *sb, const char *fmt, ...);
+char *aholyc_i_sb_take(StrBuf *sb);
 
 #endif
