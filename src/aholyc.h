@@ -178,6 +178,14 @@ struct Obj {
 /* --------------------------------------------------------------- program */
 
 typedef struct StrLit StrLit;
+
+/* Small-string optimized growable buffer. data is always NUL-terminated. */
+typedef struct {
+	char *data;
+	size_t len;
+	size_t cap;
+	char buf[64];
+} StrBuf;
 struct StrLit {
 	StrLit *next;
 	char *data;
@@ -279,5 +287,14 @@ char *xstrdup(const char *s);
 char *xasprintf(const char *fmt, ...);
 void *xmalloc(size_t n);
 void *xcalloc(size_t n, size_t m);
+
+void sb_init(StrBuf *sb);
+void sb_reset(StrBuf *sb);
+void sb_free(StrBuf *sb);
+void sb_putn(StrBuf *sb, const char *s, size_t n);
+void sb_puts(StrBuf *sb, const char *s);
+void sb_putc(StrBuf *sb, int c);
+void sb_printf(StrBuf *sb, const char *fmt, ...);
+char *sb_take(StrBuf *sb);
 
 #endif

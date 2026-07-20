@@ -6,7 +6,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 CWD=$(shell pwd)
 
-SRC = src/main.c src/getopt.c src/lex.c src/parse.c src/util.c src/exe.c src/fmt.c \
+SRC = src/main.c src/getopt.c src/lex.c src/parse.c src/util.c src/sb.c src/exe.c src/fmt.c \
       src/back_c.c src/back_ll.c src/back_js.c
 OBJ = $(SRC:.c=.o)
 
