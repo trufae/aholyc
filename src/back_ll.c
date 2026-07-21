@@ -9,10 +9,16 @@
 #include <unistd.h>
 
 typedef struct {
+	bool dynamic;
+	char *label;
+} LlHandler;
+
+typedef struct {
 	Aholyc *cc;
 	Program *prog;
 	StrBuf *out;
-	int ntmp, nlab, try_depth;
+	int ntmp, nlab, try_depth, nhandlers;
+	LlHandler handlers[256];
 	bool block_open, ret_f, ret_void, ctor_mode;
 } LlGen;
 
@@ -732,11 +738,73 @@ static void emit_cond_br(LlGen *lg, Node *cond, const char *tl, const char *fl) 
 	lg->block_open = false;
 }
 
+static LlHandler *current_handler(LlGen *lg) {
+	return lg->nhandlers? &lg->handlers[lg->nhandlers - 1]: NULL;
+}
+
+static void push_handler(LlGen *lg, bool dynamic, char *label) {
+	if (lg->nhandlers >= (int)(sizeof(lg->handlers) / sizeof(lg->handlers[0]))) {
+		error (lg->cc, "LLVM backend: try nesting too deep");
+	}
+	lg->handlers[lg->nhandlers++] = (LlHandler){ .dynamic = dynamic, .label = label };
+}
+
+static bool emit_local_throw(LlGen *lg, Node *call) {
+	LlHandler *h = current_handler (lg);
+	if (!h || h->dynamic) {
+		return false;
+	}
+	char *v = call->args? emit_val (lg, call->args): xstrdup (lg->cc, "0");
+	ensure_block (lg);
+	char *fs = tmp_ (lg);
+	sb_printf (lg->out, "  %s = call ptr @__hc_fs()\n", fs);
+	sb_printf (lg->out, "  store i64 %s, ptr %s\n", v, fs);
+	char *cep = tmp_ (lg);
+	sb_printf (lg->out, "  %s = getelementptr i64, ptr %s, i64 1\n", cep, fs);
+	sb_printf (lg->out, "  store i64 0, ptr %s\n", cep);
+	br_to (lg, h->label);
+	return true;
+}
+
+/* Finish a catch by either branching to an outer lexical handler or using
+ * the runtime throw when the nearest outer handler crosses a call frame. */
+static void emit_catch_end(LlGen *lg, const char *end) {
+	ensure_block (lg);
+	char *fs = tmp_ (lg);
+	sb_printf (lg->out, "  %s = call ptr @__hc_fs()\n", fs);
+	char *cep = tmp_ (lg);
+	sb_printf (lg->out, "  %s = getelementptr i64, ptr %s, i64 1\n", cep, fs);
+	char *ce = tmp_ (lg);
+	sb_printf (lg->out, "  %s = load i64, ptr %s\n", ce, cep);
+	char *uncaught = tmp_ (lg);
+	sb_printf (lg->out, "  %s = icmp eq i64 %s, 0\n", uncaught, ce);
+	LlHandler *outer = current_handler (lg);
+	if (outer && !outer->dynamic) {
+		sb_printf (lg->out, "  br i1 %s, label %%%s, label %%%s\n",
+			uncaught, outer->label, end);
+		lg->block_open = false;
+		place_label (lg, end);
+		return;
+	}
+	char *rethrow = newlab (lg, "rethrow");
+	sb_printf (lg->out, "  br i1 %s, label %%%s, label %%%s\n", uncaught, rethrow, end);
+	lg->block_open = false;
+	place_label (lg, rethrow);
+	char *ev = tmp_ (lg);
+	sb_printf (lg->out, "  %s = load i64, ptr %s\n", ev, fs);
+	sb_printf (lg->out, "  call void @throw(i64 %s)\n", ev);
+	br_to (lg, end);
+	place_label (lg, end);
+}
+
 static void emit_stmt(LlGen *lg, Node *n) {
 	switch (n->kind) {
 	case ND_NOP:
 		break;
 	case ND_EXPR_STMT:
+		if (is_throw_call (n->lhs) && emit_local_throw (lg, n->lhs)) {
+			break;
+		}
 		emit_val (lg, n->lhs);
 		break;
 	case ND_BLOCK:
@@ -831,6 +899,21 @@ static void emit_stmt(LlGen *lg, Node *n) {
 		break;
 	}
 	case ND_TRY: {
+		if (n->try_mode == TRY_NONE) {
+			emit_stmt (lg, n->then);
+			break;
+		}
+		if (n->try_mode == TRY_LOCAL) {
+			char *cl = newlab (lg, "catch"), *el = newlab (lg, "tryend");
+			push_handler (lg, false, cl);
+			emit_stmt (lg, n->then);
+			lg->nhandlers--;
+			br_to (lg, el);
+			place_label (lg, cl);
+			emit_stmt (lg, n->els);
+			emit_catch_end (lg, el);
+			break;
+		}
 		ensure_block (lg);
 		char *jb = tmp_ (lg);
 		sb_printf (lg->out, "  %s = call ptr @__hc_try_push()\n", jb);
@@ -843,38 +926,16 @@ static void emit_stmt(LlGen *lg, Node *n) {
 		lg->block_open = false;
 		place_label (lg, tl);
 		lg->try_depth++;
+		push_handler (lg, true, cl);
 		emit_stmt (lg, n->then);
+		lg->nhandlers--;
 		lg->try_depth--;
 		ensure_block (lg);
 		sb_printf (lg->out, "  call void @__hc_try_pop()\n");
 		br_to (lg, el);
 		place_label (lg, cl);
 		emit_stmt (lg, n->els);
-		ensure_block (lg);
-		/* if (!Fs->catch_except) throw(Fs->except_ch) */
-		char *fsp = tmp_ (lg);
-		sb_printf (lg->out, "  %s = call ptr @__hc_fs()\n", fsp);
-		char *fs = tmp_ (lg);
-		sb_printf (lg->out, "  %s = ptrtoint ptr %s to i64\n", fs, fsp);
-		char *cea = tmp_ (lg);
-		sb_printf (lg->out, "  %s = add i64 %s, 8\n", cea, fs);
-		char *cep = tmp_ (lg);
-		sb_printf (lg->out, "  %s = inttoptr i64 %s to ptr\n", cep, cea);
-		char *ce = tmp_ (lg);
-		sb_printf (lg->out, "  %s = load i64, ptr %s\n", ce, cep);
-		char *cc = tmp_ (lg);
-		sb_printf (lg->out, "  %s = icmp eq i64 %s, 0\n", cc, ce);
-		char *rl = newlab (lg, "rethrow");
-		sb_printf (lg->out, "  br i1 %s, label %%%s, label %%%s\n", cc, rl, el);
-		lg->block_open = false;
-		place_label (lg, rl);
-		char *ep = tmp_ (lg);
-		sb_printf (lg->out, "  %s = inttoptr i64 %s to ptr\n", ep, fs);
-		char *ev = tmp_ (lg);
-		sb_printf (lg->out, "  %s = load i64, ptr %s\n", ev, ep);
-		sb_printf (lg->out, "  call void @throw(i64 %s)\n", ev);
-		br_to (lg, el);
-		place_label (lg, el);
+		emit_catch_end (lg, el);
 		break;
 	}
 	default:
@@ -903,6 +964,7 @@ static void emit_func(LlGen *lg, Obj *fn) {
 	lg->ntmp = 0;
 	lg->nlab = 0;
 	lg->try_depth = 0;
+	lg->nhandlers = 0;
 	bool is_start = fn == lg->prog->startup;
 	bool exported = fn->is_public || (is_start && !lg->ctor_mode);
 	sb_printf (lg->out, "define %s %s %s(", exported? "": "internal",
@@ -959,6 +1021,7 @@ static void emit_func(LlGen *lg, Obj *fn) {
 static void ll_emit(Aholyc *cc, Program *prog, StrBuf *out,
 		bool object_mode, bool ctor_mode) {
 	(void)object_mode;
+	analyze_exceptions (prog);
 	LlGen gen = { .cc = cc, .prog = prog, .out = out, .ctor_mode = ctor_mode };
 	LlGen *lg = &gen;
 	sb_printf (lg->out, "; generated by aholyc (HolyC -> LLVM IR)\n\n");

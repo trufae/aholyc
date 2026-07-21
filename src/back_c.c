@@ -2,11 +2,17 @@
 #include "aholyc.h"
 
 typedef struct {
+	int label;
+	bool dynamic;
+} CHandler;
+
+typedef struct {
 	Aholyc *cc;
 	Program *prog;
 	StrBuf *out;
 	Type *ret;
-	int try_depth;
+	int try_depth, nhandlers, except_label;
+	CHandler handlers[256];
 	bool ctor_mode;
 	char name[256], label[256];
 } CGen;
@@ -547,11 +553,59 @@ static void emit_discarded(CGen *cg, Node *n) {
 	}
 }
 
+static CHandler *current_handler(CGen *cg) {
+	return cg->nhandlers? &cg->handlers[cg->nhandlers - 1]: NULL;
+}
+
+static void push_handler(CGen *cg, bool dynamic, int label) {
+	if (cg->nhandlers >= (int)(sizeof(cg->handlers) / sizeof(cg->handlers[0]))) {
+		error (cg->cc, "C backend: try nesting too deep");
+	}
+	cg->handlers[cg->nhandlers++] = (CHandler){ .label = label, .dynamic = dynamic };
+}
+
+/* A statement-level throw can jump directly only when its nearest handler is
+ * lexical.  A dynamic handler between it and an outer lexical handler must
+ * still receive the runtime throw. */
+static bool emit_local_throw(CGen *cg, Node *call, int ind) {
+	CHandler *h = current_handler (cg);
+	if (!h || h->dynamic) {
+		return false;
+	}
+	ind_ (cg, ind);
+	sb_printf (cg->out, "__hc_fs()->except_ch = ");
+	if (call->args) {
+		emit_val (cg, call->args);
+	} else {
+		sb_printf (cg->out, "0");
+	}
+	sb_printf (cg->out, ";\n");
+	ind_ (cg, ind);
+	sb_printf (cg->out, "__hc_fs()->catch_except = 0;\n");
+	ind_ (cg, ind);
+	sb_printf (cg->out, "goto Lhc_catch%d;\n", h->label);
+	return true;
+}
+
+static void emit_rethrow(CGen *cg, int ind) {
+	CHandler *h = current_handler (cg);
+	ind_ (cg, ind);
+	if (h && !h->dynamic) {
+		sb_printf (cg->out, "if (!__hc_fs()->catch_except) goto Lhc_catch%d;\n", h->label);
+	} else {
+		sb_printf (cg->out,
+			"if (!__hc_fs()->catch_except) throw(__hc_fs()->except_ch);\n");
+	}
+}
+
 static void emit_stmt(CGen *cg, Node *n, int ind) {
 	switch (n->kind) {
 	case ND_NOP:
 		break;
 	case ND_EXPR_STMT:
+		if (is_throw_call (n->lhs) && emit_local_throw (cg, n->lhs, ind)) {
+			break;
+		}
 		ind_ (cg, ind);
 		emit_discarded (cg, n->lhs);
 		sb_printf (cg->out, ";\n");
@@ -629,20 +683,48 @@ static void emit_stmt(CGen *cg, Node *n, int ind) {
 		sb_printf (cg->out, "%s: ;\n", labname (cg, n->label));
 		break;
 	case ND_TRY:
+		if (n->try_mode == TRY_NONE) {
+			ind_ (cg, ind);
+			sb_printf (cg->out, "{\n");
+			emit_inner (cg, n->then, ind + 1);
+			ind_ (cg, ind);
+			sb_printf (cg->out, "}\n");
+			break;
+		}
+		if (n->try_mode == TRY_LOCAL) {
+			int label = ++cg->except_label;
+			ind_ (cg, ind);
+			sb_printf (cg->out, "{\n");
+			push_handler (cg, false, label);
+			emit_inner (cg, n->then, ind + 1);
+			cg->nhandlers--;
+			ind_ (cg, ind + 1);
+			sb_printf (cg->out, "goto Lhc_tryend%d;\n", label);
+			ind_ (cg, ind);
+			sb_printf (cg->out, "Lhc_catch%d: ;\n", label);
+			emit_inner (cg, n->els, ind + 1);
+			emit_rethrow (cg, ind + 1);
+			ind_ (cg, ind);
+			sb_printf (cg->out, "Lhc_tryend%d: ;\n", label);
+			ind_ (cg, ind);
+			sb_printf (cg->out, "}\n");
+			break;
+		}
 		ind_ (cg, ind);
 		sb_printf (cg->out, "{ void *hjb = __hc_try_push();\n");
 		ind_ (cg, ind);
 		sb_printf (cg->out, "if (!_setjmp(*(jmp_buf *)hjb)) {\n");
 		cg->try_depth++;
+		push_handler (cg, true, 0);
 		emit_inner (cg, n->then, ind + 1);
+		cg->nhandlers--;
 		cg->try_depth--;
 		ind_ (cg, ind + 1);
 		sb_printf (cg->out, "__hc_try_pop();\n");
 		ind_ (cg, ind);
 		sb_printf (cg->out, "} else {\n");
 		emit_inner (cg, n->els, ind + 1);
-		ind_ (cg, ind + 1);
-		sb_printf (cg->out, "if (!__hc_fs()->catch_except) throw(__hc_fs()->except_ch);\n");
+		emit_rethrow (cg, ind + 1);
 		ind_ (cg, ind);
 		sb_printf (cg->out, "} }\n");
 		break;
@@ -697,6 +779,8 @@ static void emit_func(CGen *cg, Obj *fn) {
 		}
 	}
 	cg->try_depth = 0;
+	cg->nhandlers = 0;
+	cg->except_label = 0;
 	emit_inner (cg, fn->body, 1);
 	if (cg->ret->kind != TY_VOID) {
 		sb_printf (cg->out, "\treturn 0;\n");
@@ -765,6 +849,7 @@ static void emit_obj_preamble(CGen *cg) {
 
 static void c_emit(Aholyc *cc, Program *prog, StrBuf *out,
 		bool object_mode, bool ctor_mode) {
+	analyze_exceptions (prog);
 	CGen gen = {
 		.cc = cc, .prog = prog, .out = out,
 		.ctor_mode = ctor_mode,

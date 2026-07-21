@@ -14,9 +14,10 @@ registerized code, so aholyc stays simple and the optimizer does the heavy
 lifting (this is the TempleOS way: let one big hammer do the work).
 
 Build: `clang -Os prog.ll runtime.c -o prog`, or if clang is missing,
-`llc prog.ll -o prog.s` + `cc prog.s runtime.c`. Exceptions use
-`@_setjmp` declared `returns_twice` plus a small frame stack in the
-runtime.
+`llc prog.ll -o prog.s` + `cc prog.s runtime.c`. Exceptions that cross a
+function call use `@_setjmp` declared `returns_twice` plus a small frame stack
+in the runtime. Inferred no-throw `try` bodies omit the handler, while direct
+local throws use ordinary LLVM branches.
 
 ## c
 

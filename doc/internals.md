@@ -51,6 +51,9 @@ file.HC ──lex──▶ tokens ──preprocess──▶ tokens ──parse�
   * `a<b<c` → `(a<(t=b)) && (t<c)`;
   * assignment of narrow types yields the pre-truncation value via temps
     (TempleOS semantics).
+* `src/effects.c` — fixed-point exception analysis over the completed AST;
+  infers throwing functions and selects no-handler, local-branch, or dynamic
+  lowering for each native `try`.
 * `src/back_*.c` — see `doc/backends.md`.
 * `src/main.c` — the library driver: options, backend registry and toolchain
   invocation. `src/cli.c` is its small command-line wrapper.
@@ -77,12 +80,19 @@ vararg ABI headaches and gives HolyC's `argc`/`argv` for free.
 
 The native runtime keeps `Fs` and a fixed stack of `jmp_buf` frames in
 thread-local storage. `Fs` is lazily initialized to a private `CTask` for
-each host thread. `try` pushes a frame and `_setjmp`s; `throw(ch)` records
-`ch` in `Fs->except_ch`, pops the top frame and longjmps into its catch
-block. The catch code decides: setting `Fs->catch_except` (what
-`PutExcept` does) consumes the exception; otherwise the generated code
-rethrows to the next outer frame — exactly TempleOS's handler-search
-semantics. The JS backend maps this onto native JS exceptions instead.
+each host thread. Before code generation, a fixed-point effect analysis marks
+functions whose exceptions can escape and classifies every `try`. A body that
+cannot throw needs no handler. A body whose only exceptions are direct local
+`throw` statements stores the exception in `Fs` and branches to its catch.
+Only a body that calls a potentially throwing function pushes a frame and
+`_setjmp`s, because that exception must cross a native call frame.
+
+The catch code decides: setting `Fs->catch_except` (what `PutExcept` does)
+consumes the exception; otherwise generated code branches to a lexical outer
+catch when possible or rethrows to the next dynamic frame. This preserves
+TempleOS's handler-search semantics while avoiding `setjmp`/`longjmp` in the
+common local case. Unknown extern and indirect calls are conservatively
+throwing. The JS backend maps exceptions onto native JS exceptions instead.
 
 ## Testing
 

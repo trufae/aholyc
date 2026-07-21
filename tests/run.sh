@@ -131,6 +131,36 @@ else
 	fail=1
 fi
 
+# Native exception lowering: no-throw tries need no handler, local throws use
+# branches, and only the six call-crossing handlers in this fixture setjmp.
+exceptlowerok=1
+./aholyc -S -b c tests/exceptions_lowering.HC \
+	-o tests/out/exceptions-lowering.c 2>tests/out/exceptions-lowering-c.err || exceptlowerok=0
+[ "$(grep -c '_setjmp(' tests/out/exceptions-lowering.c)" = 6 ] || exceptlowerok=0
+grep -q 'goto Lhc_catch' tests/out/exceptions-lowering.c || exceptlowerok=0
+./aholyc -S -b llvm tests/exceptions_lowering.HC \
+	-o tests/out/exceptions-lowering.ll 2>tests/out/exceptions-lowering-ll.err || exceptlowerok=0
+[ "$(grep -c 'call i32 @_setjmp' tests/out/exceptions-lowering.ll)" = 6 ] || exceptlowerok=0
+grep -Eq 'br label %Bcatch[0-9]+' tests/out/exceptions-lowering.ll || exceptlowerok=0
+for b in $backends; do
+	./aholyc -b "$b" tests/exceptions_lowering.HC \
+		-o "tests/out/exceptions-lowering-$b" 2>"tests/out/exceptions-lowering-$b.err" || {
+		exceptlowerok=0
+		continue
+	}
+	"tests/out/exceptions-lowering-$b" >"tests/out/exceptions-lowering-$b.txt" 2>&1 || exceptlowerok=0
+	cmp -s tests/expected/exceptions_lowering.out \
+		"tests/out/exceptions-lowering-$b.txt" || exceptlowerok=0
+done
+if [ "$exceptlowerok" = 1 ]; then
+	echo "ok   native exception lowering"
+else
+	echo "FAIL native exception lowering"
+	head -5 tests/out/exceptions-lowering-c.err 2>/dev/null
+	head -5 tests/out/exceptions-lowering-ll.err 2>/dev/null
+	fail=1
+fi
+
 # Comment hints are declaration metadata: LLVM narrows at SSA boundaries, C
 # uses _BitInt where storage is not observable, and JS deliberately ignores
 # them.  -fno-hints must make even malformed annotations ordinary comments.

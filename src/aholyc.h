@@ -131,6 +131,12 @@ typedef enum {
 	ND_NOP,
 } NodeKind;
 
+typedef enum {
+	TRY_NONE,           /* body cannot throw; catch is unreachable */
+	TRY_LOCAL,          /* body needs only a compiler-generated branch */
+	TRY_DYNAMIC,        /* body can receive an exception from a callee */
+} TryMode;
+
 struct Node {
 	NodeKind kind;
 	Node *next;        /* statement list / arg list chain */
@@ -154,6 +160,7 @@ struct Node {
 	int str_len;
 	int str_id;            /* assigned string-literal index */
 	int nfixed;            /* ND_CALL: args bound to named params; rest variadic */
+	TryMode try_mode;       /* ND_TRY lowering selected by effect analysis */
 };
 
 /* --------------------------------------------------------------- objects */
@@ -171,6 +178,7 @@ struct Obj {
 	bool is_public;    /* HolyC 'public': exported, unmangled symbol */
 	bool from_prelude; /* extern declared by the prelude (runtime API) */
 	bool address_taken; /* storage is observable through a pointer */
+	bool can_throw;     /* inferred: an exception may escape this function */
 	unsigned hints;     /* HINT_* function attributes */
 	int align;          /* requested local alignment; 0 if absent */
 	/* functions */
@@ -241,6 +249,11 @@ void lex_reset(Aholyc *cc);
 /* ---------------------------------------------------------------- parser */
 
 Program *parse(Aholyc *cc, Token *tok, bool align_hints);
+
+/* --------------------------------------------------------------- analysis */
+
+void analyze_exceptions(Program *prog);
+bool is_throw_call(Node *n);
 
 /* ------------------------------------------------------------------ #exe
  * Compile-time execution (exe.c): the block is compiled with the C
