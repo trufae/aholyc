@@ -131,6 +131,78 @@ else
 	fail=1
 fi
 
+# -D defines: -Dname=word also defines case-sensitive name_word so #ifdef can
+# dispatch on the value, the last -D of a name wins, #undef in the source
+# beats the command line, digit-leading values get no dispatch macro, a
+# missing name is an error, and the host platform macro is predefined
+defok=1
+printf '%s\n' '#ifdef UI_gtk4' '#ifdef UI_GTK4' '"folded\n";' '#else' \
+	'"gtk4\n";' '#endif' '#else' '#ifdef UI_cocoa' '"cocoa\n";' \
+	'#else' '"none\n";' '#endif' '#endif' \
+	> tests/out/def-dispatch.HC
+[ "$(./aholyc run -b c tests/out/def-dispatch.HC 2>/dev/null)" = none ] || defok=0
+[ "$(./aholyc run -b c -DUI=gtk4 tests/out/def-dispatch.HC 2>/dev/null)" = gtk4 ] || defok=0
+[ "$(./aholyc run -b c -DUI=cocoa tests/out/def-dispatch.HC 2>/dev/null)" = cocoa ] || defok=0
+[ "$(./aholyc run -b c -DUI=gtk4 -DUI=cocoa tests/out/def-dispatch.HC 2>/dev/null)" = cocoa ] || defok=0
+[ "$(./aholyc run -b c -DUI=cocoa -DUI=gtk4 tests/out/def-dispatch.HC 2>/dev/null)" = gtk4 ] || defok=0
+printf '%s\n' '"v=%d\n", VAL;' '#ifdef VAL_7' '"combo\n";' '#endif' \
+	> tests/out/def-value.HC
+[ "$(./aholyc run -b c -DVAL=7 tests/out/def-value.HC 2>/dev/null)" = "v=7" ] || defok=0
+printf '%s\n' '#undef FEATURE' '#ifdef FEATURE' '"feature\n";' '#else' \
+	'"clean\n";' '#endif' > tests/out/def-undef.HC
+[ "$(./aholyc run -b c -DFEATURE=1 tests/out/def-undef.HC 2>/dev/null)" = clean ] || defok=0
+./aholyc run -b c -D=word tests/out/def-dispatch.HC >/dev/null 2>&1 && defok=0
+printf '%s\n' '#ifdef __APPLE__' '"apple\n";' '#else' '#ifdef __linux__' \
+	'"linux\n";' '#else' '"other\n";' '#endif' '#endif' > tests/out/def-host.HC
+case "$(uname -s)" in
+Darwin) host=apple ;;
+Linux) host=linux ;;
+*) host=other ;;
+esac
+[ "$(./aholyc run -b c tests/out/def-host.HC 2>/dev/null)" = "$host" ] || defok=0
+if [ "$defok" = 1 ]; then
+	echo "ok   defines(-D)"
+else
+	echo "FAIL defines(-D)"
+	fail=1
+fi
+
+# #if constant expressions: comparisons, defined(), boolean/bitwise ops,
+# macro expansion, HolyC precedence (shifts bind tighter than *), nesting,
+# undefined name is 0, #else, and malformed expressions are errors
+ppifok=1
+printf '%s\n' '#if 2 > 1' '"a\n";' '#endif' \
+	'#if 2 < 1' '"b\n";' '#else' '"c\n";' '#endif' \
+	'#if defined(NOPE)' '"d\n";' '#else' '"e\n";' '#endif' \
+	'#if UNSET' '"f\n";' '#else' '"g\n";' '#endif' \
+	> tests/out/ppif.HC
+[ "$(./aholyc run -b c tests/out/ppif.HC 2>/dev/null)" = "$(printf 'a\nc\ne\ng')" ] || ppifok=0
+printf '%s\n' '#if X == 5 && X > 3' '"lo\n";' '#endif' \
+	'#if X | 2 == 7' '"hi\n";' '#endif' > tests/out/ppif2.HC
+[ "$(./aholyc run -b c -DX=5 tests/out/ppif2.HC 2>/dev/null)" = "$(printf 'lo\nhi')" ] || ppifok=0
+# HolyC precedence: 1<<2*3 is (1<<2)*3 == 12, not 1<<(2*3) == 64
+printf '%s\n' '#if 1<<2*3 == 12' '"prec\n";' '#else' '"cprec\n";' '#endif' \
+	> tests/out/ppif3.HC
+[ "$(./aholyc run -b c tests/out/ppif3.HC 2>/dev/null)" = prec ] || ppifok=0
+# nesting + macro expansion in the condition
+printf '%s\n' '#define TWO 2' '#if LVL > TWO' '#if defined(LVL)' \
+	'"nest\n";' '#endif' '#endif' > tests/out/ppif4.HC
+[ "$(./aholyc run -b c -DLVL=3 tests/out/ppif4.HC 2>/dev/null)" = nest ] || ppifok=0
+[ -z "$(./aholyc run -b c -DLVL=1 tests/out/ppif4.HC 2>/dev/null)" ] || ppifok=0
+# errors: empty expression, trailing tokens, divide by zero
+printf '%s\n' '#if' '"x";' '#endif' > tests/out/ppif-bad.HC
+./aholyc run -b c tests/out/ppif-bad.HC >/dev/null 2>&1 && ppifok=0
+printf '%s\n' '#if 1 2' '"x";' '#endif' > tests/out/ppif-bad2.HC
+./aholyc run -b c tests/out/ppif-bad2.HC >/dev/null 2>&1 && ppifok=0
+printf '%s\n' '#if 1/0' '"x";' '#endif' > tests/out/ppif-bad3.HC
+./aholyc run -b c tests/out/ppif-bad3.HC >/dev/null 2>&1 && ppifok=0
+if [ "$ppifok" = 1 ]; then
+	echo "ok   preprocessor #if"
+else
+	echo "FAIL preprocessor #if"
+	fail=1
+fi
+
 # Native exception lowering: no-throw tries need no handler, local throws use
 # branches, and only the six call-crossing handlers in this fixture setjmp.
 exceptlowerok=1

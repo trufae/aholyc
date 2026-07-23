@@ -30,7 +30,7 @@ $ aholyc fmt -w src.HC              # format sources in place (doc/format.md)
 | `-I dir` | add an `#include` search directory (also forwarded to the C toolchain) |
 | `-L dir` | add a library search directory for the linker |
 | `-l name` | link against a library (e.g. `-lz`) |
-| `-D name[=value]` | predefine a macro |
+| `-D name[=value]` | predefine a macro; when the value is an identifier, `-Dname=word` also defines case-sensitive `name_word` so `#ifdef` can dispatch on the value ; the last `-D` of a name wins |
 | `-fno-hints` | ignore all source hints, treating their annotations as ordinary comments |
 | `-k` | keep intermediate files (`.ll`, `.c`, runtime copies, `#exe` block libraries) |
 | `-V` | print the toolchain commands being executed (including `#exe` builds) |

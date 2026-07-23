@@ -282,8 +282,21 @@ try {
 ## Preprocessor
 
 `#include "file"` (no `<>` form), object-like `#define NAME tokens`,
-`#undef`, `#ifdef/#ifndef/#else/#endif`. There are no function-like
-macros ("I'm not a fan" — T. Davis).
+`#undef`, `#if/#ifdef/#ifndef/#else/#endif`. There are no function-like
+macros ("I'm not a fan" — T. Davis), and no `#elif` (as in TempleOS).
+
+`#if <expr>` keeps its branch when a constant integer expression is
+non-zero. The expression may use the arithmetic, bitwise, shift, comparison
+and logical operators — evaluated with HolyC's precedence, so `1<<2*3` is
+`(1<<2)*3` — plus `defined(NAME)` / `defined NAME`, which is 1 when a macro
+is defined. Object-like macros in the expression are expanded first; an
+identifier with no macro evaluates to 0.
+
+```holyc
+#if defined(DEBUG) && LEVEL >= 2
+  "verbose\n";
+#endif
+```
 
 ### `#exe{}` — compile-time execution
 

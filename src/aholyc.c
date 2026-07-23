@@ -14,7 +14,14 @@ static void add_define(Aholyc *cc, const char *arg) {
 	if (value) {
 		*value++ = 0;
 	}
+	if (!*name) {
+		error (cc, "-D needs a macro name");
+	}
 	lex_define (cc, name, value? value: "1");
+	if (value && lex_is_identifier (value)) {
+		char *combo = xasprintf (cc, "%s_%s", name, value);
+		lex_define (cc, combo, "1");
+	}
 }
 
 static const Backend *const backends[] = {
@@ -193,7 +200,19 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 			error (cc, "unknown option '-%c' (try -h)", go.opt);
 		}
 	}
-	for (int i = 0; i < defines.n; i++) add_define (cc, defines.v[i]);
+	/* last -D wins: skip any define shadowed by a later one of the same
+	 * name, so its name_value dispatch macro is never created either */
+	for (int i = 0; i < defines.n; i++) {
+		size_t n = strcspn (defines.v[i], "=");
+		bool last = true;
+		for (int j = i + 1; last && j < defines.n; j++) {
+			last = strncmp (defines.v[i], defines.v[j], n) ||
+				(defines.v[j][n] && defines.v[j][n] != '=');
+		}
+		if (last) {
+			add_define (cc, defines.v[i]);
+		}
+	}
 	if (inputs.n == 0) {
 		return usage (1);
 	}

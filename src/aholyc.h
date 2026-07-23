@@ -244,12 +244,17 @@ struct Aholyc {
 Token *lex_file(Aholyc *cc, const char *path);
 Token *lex_string(Aholyc *cc, const char *src, const char *fake_name,
 	Token *chain_after);
-Token *lex_preprocess(Aholyc *cc, Token *raw);
 Token *token_join(Token *a, Token *b);
 void lex_add_include_dir(Aholyc *cc, const char *dir);
-void lex_define(Aholyc *cc, const char *name, const char *value);
 bool lex_set_cwd(Aholyc *cc, const char *path);
 void lex_reset(Aholyc *cc);
+/* preprocessor (lexpp.c); tokenize + search_include (lex.c) are shared
+ * between the two translation units */
+Token *lex_preprocess(Aholyc *cc, Token *raw);
+void lex_define(Aholyc *cc, const char *name, const char *value);
+bool lex_is_identifier(const char *s);
+Token *tokenize(Aholyc *cc, const char *src, const char *fname);
+char *search_include(Aholyc *cc, const char *name, const char *from_file);
 
 /* ---------------------------------------------------------------- parser */
 
