@@ -131,20 +131,18 @@ else
 	fail=1
 fi
 
-# -D defines: -Dname=word also defines case-sensitive name_word so #ifdef can
-# dispatch on the value, the last -D of a name wins, #undef in the source
-# beats the command line, digit-leading values get no dispatch macro, a
-# missing name is an error, and the host platform macro is predefined
+# -D defines: dispatch is plain #ifdef on distinct macros (no automatic
+# name_value combo define), the last -D of a name wins, #undef in the source
+# beats the command line, a missing name is an error, and the host platform
+# macro is predefined
 defok=1
-printf '%s\n' '#ifdef UI_gtk4' '#ifdef UI_GTK4' '"folded\n";' '#else' \
-	'"gtk4\n";' '#endif' '#else' '#ifdef UI_cocoa' '"cocoa\n";' \
-	'#else' '"none\n";' '#endif' '#endif' \
+printf '%s\n' '#ifdef UI_GTK4' '"gtk4\n";' '#else' '#ifdef UI_COCOA' \
+	'"cocoa\n";' '#else' '"none\n";' '#endif' '#endif' \
 	> tests/out/def-dispatch.HC
 [ "$(./aholyc run -b c tests/out/def-dispatch.HC 2>/dev/null)" = none ] || defok=0
-[ "$(./aholyc run -b c -DUI=gtk4 tests/out/def-dispatch.HC 2>/dev/null)" = gtk4 ] || defok=0
-[ "$(./aholyc run -b c -DUI=cocoa tests/out/def-dispatch.HC 2>/dev/null)" = cocoa ] || defok=0
-[ "$(./aholyc run -b c -DUI=gtk4 -DUI=cocoa tests/out/def-dispatch.HC 2>/dev/null)" = cocoa ] || defok=0
-[ "$(./aholyc run -b c -DUI=cocoa -DUI=gtk4 tests/out/def-dispatch.HC 2>/dev/null)" = gtk4 ] || defok=0
+[ "$(./aholyc run -b c -DUI_BACKEND=UI_GTK4 tests/out/def-dispatch.HC 2>/dev/null)" = gtk4 ] || defok=0
+[ "$(./aholyc run -b c -DUI_BACKEND=UI_COCOA tests/out/def-dispatch.HC 2>/dev/null)" = cocoa ] || defok=0
+[ "$(./aholyc run -b c -DUI_BACKEND=UI_GTK4 tests/out/def-dispatch.HC 2>/dev/null)" = none ] || defok=0
 printf '%s\n' '"v=%d\n", VAL;' '#ifdef VAL_7' '"combo\n";' '#endif' \
 	> tests/out/def-value.HC
 [ "$(./aholyc run -b c -DVAL=7 tests/out/def-value.HC 2>/dev/null)" = "v=7" ] || defok=0
