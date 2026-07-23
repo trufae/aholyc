@@ -565,6 +565,31 @@ if cc -pthread -c tests/tls_threads.c -o tests/out/tls_threads.o 2>/dev/null; th
 	done
 fi
 
+# `aholyc run file.HC` (no -o) must leave no binary behind, while a plain
+# build still writes a.out and `run -o name` keeps the named binary
+runclean=1
+rm -rf tests/out/runclean.d
+mkdir -p tests/out/runclean.d
+printf '%s\n' '"run ok\n";' > tests/out/runclean.d/t.HC
+for b in $backends; do
+	[ "$b" = js ] && continue   # js output name is the -o path, not a.out
+	out=$(cd tests/out/runclean.d && ../../../aholyc run -b "$b" t.HC 2>/dev/null)
+	left=$(cd tests/out/runclean.d && ls -A | grep -v '^t.HC$')
+	[ "$out" = "run ok" ] && [ -z "$left" ] || { runclean=0; echo "  left: [$left]"; }
+	(cd tests/out/runclean.d && ../../../aholyc -b "$b" t.HC >/dev/null 2>&1)
+	[ -f tests/out/runclean.d/a.out ] || runclean=0        # plain build keeps a.out
+	rm -f tests/out/runclean.d/a.out
+	(cd tests/out/runclean.d && ../../../aholyc run -b "$b" -o keep t.HC >/dev/null 2>&1)
+	[ -f tests/out/runclean.d/keep ] || runclean=0          # run -o keeps the binary
+	rm -f tests/out/runclean.d/keep
+done
+if [ "$runclean" = 1 ]; then
+	echo "ok   run(no binary left behind)"
+else
+	echo "FAIL run(no binary left behind)"
+	fail=1
+fi
+
 # stdin as a source: aholyc run - < prog.HC builds a scratch ./.a.out, runs it,
 # and removes it — nothing is left behind in the working directory
 printf '%s\n' '"stdin ok\n";' > tests/out/stdin.HC

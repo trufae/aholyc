@@ -62,8 +62,8 @@ static int usage(int code) {
 		"  CFLAGS        extra flags passed to the C compiler on every invocation\n"
 		"  LDFLAGS       extra flags passed to the linker (ignored with -c)\n"
 		"\n"
-		"stdin: '-' reads HolyC source from stdin; 'run' with no -o builds a\n"
-		"scratch ./.a.out removed after the run; with -S, '-o -' writes the\n"
+		"'run' with no -o builds a scratch ./.a.out removed after the run;\n"
+		"stdin: '-' reads HolyC source from stdin; with -S, '-o -' writes the\n"
 		"artifact to stdout\n"
 		"\n"
 		"backends:\n");
@@ -221,7 +221,6 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 	}
 	/* classify inputs: HolyC sources vs objects/archives for the linker */
 	Argv sources = { 0 }, objects = { 0 };
-	bool src_stdin = false;
 	for (int i = 0; i < inputs.n; i++) {
 		const char *in = inputs.v[i];
 		size_t l = strlen (in);
@@ -229,7 +228,6 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 			arg_push (cc, &objects, in);
 		} else {
 			arg_push (cc, &sources, in);
-			src_stdin |= !strcmp (in, "-");
 		}
 	}
 
@@ -307,10 +305,12 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 		return 0;
 	}
 
-	/* stdin + run: hidden scratch binary, removed after the run */
+	/* 'run' with no -o builds a hidden scratch binary removed after the run,
+	 * so `aholyc run x.HC` leaves nothing behind; a plain build still writes
+	 * a.out */
 	bool tmpout = false;
 	if (!outpath) {
-		tmpout = run && src_stdin;
+		tmpout = run;
 		outpath = tmpout? ".a.out": "a.out";
 	}
 	int r;

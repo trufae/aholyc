@@ -5,7 +5,7 @@ aholyc behaves like a normal C compiler:
 ```console
 $ aholyc program.HC                 # build ./a.out with the default backend
 $ aholyc program.HC -o program      # choose the output name
-$ aholyc run program.HC             # build and run
+$ aholyc run program.HC             # build and run, leaving no binary behind
 $ aholyc run program.HC one -x      # build, run, and pass program arguments
 $ aholyc -b c program.HC            # pick a backend: llvm, c, js
 $ aholyc -S -b llvm program.HC      # emit program.ll only, don't build
@@ -75,10 +75,9 @@ Without `run`, run the output executable directly to supply arguments. The
 `-` as an input file reads HolyC source from stdin. For example,
 `aholyc run - < prog.HC` and `echo '"hi\n";' | aholyc run -` compile from stdin;
 invoking `aholyc` without an input file prints usage and exits with status 1.
-With `run` and no `-o`, a stdin build uses a scratch `./.a.out` that is
-removed after the run, leaving nothing behind (`-k` keeps it). Default
-artifact names for stdin input use the stem `stdin` (`-S` → `stdin.ll`,
-`-c` → `stdin.o`), `-o -` with `-S` writes the artifact to stdout (and is
+Default artifact names for stdin input use the stem `stdin` (`-S` →
+`stdin.ll`, `-c` → `stdin.o`), `-o -` with `-S` writes the artifact to
+stdout (and is
 rejected without `-S`), and `#include` directives resolve relative to the
 current directory.
 
