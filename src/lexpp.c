@@ -37,31 +37,6 @@ static Token *new_eof(Aholyc *cc, Token *near) {
 	return t;
 }
 
-static void inherit_hint(Aholyc *cc, Token *src, Token *dst) {
-	if (!dst) {
-		return;
-	}
-	if (src->hint_bits) {
-		if (dst->hint_bits) {
-			error_tok (cc, src, "duplicate @bits hint on declaration");
-		}
-		dst->hint_bits = src->hint_bits;
-	}
-	if (src->hint_align) {
-		if (dst->hint_align) {
-			error_tok (cc, src, "duplicate @align hint on declaration");
-		}
-		dst->hint_align = src->hint_align;
-	}
-	if (src->hints) {
-		unsigned funcs = HINT_INLINE | HINT_NOINLINE;
-		if (src->hints & funcs && dst->hints & funcs) {
-			error_tok (cc, src, "duplicate hint on declaration");
-		}
-		dst->hints |= src->hints;
-	}
-}
-
 /* ---- #if/#assert constant-expression evaluation (token-level) -------- */
 
 /* Object-macro-expand a directive line's tokens, resolving defined(X) /
@@ -497,7 +472,7 @@ Token *lex_preprocess(Aholyc *cc, Token *tok) {
 			AholyMacro *m = find_macro (cc, tok->str);
 			if (m) {
 				if (!m->body) {
-					inherit_hint (cc, tok, tok->next);
+					lex_hints_inherit (cc, tok, tok->next);
 					tok = tok->next;
 					continue;
 				}
@@ -514,7 +489,7 @@ Token *lex_preprocess(Aholyc *cc, Token *tok) {
 					bc = bc->next;
 				}
 				bc->next = tok->next;
-				inherit_hint (cc, tok, bh.next);
+				lex_hints_inherit (cc, tok, bh.next);
 				tok = bh.next;
 				continue;
 			}

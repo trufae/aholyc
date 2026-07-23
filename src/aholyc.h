@@ -44,6 +44,11 @@ typedef enum {
 typedef struct Token Token;
 #define HINT_INLINE 1
 #define HINT_NOINLINE 2
+typedef struct {
+	int bits;
+	int align;
+	unsigned attrs;
+} LexHints;
 struct Token {
 	TokenKind kind;
 	Token *next;
@@ -248,8 +253,12 @@ Token *token_join(Token *a, Token *b);
 void lex_add_include_dir(Aholyc *cc, const char *dir);
 bool lex_set_cwd(Aholyc *cc, const char *path);
 void lex_reset(Aholyc *cc);
-/* preprocessor (lexpp.c); tokenize + search_include (lex.c) are shared
- * between the two translation units */
+/* comment hints (lexhints.c) */
+void lex_hints_scan_comment(Aholyc *cc, LexHints *pending,
+	const char *start, const char *end, const char *fname, int line);
+void lex_hints_apply(LexHints *pending, Token *tok);
+void lex_hints_inherit(Aholyc *cc, Token *src, Token *dst);
+/* preprocessor (lexpp.c); tokenize + search_include (lex.c) are shared */
 Token *lex_preprocess(Aholyc *cc, Token *raw);
 void lex_define(Aholyc *cc, const char *name, const char *value);
 bool lex_is_identifier(const char *s);

@@ -1,6 +1,6 @@
-/* aholyc lexer: tokenizer, comment/hint scanning, include-path search, and
- * the compiler-instance lifecycle. The token-level preprocessor lives in
- * lexpp.c (which shares tokenize and search_include from here). */
+/* aholyc lexer: tokenizer, include-path search, and compiler-instance
+ * lifecycle. Comment hints and the token-level preprocessor live in
+ * lexhints.c and lexpp.c, respectively. */
 #include "aholyc.h"
 #include <unistd.h>
 #include <sys/stat.h>
@@ -120,117 +120,6 @@ bool lex_is_identifier(const char *s) {
 	return !*s;
 }
 
-static bool comment_space(int c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
-static bool hint_is(const char *p, int n, const char *name) {
-	return n == (int)strlen (name) && !strncmp (p, name, n);
-}
-static const char *skip_comment_space(const char *p, const char *end) {
-	while (p < end && comment_space ((unsigned char)*p)) p++;
-	return p;
-}
-
-/* Extract supported source hints from a comment.  Unknown @names remain
- * ordinary comment text. */
-static void scan_comment_hint(Aholyc *cc, const char *start, const char *end,
-                              const char *fname, int line,
-                              int *pending_bits, int *pending_align,
-                              unsigned *pending_hints) {
-	if (!cc->use_hints) {
-		return;
-	}
-	for (const char *p = start; p < end; p++) {
-		if (*p != '@') {
-			continue;
-		}
-		const char *q = p + 1;
-		while (q < end && ident_cont ((unsigned char)*q)) {
-			q++;
-		}
-		int n = q - p - 1;
-		if (hint_is (p + 1, n, "align")) {
-			q = skip_comment_space (q, end);
-			int a = -1;
-			if (q < end && *q == '=') {
-				q++;
-				q = skip_comment_space (q, end);
-				a = 0;
-				while (q < end && *q >= '0' && *q <= '9') {
-					if (a <= 1048576) a = a * 10 + *q - '0';
-					q++;
-				}
-				if (a < 1 || a > 1048576 || (a & (a - 1))) {
-					error (cc, "%s:%d: @align must be a power of two", fname, line);
-				}
-				if (q < end && !comment_space ((unsigned char)*q) && *q != '@') {
-					error (cc, "%s:%d: malformed @align hint", fname, line);
-				}
-			}
-			if (*pending_align) {
-				error (cc, "%s:%d: duplicate @align hint before declaration", fname, line);
-			}
-			*pending_align = a;
-			p = q - 1;
-			continue;
-		}
-		unsigned hint = hint_is (p + 1, n, "inline")? HINT_INLINE:
-			hint_is (p + 1, n, "noinline")? HINT_NOINLINE: 0;
-		if (hint) {
-			if (*pending_hints) {
-					error (cc, "%s:%d: duplicate hint before declaration", fname, line);
-			}
-			*pending_hints |= hint;
-			p = q - 1;
-			continue;
-		}
-		bool pkg = hint_is (p + 1, n, "pkgconfig");
-		if (pkg || hint_is (p + 1, n, "cflags") || hint_is (p + 1, n, "ldflags")) {
-			/* build-flag hints: the rest of the line joins the
-			 * toolchain command, on the same stream as -I/-L/-l */
-			q = skip_comment_space (q, end);
-			if (q == end || *q != '=') {
-				error (cc, "%s:%d: malformed @%.*s hint (expected =%s)",
-					fname, line, n, p + 1, pkg? "name": "flags");
-			}
-			const char *w = ++q;
-			while (q < end && *q != '\n' && *q != '\r') q++;
-			char *rest = xasprintf (cc, "%.*s", (int)(q - w), w);
-			if (pkg) pkgconfig_push (cc, rest);
-			else arg_push_words (cc, &cc->ccflags, rest);
-			p = q - 1;
-			continue;
-		}
-		if (!hint_is (p + 1, n, "bits")) {
-			continue;
-		}
-		q = skip_comment_space (q, end);
-		if (q == end || *q++ != '=') {
-			error (cc, "%s:%d: malformed @bits hint (expected @bits=N)", fname, line);
-		}
-		q = skip_comment_space (q, end);
-		if (q == end || *q < '0' || *q > '9') {
-			error (cc, "%s:%d: malformed @bits hint (expected @bits=N)", fname, line);
-		}
-		int width = 0;
-		while (q < end && *q >= '0' && *q <= '9') {
-			if (width <= 128) {
-				width = width * 10 + (*q - '0');
-			}
-			q++;
-		}
-		if (q < end && !comment_space ((unsigned char)*q) && *q != '@') {
-			error (cc, "%s:%d: malformed @bits hint (expected @bits=N)", fname, line);
-		}
-		if (width < 1 || width > 128) {
-			error (cc, "%s:%d: @bits width must be between 1 and 128", fname, line);
-		}
-		if (*pending_bits) {
-			error (cc, "%s:%d: duplicate @bits hint before declaration", fname, line);
-		}
-		*pending_bits = width;
-		p = q - 1;
-	}
-}
-
 static int hexval(int c) {
 	if (c >= '0' && c <= '9') return c - '0';
 	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
@@ -282,9 +171,7 @@ Token *tokenize(Aholyc *cc, const char *src, const char *fname) {
 	Token *cur = &head;
 	const char *p = src;
 	bool bol = true, space = false;
-	int pending_bits = 0;
-	int pending_align = 0;
-	unsigned pending_hints = 0;
+	LexHints pending = {0};
 
 	while (*p) {
 		if (*p == '\n') { tz.line++; bol = true; space = false; p++; continue; }
@@ -294,7 +181,7 @@ Token *tokenize(Aholyc *cc, const char *src, const char *fname) {
 			const char *start = p + 2;
 			p = start;
 			while (*p && *p != '\n') p++;
-			scan_comment_hint (cc, start, p, fname, line, &pending_bits, &pending_align, &pending_hints);
+			lex_hints_scan_comment (cc, &pending, start, p, fname, line);
 			continue;
 		}
 		if (p[0] == '/' && p[1] == '*') {
@@ -305,7 +192,7 @@ Token *tokenize(Aholyc *cc, const char *src, const char *fname) {
 				if (*p == '\n') tz.line++;
 				p++;
 			}
-			scan_comment_hint (cc, start, p, fname, line, &pending_bits, &pending_align, &pending_hints);
+			lex_hints_scan_comment (cc, &pending, start, p, fname, line);
 			if (*p) p += 2;
 			space = true;
 			continue;
@@ -427,18 +314,7 @@ Token *tokenize(Aholyc *cc, const char *src, const char *fname) {
 					fname, tz.line, *p, (unsigned char)*p);
 			}
 		}
-		if (pending_bits) {
-			t->hint_bits = pending_bits;
-			pending_bits = 0;
-		}
-		if (pending_align) {
-			t->hint_align = pending_align;
-			pending_align = 0;
-		}
-		if (pending_hints) {
-			t->hints = pending_hints;
-			pending_hints = 0;
-		}
+		lex_hints_apply (&pending, t);
 		t->at_bol = bol;
 		t->has_space = space;
 		bol = false;

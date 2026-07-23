@@ -60,7 +60,7 @@ conditionals.
 - Expansion re-scans, with a self-reference guard (`no_expand`) so
   `#define A A` doesn't loop.
 - Hints attached to a macro invocation are inherited by the expansion
-  (`inherit_hint`), so `/* @align */ SOMECLASS` works.
+  (`lex_hints_inherit`), so `/* @align */ SOMECLASS` works.
 - **No function-like macros** and **no `#`/`##`** operators — faithful to
   TempleOS.
 
