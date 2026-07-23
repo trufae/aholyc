@@ -385,6 +385,19 @@ CFLAGS='-DHC_ENV_CFLAG' LDFLAGS='-DHC_ENV_LDFLAG' ./aholyc -V -b c -c \
 	tests/mod_a.HC -o tests/out/mod_env.o 2>>tests/out/env-flags.err || envok=0
 grep -q 'HC_ENV_CFLAG' tests/out/env-flags.err || envok=0
 grep -q 'HC_ENV_LDFLAG' tests/out/env-flags.err && envok=0
+# @cflags/@ldflags source hints feed the same streams; -fno-hints ignores
+# them, which must surface as a link failure here
+printf '%s\n' '// @cflags=-DHC_HINT_CFLAG' '// @ldflags=-Ltests/out -lhctest' \
+	'extern I64 Quad(I64 x);' '"quad(%d)=%d\n", 7, Quad(7);' \
+	> tests/out/hintflags.HC
+if [ -f tests/out/libhctest.a ]; then
+	./aholyc -V -b c tests/out/hintflags.HC -o tests/out/hintflags \
+		2>tests/out/hint-flags.err || envok=0
+	grep -q 'HC_HINT_CFLAG' tests/out/hint-flags.err || envok=0
+	[ "$(tests/out/hintflags 2>&1)" = "quad(7)=28" ] || envok=0
+	./aholyc -fno-hints -b c tests/out/hintflags.HC \
+		-o tests/out/hintflags-no 2>/dev/null && envok=0
+fi
 if [ "$envok" = 1 ]; then
 	echo "ok   env-flags(CFLAGS/LDFLAGS)"
 else

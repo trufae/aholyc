@@ -183,4 +183,6 @@ the same hosted process-status semantics.
   command line, make-style: `CFLAGS` on every compile, `LDFLAGS` only on
   executable links. The way to pass flags that have no aholyc option,
   e.g. `LDFLAGS='-framework AppKit' aholyc app.HC`. `#exe{}` builds are
-  internal to the compiler and unaffected.
+  internal to the compiler and unaffected. Sources can carry the same
+  words themselves with the `@cflags`/`@ldflags` comment hints
+  ([hints.md](hints.md)).

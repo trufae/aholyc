@@ -87,6 +87,9 @@ static Token *new_token(Tokenizer *tz, TokenKind kind) {
 static bool ident_start(int c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }
 static bool ident_cont(int c) { return ident_start (c) || (c >= '0' && c <= '9'); }
 static bool comment_space(int c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
+static bool hint_is(const char *p, int n, const char *name) {
+	return n == (int)strlen (name) && !strncmp (p, name, n);
+}
 static const char *skip_comment_space(const char *p, const char *end) {
 	while (p < end && comment_space ((unsigned char)*p)) p++;
 	return p;
@@ -110,7 +113,7 @@ static void scan_comment_hint(Aholyc *cc, const char *start, const char *end,
 			q++;
 		}
 		int n = q - p - 1;
-		if (n == 5 && !strncmp (p + 1, "align", 5)) {
+		if (hint_is (p + 1, n, "align")) {
 			q = skip_comment_space (q, end);
 			int a = -1;
 			if (q < end && *q == '=') {
@@ -135,8 +138,8 @@ static void scan_comment_hint(Aholyc *cc, const char *start, const char *end,
 			p = q - 1;
 			continue;
 		}
-		unsigned hint = n == 6 && !strncmp (p + 1, "inline", 6)? HINT_INLINE:
-			n == 8 && !strncmp (p + 1, "noinline", 8)? HINT_NOINLINE: 0;
+		unsigned hint = hint_is (p + 1, n, "inline")? HINT_INLINE:
+			hint_is (p + 1, n, "noinline")? HINT_NOINLINE: 0;
 		if (hint) {
 			if (*pending_hints) {
 					error (cc, "%s:%d: duplicate hint before declaration", fname, line);
@@ -145,7 +148,25 @@ static void scan_comment_hint(Aholyc *cc, const char *start, const char *end,
 			p = q - 1;
 			continue;
 		}
-		if (n != 4 || strncmp (p + 1, "bits", 4)) {
+		if (hint_is (p + 1, n, "cflags") || hint_is (p + 1, n, "ldflags")) {
+			/* build-flag hints: the rest of the line joins the
+			 * toolchain command, on the same stream as -I/-L/-l */
+			q = skip_comment_space (q, end);
+			if (q == end || *q != '=') {
+				error (cc, "%s:%d: malformed @%.*s hint (expected =flags)",
+					fname, line, n, p + 1);
+			}
+			q++;
+			while (q < end && *q != '\n') {
+				if (comment_space ((unsigned char)*q)) { q++; continue; }
+				const char *w = q;
+				while (q < end && !comment_space ((unsigned char)*q)) q++;
+				arg_push (cc, &cc->ccflags, xasprintf (cc, "%.*s", (int)(q - w), w));
+			}
+			p = q - 1;
+			continue;
+		}
+		if (!hint_is (p + 1, n, "bits")) {
 			continue;
 		}
 		q = skip_comment_space (q, end);

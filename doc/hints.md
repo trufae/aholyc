@@ -158,6 +158,24 @@ of the language.  A future implementation should specify whether the hint
 applies to a declaration, expression, or block, and whether signed overflow,
 unsigned carry, or both raise an exception.
 
+## Build flags
+
+`@cflags` and `@ldflags` let a source file name the toolchain flags it needs,
+so its users do not have to pass `-l`/`-L` (or set `CFLAGS`/`LDFLAGS`) to
+build it:
+
+```holyc
+// @ldflags=-framework AppKit -lobjc
+extern I64 objc_getClass(U8 *name);
+```
+
+The value is the rest of the line: space-separated words, no quoting, one
+hint per line. The words are appended to every toolchain invocation on the
+same stream as `-I`/`-L`/`-l` options and accumulate across comments and
+source files; the two spellings state intent. With `-fno-hints` they are
+ordinary comments, so a program relying on `@ldflags` fails to link; pass
+the flags explicitly in that case.
+
 ## Compatibility
 
 Hints must remain inside comments and must not be required to parse ordinary
