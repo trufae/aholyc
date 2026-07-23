@@ -111,13 +111,46 @@ static Token *new_token(Tokenizer *tz, TokenKind kind) {
 static bool ident_start(int c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }
 static bool ident_cont(int c) { return ident_start (c) || (c >= '0' && c <= '9'); }
 
+static bool word_in(const char *s, const char *const *words) {
+	for (int i = 0; words[i]; i++) {
+		if (!strcmp (s, words[i])) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static TokenKind word_kind(const char *s) {
+	static const char *const types[] = {
+		"U0", "I8", "U8", "I16", "U16", "I32", "U32", "I64", "U64",
+		"F64", NULL
+	};
+	/* offset/start/end and reg/noreg are contextual in HolyC and remain
+	 * identifiers: existing code commonly uses them as fields or locals. */
+	static const char *const keywords[] = {
+		"_extern", "_import", "argpop", "asm", "break", "case", "catch",
+		"class", "continue", "default", "do", "else", "extern", "for",
+		"goto", "haserrcode", "if", "import", "interrupt", "lastclass",
+		"lock", "no_warn", "noargpop", "public", "return", "sizeof",
+		"switch", "try", "union", "while", NULL
+	};
+	if (word_in (s, types)) {
+		return TK_TYPE;
+	}
+	if (word_in (s, keywords)) {
+		return TK_KEYWORD;
+	}
+	return TK_ID;
+}
+
 bool lex_is_identifier(const char *s) {
 	if (!s || !ident_start ((unsigned char)*s)) {
 		return false;
 	}
+	const char *start = s;
 	while (ident_cont ((unsigned char)*++s)) {
 	}
-	return !*s;
+	return !*s && word_kind (start) == TK_ID;
 }
 
 static int hexval(int c) {
@@ -206,6 +239,7 @@ Token *tokenize(Aholyc *cc, const char *src, const char *fname) {
 			t->str = xmalloc (cc, t->len + 1);
 			memcpy (t->str, s, t->len);
 			t->str[t->len] = 0;
+			t->kind = word_kind (t->str);
 		} else if ((*p >= '0' && *p <= '9') ||
 		           (*p == '.' && p[1] >= '0' && p[1] <= '9')) {
 			/* number: hex, binary, decimal int or float */

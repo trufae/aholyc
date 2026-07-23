@@ -15,8 +15,14 @@ static AholyMacro *find_macro(Aholyc *cc, const char *name) {
 	return NULL;
 }
 
+static bool tok_is_word(Token *t) {
+	return t && (t->kind == TK_ID || t->kind == TK_KEYWORD ||
+		t->kind == TK_TYPE);
+}
+
 static bool tok_is(Token *t, const char *s) {
-	return (t->kind == TK_ID || t->kind == TK_PUNCT) && t->str && !strcmp (t->str, s);
+	return (tok_is_word (t) || t->kind == TK_PUNCT) &&
+		t->str && !strcmp (t->str, s);
 }
 
 static Token *copy_token(Aholyc *cc, Token *t) {
@@ -232,7 +238,7 @@ static Token *skip_cond(Token *t, bool *hit_else) {
 	while (t->kind != TK_EOF) {
 		if (t->at_bol && tok_is (t, "#")) {
 			Token *d = t->next;
-			if (d->kind == TK_ID) {
+			if (tok_is_word (d)) {
 				if (!strncmp (d->str, "if", 2)) {
 					depth++;
 				} else if (!strcmp (d->str, "endif")) {
@@ -287,7 +293,7 @@ Token *lex_preprocess(Aholyc *cc, Token *tok) {
 		if (tok->at_bol && tok_is (tok, "#")) {
 			Token *d = tok->next;
 			int dline = tok->line;
-			if (d->kind != TK_ID) {
+			if (!tok_is_word (d)) {
 				error_tok (cc, tok, "invalid preprocessor directive");
 			}
 			if (!strcmp (d->str, "include")) {
@@ -343,7 +349,10 @@ Token *lex_preprocess(Aholyc *cc, Token *tok) {
 			}
 			if (!strcmp (d->str, "undef")) {
 				Token *n = d->next;
-				AholyMacro *m = n->kind == TK_ID? find_macro (cc, n->str): NULL;
+				if (n->kind != TK_ID) {
+					error_tok (cc, n, "#undef expects a name");
+				}
+				AholyMacro *m = find_macro (cc, n->str);
 				if (m) {
 					*m->name = 0; /* dead */
 				}

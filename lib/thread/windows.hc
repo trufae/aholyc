@@ -14,13 +14,13 @@ extern Bool SwitchToThread();
 extern U32 SleepEx(U32 milliseconds, Bool alertable);
 extern U0 ExitThread(U32 exit_code);
 
-extern U0 InitializeSRWLock(U8 *lock);
-extern U0 AcquireSRWLockExclusive(U8 *lock);
-extern Bool TryAcquireSRWLockExclusive(U8 *lock);
-extern U0 ReleaseSRWLockExclusive(U8 *lock);
+extern U0 InitializeSRWLock(U8 *srw);
+extern U0 AcquireSRWLockExclusive(U8 *srw);
+extern Bool TryAcquireSRWLockExclusive(U8 *srw);
+extern U0 ReleaseSRWLockExclusive(U8 *srw);
 
 extern U0 InitializeConditionVariable(U8 *condition);
-extern Bool SleepConditionVariableSRW(U8 *condition, U8 *lock,
+extern Bool SleepConditionVariableSRW(U8 *condition, U8 *srw,
   U32 milliseconds, U32 flags);
 extern U0 WakeConditionVariable(U8 *condition);
 

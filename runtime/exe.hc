@@ -10,6 +10,8 @@
 #define TK_STR   4
 #define TK_CHR   5
 #define TK_PUNCT 6
+#define TK_KEYWORD 7
+#define TK_TYPE  8
 
 // Mirror of struct Token in src/aholyc.h: same names, same offsets.
 // ExeStream() points at the compiler's live tokens, so writes here
@@ -22,7 +24,7 @@ class Token
   Token *next;
   I64 ival;       // TK_NUM, TK_CHR
   F64 fval;       // TK_FNUM
-  U8 *str;        // TK_STR bytes; TK_ID/TK_PUNCT text
+  U8 *str;        // TK_STR bytes; TK_ID/TK_KEYWORD/TK_TYPE/TK_PUNCT text
   I32 len;
   $$ = 48;
   U8 *file;

@@ -33,12 +33,14 @@ typedef struct { void (*fn)(void *); void *arg; } AholyCleanup;
 
 typedef enum {
 	TK_EOF,
-	TK_ID,     /* identifier or keyword */
+	TK_ID,     /* user identifier */
 	TK_NUM,    /* integer literal (i64) */
 	TK_FNUM,   /* float literal (f64) */
 	TK_STR,    /* string literal */
 	TK_CHR,    /* char literal (multi-char, packed little-endian) */
 	TK_PUNCT,  /* operator / punctuation */
+	TK_KEYWORD,
+	TK_TYPE,   /* built-in type name */
 } TokenKind;
 
 typedef struct Token Token;
@@ -54,7 +56,7 @@ struct Token {
 	Token *next;
 	int64_t ival;      /* TK_NUM, TK_CHR */
 	double fval;       /* TK_FNUM */
-	char *str;         /* TK_STR: decoded bytes; TK_ID/TK_PUNCT: text */
+	char *str;         /* TK_STR: decoded bytes; word/punctuation token text */
 	int len;           /* length of str (TK_STR may contain NULs) */
 	char *file;        /* source file name */
 	int line;

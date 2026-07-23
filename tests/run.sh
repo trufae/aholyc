@@ -173,6 +173,84 @@ else
 	fail=1
 fi
 
+# Primitive types, class types, and hard keywords are not legal symbol names.
+# Keep the cases separate so every declaration path reaches the same early
+# reserved-name validation instead of leaking a bad name into a backend.
+reservedok=1
+check_reserved_name() {
+	label=$1
+	source=$2
+	expected=$3
+	if printf '%s\n' "$source" |
+		./aholyc -S -b c -o tests/out/reserved-name.c - \
+			>/dev/null 2>tests/out/reserved-name.err; then
+		echo "  accepted: $label"
+		reservedok=0
+	elif ! grep -Fq "$expected" tests/out/reserved-name.err; then
+		echo "  wrong diagnostic: $label"
+		head -1 tests/out/reserved-name.err
+		reservedok=0
+	fi
+}
+check_reserved_name "global/type" \
+	'I64 I64 = 0;' "'I64' is reserved"
+check_reserved_name "global/pointer-type" \
+	'I64 *F64;' "'F64' is reserved"
+check_reserved_name "global/keyword" \
+	'I64 if = 0;' "'if' is reserved"
+check_reserved_name "secondary declarator" \
+	'I64 good, return;' "'return' is reserved"
+check_reserved_name "function/type" \
+	'I64 U64() { return 0; }' "'U64' is reserved"
+check_reserved_name "parameter/keyword" \
+	'I64 Good(I64 while) { return 0; }' "'while' is reserved"
+check_reserved_name "local/keyword" \
+	'I64 Good() { I64 public = 0; return 0; }' "'public' is reserved"
+check_reserved_name "class/type" \
+	'class I32 { I64 value; };' "'I32' is reserved"
+check_reserved_name "member/type" \
+	'class Good { I64 U8; };' "'U8' is reserved"
+check_reserved_name "function-pointer/keyword" \
+	'I64 (*return)(I64);' "'return' is reserved"
+check_reserved_name "goto/type-label" \
+	'I64 Good() { goto I16; }' "'I16' is reserved"
+check_reserved_name "keyword-label" \
+	'I64 Good() { return: return 0; }' "'return' is reserved"
+check_reserved_name "class-name/global" \
+	'class Thing { I64 value; }; I64 Thing;' \
+	"'Thing' is a type name"
+check_reserved_name "class-name/function" \
+	'class Thing { I64 value; }; I64 Thing() { return 0; }' \
+	"'Thing' is a type name"
+check_reserved_name "class-name/member" \
+	'class Thing { I64 value; }; class Box { I64 Thing; };' \
+	"'Thing' is a type name"
+check_reserved_name "macro-expanded/type" \
+	'#define BAD I64
+I64 BAD;' "'I64' is reserved"
+
+# These spellings are contextual in HolyC and remain usable as ordinary names
+# where their special grammar is not active.  Directives must also keep
+# working now that #if/#else arrive from the lexer as keyword tokens.
+printf '%s\n' \
+	'I64 start = 0, end = 1, reg = 2, noreg = 3;' \
+	'class Context { I64 offset; I64 reg; };' \
+	'Context value;' \
+	'value.offset = start + end + reg + noreg;' \
+	'#if 1' 'I64 ordinary = 4;' '#else' 'I64 skipped = 5;' '#endif' \
+	> tests/out/reserved-context.HC
+./aholyc -S -b c tests/out/reserved-context.HC \
+	-o tests/out/reserved-context.c >/dev/null 2>&1 || reservedok=0
+echo 'I64 value;' |
+	./aholyc -S -b c -DI64=1 -o tests/out/reserved-define.c - \
+		>/dev/null 2>&1 && reservedok=0
+if [ "$reservedok" = 1 ]; then
+	echo "ok   reserved names"
+else
+	echo "FAIL reserved names"
+	fail=1
+fi
+
 # -D defines: dispatch is plain #ifdef on distinct macros (no automatic
 # name_value combo define), the last -D of a name wins, #undef in the source
 # beats the command line, a missing name is an error, and the host platform
@@ -182,8 +260,8 @@ printf '%s\n' '#ifdef UI_GTK4' '"gtk4\n";' '#else' '#ifdef UI_COCOA' \
 	'"cocoa\n";' '#else' '"none\n";' '#endif' '#endif' \
 	> tests/out/def-dispatch.HC
 [ "$(./aholyc run -b c tests/out/def-dispatch.HC 2>/dev/null)" = none ] || defok=0
-[ "$(./aholyc run -b c -DUI_BACKEND=UI_GTK4 tests/out/def-dispatch.HC 2>/dev/null)" = gtk4 ] || defok=0
-[ "$(./aholyc run -b c -DUI_BACKEND=UI_COCOA tests/out/def-dispatch.HC 2>/dev/null)" = cocoa ] || defok=0
+[ "$(./aholyc run -b c -DUI_GTK4 tests/out/def-dispatch.HC 2>/dev/null)" = gtk4 ] || defok=0
+[ "$(./aholyc run -b c -DUI_COCOA tests/out/def-dispatch.HC 2>/dev/null)" = cocoa ] || defok=0
 [ "$(./aholyc run -b c -DUI_BACKEND=UI_GTK4 tests/out/def-dispatch.HC 2>/dev/null)" = none ] || defok=0
 printf '%s\n' '"v=%d\n", VAL;' '#ifdef VAL_7' '"combo\n";' '#endif' \
 	> tests/out/def-value.HC

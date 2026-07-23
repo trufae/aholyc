@@ -14,8 +14,8 @@ static void add_define(Aholyc *cc, const char *arg) {
 	if (value) {
 		*value++ = 0;
 	}
-	if (!*name) {
-		error (cc, "-D needs a macro name");
+	if (!lex_is_identifier (name)) {
+		error (cc, "-D needs a non-reserved identifier as its macro name");
 	}
 	lex_define (cc, name, value? value: "1");
 }

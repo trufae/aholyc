@@ -149,6 +149,32 @@ static Type *find_class(Parser *ps, const char *name) {
 	return NULL;
 }
 
+static bool is_lexical_name(Token *t) {
+	return t->kind == TK_ID;
+}
+
+static void reject_reserved_name(Parser *ps, Token *t, const char *what,
+		bool reject_class) {
+	if (t->kind == TK_KEYWORD || t->kind == TK_TYPE) {
+		error_tok (ps->cc, t, "'%s' is reserved and cannot be used as %s",
+			t->str, what);
+	}
+	if (reject_class && t->kind == TK_ID && find_class (ps, t->str)) {
+		error_tok (ps->cc, t, "'%s' is a type name and cannot be used as %s",
+			t->str, what);
+	}
+}
+
+static char *take_name(Parser *ps, const char *what, bool reject_class) {
+	reject_reserved_name (ps, ps->tk, what, reject_class);
+	if (!is_lexical_name (ps->tk)) {
+		error_tok (ps->cc, ps->tk, "expected %s", what);
+	}
+	char *name = ps->tk->str;
+	ps->tk = ps->tk->next;
+	return name;
+}
+
 static void scope_push(Parser *ps, char *name, Obj *var) {
 	VarScope *v = xcalloc (ps->cc, 1, sizeof(VarScope));
 	v->name = name;
@@ -206,11 +232,14 @@ static bool is_punct(Parser *ps, const char *s) {
 }
 
 static bool is_kw(Parser *ps, const char *s) {
-	return ps->tk->kind == TK_ID && !strcmp (ps->tk->str, s);
+	return (ps->tk->kind == TK_ID || ps->tk->kind == TK_KEYWORD) &&
+		!strcmp (ps->tk->str, s);
 }
 
 static bool eat(Parser *ps, const char *s) {
-	if ((ps->tk->kind == TK_PUNCT || ps->tk->kind == TK_ID) && ps->tk->str && !strcmp (ps->tk->str, s)) {
+	if ((ps->tk->kind == TK_PUNCT || ps->tk->kind == TK_ID ||
+	     ps->tk->kind == TK_KEYWORD) &&
+	    ps->tk->str && !strcmp (ps->tk->str, s)) {
 		ps->tk = ps->tk->next;
 		return true;
 	}
@@ -518,10 +547,10 @@ static Type *builtin_type(const char *s) {
 }
 
 static bool is_type_start(Parser *ps, Token *t) {
-	if (t->kind != TK_ID) {
-		return false;
+	if (t->kind == TK_TYPE) {
+		return builtin_type (t->str) != NULL;
 	}
-	return builtin_type (t->str) || find_class (ps, t->str);
+	return t->kind == TK_ID && find_class (ps, t->str);
 }
 
 /* parse base type + leading stars */
@@ -829,14 +858,13 @@ static Node *primary(Parser *ps) {
 			error_tok (ps->cc, t, "offset(Class.member) expects a class name");
 		}
 		expect (ps, ".");
-		if (ps->tk->kind != TK_ID) {
-			error_tok (ps->cc, ps->tk, "expected member name");
-		}
-		Member *m = find_member (cls, ps->tk->str);
+		Token *mt = ps->tk;
+		char *member_name = take_name (ps, "member name", true);
+		Member *m = find_member (cls, member_name);
 		if (!m) {
-			error_tok (ps->cc, ps->tk, "no member '%s' in class %s", ps->tk->str, cls->name);
+			error_tok (ps->cc, mt, "no member '%s' in class %s",
+				member_name, cls->name);
 		}
-		ps->tk = ps->tk->next;
 		expect (ps, ")");
 		return new_num (m->offset, t);
 	}
@@ -997,8 +1025,10 @@ static Node *postfix(Parser *ps) {
 		if (is_punct (ps, ".") || is_punct (ps, "->")) {
 			bool arrow = is_punct (ps, "->");
 			ps->tk = ps->tk->next;
-			if (ps->tk->kind != TK_ID) {
-				error_tok (ps->cc, ps->tk, "expected member name");
+			Token *mt = ps->tk;
+			reject_reserved_name (ps, mt, "member name", true);
+			if (!is_lexical_name (mt)) {
+				error_tok (ps->cc, mt, "expected member name");
 			}
 			Node *base = n;
 			if (arrow) {
@@ -1014,19 +1044,19 @@ static Node *postfix(Parser *ps) {
 				n = subint_access (ps, base, t);
 				continue;
 			}
+			char *member_name = take_name (ps, "member name", true);
 			if (base->ty->kind != TY_CLASS) {
 				error_tok (ps->cc, t, "member access on a non-class value");
 			}
-			Member *m = find_member (base->ty, ps->tk->str);
+			Member *m = find_member (base->ty, member_name);
 			if (!m) {
-				error_tok (ps->cc, ps->tk, "no member '%s' in class %s", ps->tk->str,
+				error_tok (ps->cc, mt, "no member '%s' in class %s", member_name,
 					base->ty->name? base->ty->name: "?");
 			}
 			Node *mn = new_node (ND_MEMBER, t);
 			mn->lhs = base;
 			mn->member_ref = m;
 			mn->ty = m->ty;
-			ps->tk = ps->tk->next;
 			n = mn;
 			continue;
 		}
@@ -1416,11 +1446,7 @@ static Node *local_decl(Parser *ps) {
 		if (is_punct (ps, "(")) {
 			ps->tk = ps->tk->next;
 			expect (ps, "*");
-			if (ps->tk->kind != TK_ID) {
-				error_tok (ps->cc, ps->tk, "expected name");
-			}
-			char *name = ps->tk->str;
-			ps->tk = ps->tk->next;
+			char *name = take_name (ps, "function pointer name", true);
 			expect (ps, ")");
 			expect (ps, "(");
 			/* skip param list: types only matter for docs */
@@ -1443,12 +1469,8 @@ static Node *local_decl(Parser *ps) {
 			}
 			continue;
 		}
-		if (ps->tk->kind != TK_ID) {
-			error_tok (ps->cc, ps->tk, "expected variable name");
-		}
-		char *name = ps->tk->str;
 		Token *nt = ps->tk;
-		ps->tk = ps->tk->next;
+		char *name = take_name (ps, "variable name", true);
 		while (eat (ps, "[")) {
 			Node *len = comma_expr (ps);
 			expect (ps, "]");
@@ -1762,6 +1784,10 @@ static Node *switch_stmt(Parser *ps, Token *t) {
 
 static Node *stmt(Parser *ps) {
 	Token *t = ps->tk;
+	if ((t->kind == TK_KEYWORD || t->kind == TK_TYPE) && t->next &&
+	    t->next->kind == TK_PUNCT && !strcmp (t->next->str, ":")) {
+		reject_reserved_name (ps, t, "label name", true);
+	}
 	if (is_punct (ps, "{")) {
 		return block_stmt (ps);
 	}
@@ -1824,7 +1850,10 @@ static Node *stmt(Parser *ps) {
 		Node *n = new_node (ND_FOR, t);
 		enter_scope (ps);
 		if (!is_punct (ps, ";")) {
-			if (is_type_start (ps, ps->tk) && ps->tk->next->kind == TK_ID) {
+			if (is_type_start (ps, ps->tk) &&
+			    (ps->tk->next->kind == TK_ID ||
+			     ps->tk->next->kind == TK_KEYWORD ||
+			     ps->tk->next->kind == TK_TYPE)) {
 				n->init = local_decl (ps);
 			} else {
 				n->init = new_expr_stmt (comma_expr (ps), t);
@@ -1895,11 +1924,7 @@ static Node *stmt(Parser *ps) {
 	}
 	if (is_kw (ps, "goto")) {
 		ps->tk = ps->tk->next;
-		if (ps->tk->kind != TK_ID) {
-			error_tok (ps->cc, ps->tk, "expected label after goto");
-		}
-		char *name = ps->tk->str;
-		ps->tk = ps->tk->next;
+		char *name = take_name (ps, "label name after goto", true);
 		expect (ps, ";");
 		label_use (ps, name, t, false);
 		return new_goto (xasprintf (ps->cc, "u_%s", name), t);
@@ -1944,10 +1969,12 @@ static Node *stmt(Parser *ps) {
 	if (is_type_start (ps, t)) {
 		Token *n1 = t->next;
 		/* distinguish `I64 x;` from expression starting with cast-able name */
-		if (n1->kind == TK_ID || (n1->kind == TK_PUNCT &&
+		if (n1->kind == TK_ID || n1->kind == TK_KEYWORD ||
+		    n1->kind == TK_TYPE || (n1->kind == TK_PUNCT &&
 		    (!strcmp (n1->str, "*") || !strcmp (n1->str, "("))) ) {
 			/* class name followed by '(' would be odd; require ident/star */
-			if (n1->kind == TK_ID || !strcmp (n1->str, "*") ||
+			if (n1->kind == TK_ID || n1->kind == TK_KEYWORD ||
+			    n1->kind == TK_TYPE || !strcmp (n1->str, "*") ||
 			    (n1->kind == TK_PUNCT && !strcmp (n1->str, "(") &&
 			     n1->next && n1->next->kind == TK_PUNCT && !strcmp (n1->next->str, "*"))) {
 				return local_decl (ps);
@@ -2027,8 +2054,9 @@ static void parse_params(Parser *ps, Obj *fn) {
 		}
 		char *name = NULL;
 		if (ps->tk->kind == TK_ID) {
-			name = ps->tk->str;
-			ps->tk = ps->tk->next;
+			name = take_name (ps, "parameter name", true);
+		} else if (ps->tk->kind == TK_KEYWORD || ps->tk->kind == TK_TYPE) {
+			reject_reserved_name (ps, ps->tk, "parameter name", true);
 		}
 		while (eat (ps, "[")) {
 			/* array param decays to pointer; size ignored */
@@ -2094,11 +2122,7 @@ static void add_func(Parser *ps, Obj *fn) {
 
 static void parse_class(Parser *ps, bool is_union, int align_all) {
 	ps->tk = ps->tk->next; /* class/union */
-	if (ps->tk->kind != TK_ID) {
-		error_tok (ps->cc, ps->tk, "expected class name");
-	}
-	char *name = ps->tk->str;
-	ps->tk = ps->tk->next;
+	char *name = take_name (ps, "class name", false);
 	Type *ty = find_class (ps, name);
 	if (!ty) {
 		ty = new_type (ps->cc, TY_CLASS, 0, 1);
@@ -2114,6 +2138,7 @@ static void parse_class(Parser *ps, bool is_union, int align_all) {
 		return; /* forward declaration */
 	}
 	if (eat (ps, ":")) {
+		reject_reserved_name (ps, ps->tk, "parent class name", false);
 		if (ps->tk->kind != TK_ID) {
 			error_tok (ps->cc, ps->tk, "expected parent class name");
 		}
@@ -2179,11 +2204,7 @@ static void parse_class(Parser *ps, bool is_union, int align_all) {
 				}
 			}
 			first = false;
-			if (ps->tk->kind != TK_ID) {
-				error_tok (ps->cc, ps->tk, "expected member name");
-			}
-			char *mname = ps->tk->str;
-			ps->tk = ps->tk->next;
+			char *mname = take_name (ps, "member name", true);
 			while (eat (ps, "[")) {
 				Node *len = comma_expr (ps);
 				expect (ps, "]");
@@ -2317,8 +2338,7 @@ static Node *global_decl(Parser *ps, Type *base, bool is_extern, bool is_public,
 			/* global function pointer */
 			ps->tk = ps->tk->next;
 			expect (ps, "*");
-			char *name = ps->tk->str;
-			ps->tk = ps->tk->next;
+			char *name = take_name (ps, "function pointer name", true);
 			expect (ps, ")");
 			expect (ps, "(");
 			int depth = 1;
@@ -2340,12 +2360,8 @@ static Node *global_decl(Parser *ps, Type *base, bool is_extern, bool is_public,
 			}
 			continue;
 		}
-		if (ps->tk->kind != TK_ID) {
-			error_tok (ps->cc, ps->tk, "expected variable name");
-		}
-		char *name = ps->tk->str;
 		Token *nt = ps->tk;
-		ps->tk = ps->tk->next;
+		char *name = take_name (ps, "variable name", true);
 		while (eat (ps, "[")) {
 			Node *len = comma_expr (ps);
 			expect (ps, "]");
@@ -2487,8 +2503,14 @@ Program *parse(Aholyc *cc, Token *tok, bool align_hints) {
 			while (eat (ps, "*")) {
 				ret = ptr_to (ps->cc, ret);
 			}
+			if ((ps->tk->kind == TK_KEYWORD || ps->tk->kind == TK_TYPE) &&
+			    ps->tk->next && ps->tk->next->kind == TK_PUNCT &&
+			    !strcmp (ps->tk->next->str, "(")) {
+				reject_reserved_name (ps, ps->tk, "function name", true);
+			}
 			if (ps->tk->kind == TK_ID && ps->tk->next && ps->tk->next->kind == TK_PUNCT &&
 			    !strcmp (ps->tk->next->str, "(")) {
+				reject_reserved_name (ps, ps->tk, "function name", true);
 				if (hint) {
 					error_tok (ps->cc, hint, "@bits applies only to integer object declarations");
 				}
