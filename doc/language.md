@@ -262,7 +262,11 @@ and `offset(Class.member)` are compile-time constants.
 
 ## Exceptions
 
-`throw(ch)` throws an exception carrying up to 8 chars. Catch blocks run
+`throw(ch)` throws an exception carrying up to 8 chars. The argument is a
+**char constant** — single quotes, `throw('oops')` — packed into the i64
+`Fs->except_ch`, not a `"string"` (which would pass a pointer and print as a
+raw address). An unhandled exception prints `Unhandled Exception '<chars>'`,
+falling back to hex if the value is not printable. Catch blocks run
 while the handler search is in progress: a catch that wants to *consume*
 the exception must say so with `Fs->catch_except = TRUE` (or call
 `PutExcept`), otherwise the search continues with the next outer handler,

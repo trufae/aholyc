@@ -242,6 +242,24 @@ else
 	fail=1
 fi
 
+# Unhandled exception message: throw() takes an up-to-8-char constant, so a
+# printable one shows as its name; a non-printable value (e.g. a mistaken
+# string/pointer throw) degrades to hex instead of spewing raw bytes.
+excmsgok=1
+for b in $backends; do
+	[ "$b" = js ] && continue
+	got=$(printf "throw('Boom');\n" | ./aholyc run -b "$b" - 2>&1)
+	[ "$got" = "Unhandled Exception 'Boom'" ] || excmsgok=0
+	got=$(printf 'throw(0xDEAD00BEEF);\n' | ./aholyc run -b "$b" - 2>&1)
+	[ "$got" = "Unhandled Exception '0xDEAD00BEEF'" ] || excmsgok=0
+done
+if [ "$excmsgok" = 1 ]; then
+	echo "ok   unhandled-exception message"
+else
+	echo "FAIL unhandled-exception message"
+	fail=1
+fi
+
 # Native exception lowering: no-throw tries need no handler, local throws use
 # branches, and only the six call-crossing handlers in this fixture setjmp.
 exceptlowerok=1

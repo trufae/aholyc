@@ -6,6 +6,9 @@
 U0 Main(I64 argc, I64 *argv)
 {
   I64 i;
+  if (argc == 0) {
+    throw('MissArgs');   // throw() takes an up-to-8-char constant, not a string
+  }
 
   for (i = 0; i < argc; i++)
     "argv[%d] = \"%s\"\n", i, argv[i];

@@ -65,6 +65,33 @@ HC_API void __hc_try_pop(void) {
 	hc_ntry--;
 }
 
+/* Format a thrown exception code for display. HolyC throw() takes an
+ * up-to-8-char constant packed little-endian into an i64; show those chars
+ * when they are printable ASCII (the usual 'Xxxx' form), else fall back to
+ * the numeric value so a stray pointer/number throw cannot spew control
+ * bytes at the terminal. buf must hold at least 24 bytes. */
+static char *hc_except_str(hc_i64 ch, char *buf) {
+	/* ch is always an int64_t (HolyC values are 64-bit on every host), so a
+	 * char constant packs up to sizeof(ch) chars, low byte first. */
+	char chars[sizeof ch + 1];
+	memcpy (chars, &ch, sizeof ch);
+	chars[sizeof ch] = 0;
+	int printable = chars[0] != 0;
+	for (size_t i = 0; i < sizeof ch && chars[i]; i++) {
+		unsigned char c = (unsigned char)chars[i];
+		if (c < 0x20 || c >= 0x7f) {
+			printable = 0;
+			break;
+		}
+	}
+	if (printable) {
+		memcpy (buf, chars, sizeof chars);
+	} else {
+		snprintf (buf, 24, "0x%llX", (unsigned long long)ch);
+	}
+	return buf;
+}
+
 HC_API void throw(hc_i64 ch) {
 	HcTask *task = __hc_fs ();
 	task->except_ch = ch;
@@ -77,17 +104,15 @@ HC_API void throw(hc_i64 ch) {
 		longjmp (hc_frames[hc_ntry], 1);
 #endif
 	}
-	char buf[9] = {0};
-	memcpy (buf, &ch, 8);
-	fprintf (stderr, "Unhandled Exception '%s'\n", buf);
+	char buf[24];
+	fprintf (stderr, "Unhandled Exception '%s'\n", hc_except_str (ch, buf));
 	exit (1);
 }
 
 HC_API void PutExcept(hc_i64 catch_it) {
 	HcTask *task = __hc_fs ();
-	char buf[9] = {0};
-	memcpy (buf, &task->except_ch, 8);
-	printf ("Except:%s\n", buf);
+	char buf[24];
+	printf ("Except:%s\n", hc_except_str (task->except_ch, buf));
 	task->catch_except = catch_it;
 }
 
