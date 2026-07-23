@@ -185,6 +185,25 @@ int run_cmd(Aholyc *cc, char *const argv[]) {
 	return WIFEXITED (st)? WEXITSTATUS (st): 1;
 }
 
+void arg_push(Aholyc *cc, Argv *a, const char *s) {
+	if (a->n == a->cap) {
+		char **v = xmalloc (cc, (a->cap += 32) * sizeof (char *));
+		if (a->n) memcpy (v, a->v, (size_t)a->n * sizeof (char *));
+		a->v = v;
+	}
+	a->v[a->n++] = (char *)s;
+}
+
+/* the space-separated words of $name (make-style CFLAGS/LDFLAGS) */
+static void arg_push_env(Aholyc *cc, Argv *a, const char *name) {
+	char *w = getenv (name);
+	for (w = w? xstrdup (cc, w): NULL; w && *w; ) {
+		if (*w == ' ') { w++; continue; }
+		arg_push (cc, a, w);
+		if ((w = strchr (w, ' '))) *w++ = 0;
+	}
+}
+
 int run_cc(Aholyc *cc, const char *tool, const char *opt, const char *out,
 		const char *const inputs[], int ninputs, bool object, bool gc) {
 	if (!tool || !*tool) {
@@ -193,27 +212,30 @@ int run_cc(Aholyc *cc, const char *tool, const char *opt, const char *out,
 	if (!tool || !*tool) {
 		tool = have_cmd (cc, "cc")? "cc": have_cmd (cc, "clang")? "clang": "gcc";
 	}
-	char *argv[160];
-	int n = 0;
-	argv[n++] = (char *)tool; argv[n++] = (char *)opt;
-	argv[n++] = "-w"; argv[n++] = "-fno-strict-aliasing";
+	Argv a = { 0 };
+	arg_push (cc, &a, tool); arg_push (cc, &a, opt);
+	arg_push (cc, &a, "-w"); arg_push (cc, &a, "-fno-strict-aliasing");
 	if (object) {
-		argv[n++] = "-c";
+		arg_push (cc, &a, "-c");
 	} else if (gc) {
-		argv[n++] = "-ffunction-sections"; argv[n++] = "-fdata-sections";
+		arg_push (cc, &a, "-ffunction-sections");
+		arg_push (cc, &a, "-fdata-sections");
 #ifdef __APPLE__
-		argv[n++] = "-Wl,-dead_strip";
+		arg_push (cc, &a, "-Wl,-dead_strip");
 #else
-		argv[n++] = "-Wl,--gc-sections";
+		arg_push (cc, &a, "-Wl,--gc-sections");
 #endif
 	}
-	argv[n++] = "-o";
-	argv[n++] = (char *)out;
-	for (int i = 0; i < ninputs; i++) argv[n++] = (char *)inputs[i];
-	for (int i = 0; i < cc->nccflags; i++) argv[n++] = cc->ccflags[i];
-	if (!object) argv[n++] = "-lm";
-	argv[n] = NULL;
-	return run_cmd (cc, argv);
+	arg_push_env (cc, &a, "CFLAGS");
+	arg_push (cc, &a, "-o"); arg_push (cc, &a, out);
+	for (int i = 0; i < ninputs; i++) arg_push (cc, &a, inputs[i]);
+	for (int i = 0; i < cc->ccflags.n; i++) arg_push (cc, &a, cc->ccflags.v[i]);
+	if (!object) {
+		arg_push_env (cc, &a, "LDFLAGS");
+		arg_push (cc, &a, "-lm");
+	}
+	arg_push (cc, &a, NULL);
+	return run_cmd (cc, a.v);
 }
 
 bool have_cmd(Aholyc *cc, const char *name) {

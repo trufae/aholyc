@@ -221,16 +221,19 @@ typedef struct {
 
 /* ------------------------------------------------------------- compiler */
 
+typedef struct { char **v; int n, cap; } Argv;
+
 struct Aholyc {
 	void *allocs;
 	AholyIncDir *inc_dirs;
 	AholyMacro *macros;
-	char *cwd, *ccflags[64];
+	char *cwd;
+	Argv ccflags;
 	FILE *diagnostics;
 	AholyCleanup cleanups[8];
 	jmp_buf error_jmp;
 	char error[1024];
-	int nccflags, ncleanups;
+	int ncleanups;
 	bool verbose, keep, use_hints, error_active;
 };
 
@@ -311,6 +314,7 @@ extern const char aholyc_i_exe_hc[];
 #endif
 
 /* driver helpers */
+void arg_push(Aholyc *cc, Argv *a, const char *s);
 int run_cmd(Aholyc *cc, char *const argv[]);
 int run_cc(Aholyc *cc, const char *tool, const char *opt, const char *out,
 	const char *const inputs[], int ninputs, bool object, bool gc);

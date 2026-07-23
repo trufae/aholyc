@@ -373,6 +373,26 @@ if [ -f tests/out/libhctest.a ]; then
 	done
 fi
 
+# make-style env flags: $CFLAGS joins every compile, $LDFLAGS only a link;
+# linking through LDFLAGS alone proves the words reach the toolchain
+envok=1
+if [ -f tests/out/libhctest.a ]; then
+	LDFLAGS='-Ltests/out -lhctest' ./aholyc -b c tests/uselib.HC \
+		-o tests/out/uselib-env 2>tests/out/env-flags.err || envok=0
+	[ "$(tests/out/uselib-env 2>&1)" = "quad(7)=28" ] || envok=0
+fi
+CFLAGS='-DHC_ENV_CFLAG' LDFLAGS='-DHC_ENV_LDFLAG' ./aholyc -V -b c -c \
+	tests/mod_a.HC -o tests/out/mod_env.o 2>>tests/out/env-flags.err || envok=0
+grep -q 'HC_ENV_CFLAG' tests/out/env-flags.err || envok=0
+grep -q 'HC_ENV_LDFLAG' tests/out/env-flags.err && envok=0
+if [ "$envok" = 1 ]; then
+	echo "ok   env-flags(CFLAGS/LDFLAGS)"
+else
+	echo "FAIL env-flags(CFLAGS/LDFLAGS)"
+	head -5 tests/out/env-flags.err 2>/dev/null
+	fail=1
+fi
+
 # Native runtime exception state is TLS.  Synchronizing inside both try and
 # catch makes a shared Fs or handler stack fail deterministically.
 if cc -pthread -c tests/tls_threads.c -o tests/out/tls_threads.o 2>/dev/null; then

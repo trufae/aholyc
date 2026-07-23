@@ -18,7 +18,7 @@ static void clear_config(Aholyc *cc) {
 	cc->inc_dirs = NULL;
 	cc->macros = NULL;
 	cc->cwd = NULL;
-	cc->nccflags = 0;
+	cc->ccflags = (Argv){ 0 };
 }
 
 void lex_reset(Aholyc *cc) {

@@ -179,3 +179,8 @@ the same hosted process-status semantics.
 
 * `CC` — the C compiler used by the `c` backend and the `llc` fallback
   (default: `cc`).
+* `CFLAGS`, `LDFLAGS` — extra space-separated words for the C-toolchain
+  command line, make-style: `CFLAGS` on every compile, `LDFLAGS` only on
+  executable links. The way to pass flags that have no aholyc option,
+  e.g. `LDFLAGS='-framework AppKit' aholyc app.HC`. `#exe{}` builds are
+  internal to the compiler and unaffected.

@@ -1108,11 +1108,8 @@ static void ll_emit(Aholyc *cc, Program *prog, StrBuf *out,
 static int ll_build_obj(Aholyc *cc, const char *artifact,
 		const char *outpath, const char *opt) {
 	if (have_cmd (cc, "clang")) {
-		char *argv[] = {
-			"clang", (char *)opt, "-w", "-c",
-			"-o", (char *)outpath, (char *)artifact, NULL
-		};
-		return run_cmd (cc, argv);
+		const char *inputs[] = { artifact };
+		return run_cc (cc, "clang", opt, outpath, inputs, 1, true, false);
 	}
 	if (have_cmd (cc, "llc")) {
 		char *argv[] = {
