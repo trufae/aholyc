@@ -54,6 +54,25 @@ void error_tok(Aholyc *cc, Token *tok, const char *fmt, ...) {
 	halt (cc);
 }
 
+/* A non-fatal diagnostic (e.g. #assert): printed to the diagnostics stream
+ * but does not halt compilation or touch cc->error. */
+void warn_tok(Aholyc *cc, Token *tok, const char *fmt, ...) {
+	if (!cc->diagnostics) {
+		return;
+	}
+	char msg[768];
+	va_list ap;
+	va_start (ap, fmt);
+	vsnprintf (msg, sizeof(msg), fmt, ap);
+	va_end (ap);
+	if (tok) {
+		fprintf (cc->diagnostics, "%s:%d: warning: %s\n",
+			tok->file? tok->file: "?", tok->line, msg);
+	} else {
+		fprintf (cc->diagnostics, "aholyc: warning: %s\n", msg);
+	}
+}
+
 typedef union AholyAlloc AholyAlloc;
 union AholyAlloc { struct { AholyAlloc *next; } h; long double align; };
 

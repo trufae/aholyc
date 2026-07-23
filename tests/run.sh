@@ -220,6 +220,28 @@ else
 	fail=1
 fi
 
+# #assert: a false constant expression warns (to stderr) but keeps compiling;
+# a true one is silent; the warning must not reach stdout; the same
+# expression grammar as #if (incl. defined()); an empty expression errors
+passok=1
+printf '%s\n' '#assert 1 > 2' '"ran\n";' > tests/out/passfail.HC
+[ "$(./aholyc run -b c tests/out/passfail.HC 2>/dev/null)" = ran ] || passok=0   # stdout clean, still runs
+./aholyc run -b c tests/out/passfail.HC 2>&1 >/dev/null | grep -q 'warning: assertion failed' || passok=0
+./aholyc -b c tests/out/passfail.HC -o tests/out/passfail 2>/dev/null || passok=0  # compiles despite the warning
+printf '%s\n' '#assert 2 > 1' '"ok\n";' > tests/out/passok.HC
+[ -z "$(./aholyc run -b c tests/out/passok.HC 2>&1 >/dev/null)" ] || passok=0      # true assert: no warning
+printf '%s\n' '#assert defined(FEATURE)' '"ok\n";' > tests/out/passdef.HC
+./aholyc run -b c tests/out/passdef.HC 2>&1 >/dev/null | grep -q 'assertion failed' || passok=0
+[ -z "$(./aholyc run -b c -DFEATURE tests/out/passdef.HC 2>&1 >/dev/null)" ] || passok=0
+printf '%s\n' '#assert' '"x";' > tests/out/passbad.HC
+./aholyc run -b c tests/out/passbad.HC >/dev/null 2>&1 && passok=0                 # empty -> error
+if [ "$passok" = 1 ]; then
+	echo "ok   preprocessor #assert"
+else
+	echo "FAIL preprocessor #assert"
+	fail=1
+fi
+
 # Native exception lowering: no-throw tries need no handler, local throws use
 # branches, and only the six call-crossing handlers in this fixture setjmp.
 exceptlowerok=1

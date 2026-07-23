@@ -1,7 +1,7 @@
 /* aholyc token-level preprocessor: directives (#include, #define, #undef,
- * #if/#ifdef/#ifndef/#else/#endif, #exe), object-macro expansion, and #if
- * constant-expression evaluation. Split out of lex.c; it shares the
- * tokenizer (tokenize) and include-path search (search_include). */
+ * #if/#ifdef/#ifndef/#else/#endif, #assert, #exe), object-macro expansion,
+ * and #if/#assert constant-expression evaluation. Split out of lex.c; it
+ * shares the tokenizer (tokenize) and include-path search (search_include). */
 #include "aholyc.h"
 
 struct AholyMacro { AholyMacro *next; char *name; Token *body; };
@@ -62,10 +62,10 @@ static void inherit_hint(Aholyc *cc, Token *src, Token *dst) {
 	}
 }
 
-/* ---- #if constant-expression evaluation (token-level) ---------------- */
+/* ---- #if/#assert constant-expression evaluation (token-level) -------- */
 
-/* Object-macro-expand a line's tokens for #if, resolving defined(X)/defined X
- * (whose operand is never expanded) to 1/0. Returns an EOF-terminated list. */
+/* Object-macro-expand a directive line's tokens, resolving defined(X) /
+ * defined X (whose operand is never expanded) to 1/0. EOF-terminated. */
 static Token *pp_expand(Aholyc *cc, Token *w) {
 	Token head = {0};
 	Token *cur = &head;
@@ -76,13 +76,13 @@ static Token *pp_expand(Aholyc *cc, Token *w) {
 			bool paren = tok_is (a, "(");
 			if (paren) a = a->next;
 			if (a->kind != TK_ID) {
-				error_tok (cc, w, "#if: defined expects a name");
+				error_tok (cc, w, "defined expects a name");
 			}
 			bool def = find_macro (cc, a->str) != NULL;
 			Token *after = a->next;
 			if (paren) {
 				if (!tok_is (after, ")")) {
-					error_tok (cc, w, "#if: defined missing ')'");
+					error_tok (cc, w, "defined missing ')'");
 				}
 				after = after->next;
 			}
@@ -134,7 +134,7 @@ static int64_t pp_prim(Aholyc *cc, Token **pp) {
 		*pp = t->next;
 		int64_t v = pp_or (cc, pp);
 		if (!tok_is (*pp, ")")) {
-			error_tok (cc, *pp, "#if: expected ')'");
+			error_tok (cc, *pp, "expected ')' in constant expression");
 		}
 		*pp = (*pp)->next;
 		return v;
@@ -147,7 +147,7 @@ static int64_t pp_prim(Aholyc *cc, Token **pp) {
 		*pp = t->next;
 		return 0;
 	}
-	error_tok (cc, t, "#if: malformed expression");
+	error_tok (cc, t, "malformed constant expression");
 	return 0;
 }
 
@@ -175,12 +175,12 @@ static int64_t pp_mul(Aholyc *cc, Token **pp) {
 		else if (tok_is (*pp, "/")) {
 			*pp = (*pp)->next;
 			int64_t d = pp_shift (cc, pp);
-			if (!d) error_tok (cc, *pp, "#if: division by zero");
+			if (!d) error_tok (cc, *pp, "division by zero in constant expression");
 			v /= d;
 		} else if (tok_is (*pp, "%")) {
 			*pp = (*pp)->next;
 			int64_t d = pp_shift (cc, pp);
-			if (!d) error_tok (cc, *pp, "#if: division by zero");
+			if (!d) error_tok (cc, *pp, "division by zero in constant expression");
 			v %= d;
 		} else return v;
 	}
@@ -277,6 +277,31 @@ static Token *skip_cond(Token *t, bool *hit_else) {
 	return t;
 }
 
+/* Evaluate the constant expression on directive d's line (used by #if and
+ * #assert): collect the rest of the line, macro-expand it, and evaluate it.
+ * *after receives the first token past the line. */
+static int64_t pp_eval_line(Aholyc *cc, Token *d, int dline, Token **after) {
+	Token lh = {0};
+	Token *lc = &lh;
+	Token *b = d->next;
+	while (b->kind != TK_EOF && !b->at_bol && b->line == dline) {
+		lc->next = copy_token (cc, b);
+		lc = lc->next;
+		b = b->next;
+	}
+	if (!lh.next) {
+		error_tok (cc, d, "#%s expects an expression", d->str);
+	}
+	lc->next = new_eof (cc, d);
+	Token *ex = pp_expand (cc, lh.next);
+	int64_t val = pp_or (cc, &ex);
+	if (ex->kind != TK_EOF) {
+		error_tok (cc, ex, "#%s: unexpected token in expression", d->str);
+	}
+	*after = b;
+	return val;
+}
+
 /* Resolve directives and expand macros. Consumes raw list, returns clean list. */
 Token *lex_preprocess(Aholyc *cc, Token *tok) {
 	Token head = {0};
@@ -351,25 +376,9 @@ Token *lex_preprocess(Aholyc *cc, Token *tok) {
 				continue;
 			}
 			if (!strcmp (d->str, "if")) {
-				/* collect the expression (rest of the line), expand and
-				 * evaluate it as a constant; nonzero keeps the branch */
-				Token lh = {0};
-				Token *lc = &lh;
-				Token *b = d->next;
-				while (b->kind != TK_EOF && !b->at_bol && b->line == dline) {
-					lc->next = copy_token (cc, b);
-					lc = lc->next;
-					b = b->next;
-				}
-				if (!lh.next) {
-					error_tok (cc, d, "#if expects an expression");
-				}
-				lc->next = new_eof (cc, d);
-				Token *ex = pp_expand (cc, lh.next);
-				int64_t val = pp_or (cc, &ex);
-				if (ex->kind != TK_EOF) {
-					error_tok (cc, ex, "#if: unexpected token in expression");
-				}
+				/* keep the branch when the constant expression is nonzero */
+				Token *b;
+				int64_t val = pp_eval_line (cc, d, dline, &b);
 				if (val) {
 					cond_depth++;
 					tok = b;
@@ -380,6 +389,15 @@ Token *lex_preprocess(Aholyc *cc, Token *tok) {
 						cond_depth++;
 					}
 				}
+				continue;
+			}
+			if (!strcmp (d->str, "assert")) {
+				/* warn (but keep compiling) when the expression is false */
+				Token *b;
+				if (!pp_eval_line (cc, d, dline, &b)) {
+					warn_tok (cc, d, "assertion failed");
+				}
+				tok = b;
 				continue;
 			}
 			if (!strcmp (d->str, "ifdef") || !strcmp (d->str, "ifndef")) {

@@ -276,6 +276,7 @@ char *exe_run(Aholyc *cc, Token *block, Token **rest);
 
 void error(Aholyc *cc, const char *fmt, ...);
 void error_tok(Aholyc *cc, Token *tok, const char *fmt, ...);
+void warn_tok(Aholyc *cc, Token *tok, const char *fmt, ...);
 
 /* ---------------------------------------------------------------- backend
  * Pluggable codegen. A backend turns the AST into a source artifact

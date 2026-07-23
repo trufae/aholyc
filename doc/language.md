@@ -282,8 +282,12 @@ try {
 ## Preprocessor
 
 `#include "file"` (no `<>` form), object-like `#define NAME tokens`,
-`#undef`, `#if/#ifdef/#ifndef/#else/#endif`. There are no function-like
-macros ("I'm not a fan" — T. Davis), and no `#elif` (as in TempleOS).
+`#undef`, `#if/#ifdef/#ifndef/#else/#endif`, and `#assert <expr>` (a
+compile-time warning when a constant expression is false, same grammar as
+`#if`). There are no function-like macros ("I'm not a fan" — T. Davis), and
+no `#elif` (as in TempleOS).
+See [pp.md](pp.md) for the full preprocessor reference, predefined macros,
+and the roadmap of what is still missing versus standard HolyC.
 
 `#if <expr>` keeps its branch when a constant integer expression is
 non-zero. The expression may use the arithmetic, bitwise, shift, comparison
