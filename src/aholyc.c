@@ -18,10 +18,6 @@ static void add_define(Aholyc *cc, const char *arg) {
 		error (cc, "-D needs a macro name");
 	}
 	lex_define (cc, name, value? value: "1");
-	if (value && lex_is_identifier (value)) {
-		char *combo = xasprintf (cc, "%s_%s", name, value);
-		lex_define (cc, combo, "1");
-	}
 }
 
 static const Backend *const backends[] = {

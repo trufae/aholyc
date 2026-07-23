@@ -82,12 +82,10 @@ Missing predefined names that standard HolyC has: `__LINE__`,
 
 ## Command-line `-D`
 
-`-Dname` defines `name=1`; `-Dname=value` defines it to `value`. As a
-convenience for value dispatch, when `value` is an identifier, aholyc also
-defines the **case-preserving** `name_value` (e.g. `-DUI=gtk4` also defines
-`UI_gtk4`), so a plain `#ifdef` can branch on a value without needing `#if`.
-The last `-D` of a given name wins. This `-D` convenience is an aholyc
-extension, not part of standard HolyC.
+`-Dname` defines `name=1`; `-Dname=value` defines it to `value`. The last
+`-D` of a given name wins. To dispatch on a choice, define distinct macros
+(`-DUI_GTK4`) and branch with plain `#ifdef` — there is no automatic
+`name_value` combo define.
 
 ## Deviations from standard HolyC (summary)
 
