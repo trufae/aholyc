@@ -5,7 +5,7 @@
 //   ./aholyc run -DUI_GTK4 examples/ui/shell.hc
 //   CC=demos/windows/ccwin.sh ./aholyc -b c -DUI_WIN32 examples/ui/shell.hc -o shell.exe
 
-#include "lib/ui.hc"
+#include "../../lib/ui/ui.hc"
 
 UiCtl *gStatus, *gBody;
 

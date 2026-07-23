@@ -9,7 +9,7 @@
 // button, entry, checkbox, slider, progress bar, separator, and a canvas
 // redrawn live from the slider and checkbox.
 
-#include "lib/ui.hc"
+#include "../../lib/ui/ui.hc"
 
 UiCtl *gStatus, *gGreet, *gCheck, *gSlider, *gProgress, *gCanvas;
 I64 gClicks;

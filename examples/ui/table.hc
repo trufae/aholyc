@@ -5,7 +5,7 @@
 //   ./aholyc run -DUI_GTK4 examples/ui/table.hc
 //   CC=demos/windows/ccwin.sh ./aholyc -b c -DUI_WIN32 examples/ui/table.hc -o table.exe
 
-#include "lib/ui.hc"
+#include "../../lib/ui/ui.hc"
 
 U8 *names[5];
 I64 ages[5];

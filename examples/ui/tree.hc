@@ -5,7 +5,7 @@
 //   ./aholyc run -DUI_GTK4 examples/ui/tree.hc
 //   CC=demos/windows/ccwin.sh ./aholyc -b c -DUI_WIN32 examples/ui/tree.hc -o tree.exe
 
-#include "lib/ui.hc"
+#include "../../lib/ui/ui.hc"
 
 UiCtl *gTree, *gStatus;
 
