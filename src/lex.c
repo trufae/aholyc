@@ -148,21 +148,20 @@ static void scan_comment_hint(Aholyc *cc, const char *start, const char *end,
 			p = q - 1;
 			continue;
 		}
-		if (hint_is (p + 1, n, "cflags") || hint_is (p + 1, n, "ldflags")) {
+		bool pkg = hint_is (p + 1, n, "pkgconfig");
+		if (pkg || hint_is (p + 1, n, "cflags") || hint_is (p + 1, n, "ldflags")) {
 			/* build-flag hints: the rest of the line joins the
 			 * toolchain command, on the same stream as -I/-L/-l */
 			q = skip_comment_space (q, end);
 			if (q == end || *q != '=') {
-				error (cc, "%s:%d: malformed @%.*s hint (expected =flags)",
-					fname, line, n, p + 1);
+				error (cc, "%s:%d: malformed @%.*s hint (expected =%s)",
+					fname, line, n, p + 1, pkg? "name": "flags");
 			}
-			q++;
-			while (q < end && *q != '\n') {
-				if (comment_space ((unsigned char)*q)) { q++; continue; }
-				const char *w = q;
-				while (q < end && !comment_space ((unsigned char)*q)) q++;
-				arg_push (cc, &cc->ccflags, xasprintf (cc, "%.*s", (int)(q - w), w));
-			}
+			const char *w = ++q;
+			while (q < end && *q != '\n' && *q != '\r') q++;
+			char *rest = xasprintf (cc, "%.*s", (int)(q - w), w);
+			if (pkg) pkgconfig_push (cc, rest);
+			else arg_push_words (cc, &cc->ccflags, rest);
 			p = q - 1;
 			continue;
 		}

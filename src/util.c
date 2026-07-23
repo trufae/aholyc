@@ -194,14 +194,55 @@ void arg_push(Aholyc *cc, Argv *a, const char *s) {
 	a->v[a->n++] = (char *)s;
 }
 
+/* push each whitespace-separated word of s, splitting it in place */
+void arg_push_words(Aholyc *cc, Argv *a, char *w) {
+	while (w && *w) {
+		if (strchr (" \t\r\n", *w)) { w++; continue; }
+		arg_push (cc, a, w);
+		if ((w = strpbrk (w, " \t\r\n"))) *w++ = 0;
+	}
+}
+
 /* the space-separated words of $name (make-style CFLAGS/LDFLAGS) */
 static void arg_push_env(Aholyc *cc, Argv *a, const char *name) {
-	char *w = getenv (name);
-	for (w = w? xstrdup (cc, w): NULL; w && *w; ) {
-		if (*w == ' ') { w++; continue; }
-		arg_push (cc, a, w);
-		if ((w = strchr (w, ' '))) *w++ = 0;
+	const char *w = getenv (name);
+	if (w) arg_push_words (cc, a, xstrdup (cc, w));
+}
+
+/* run pkg-config --libs <names> and push each word into ccflags; --cflags
+ * is not asked for since HolyC consumes no C headers, which also keeps the
+ * output short enough for a single small read.
+ * names is charset-checked so interpolating it into the shell is safe */
+void pkgconfig_push(Aholyc *cc, const char *pkgs) {
+	static const char ok[] = "abcdefghijklmnopqrstuvwxyz"
+		"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+- \t";
+	if (pkgs[strspn (pkgs, ok)]) {
+		error (cc, "invalid character in @pkgconfig=%s", pkgs);
 	}
+	if (!pkgs[strspn (pkgs, " \t")]) {
+		error (cc, "@pkgconfig requires a package name");
+	}
+	if (!have_cmd (cc, "pkg-config")) {
+		error (cc, "pkg-config not found (needed for @pkgconfig=%s)", pkgs);
+	}
+	char *cmd = xasprintf (cc, "pkg-config --libs %s 2>/dev/null", pkgs);
+	if (cc->verbose) {
+		fprintf (stderr, "aholyc: exec: %s\n", cmd);
+	}
+	FILE *fp = popen (cmd, "r");
+	if (!fp) {
+		error (cc, "cannot run pkg-config");
+	}
+	char buf[512];
+	size_t n = fread (buf, 1, sizeof (buf) - 1, fp);
+	if (pclose (fp)) {
+		error (cc, "pkg-config failed for %s (package not found?)", pkgs);
+	}
+	if (n == sizeof (buf) - 1) {
+		error (cc, "pkg-config output for %s does not fit in one line", pkgs);
+	}
+	buf[n] = 0;
+	arg_push_words (cc, &cc->ccflags, xstrdup (cc, buf));
 }
 
 int run_cc(Aholyc *cc, const char *tool, const char *opt, const char *out,

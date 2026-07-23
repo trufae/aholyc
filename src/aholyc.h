@@ -319,6 +319,8 @@ int run_cmd(Aholyc *cc, char *const argv[]);
 int run_cc(Aholyc *cc, const char *tool, const char *opt, const char *out,
 	const char *const inputs[], int ninputs, bool object, bool gc);
 bool have_cmd(Aholyc *cc, const char *name);
+void arg_push_words(Aholyc *cc, Argv *a, char *s);
+void pkgconfig_push(Aholyc *cc, const char *pkgs);
 
 /* 'aholyc fmt' source formatter (fmt.c, self-contained; doc/format.md) */
 int fmt_main(Aholyc *cc, int argc, char **argv);
