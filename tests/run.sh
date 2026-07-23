@@ -152,7 +152,7 @@ printf '%s\n' '#undef FEATURE' '#ifdef FEATURE' '"feature\n";' '#else' \
 	'"clean\n";' '#endif' > tests/out/def-undef.HC
 [ "$(./aholyc run -b c -DFEATURE=1 tests/out/def-undef.HC 2>/dev/null)" = clean ] || defok=0
 ./aholyc run -b c -D=word tests/out/def-dispatch.HC >/dev/null 2>&1 && defok=0
-printf '%s\n' '#ifdef __APPLE__' '"apple\n";' '#else' '#ifdef __linux__' \
+printf '%s\n' '#ifdef IS_MACOS' '"apple\n";' '#else' '#ifdef IS_LINUX' \
 	'"linux\n";' '#else' '"other\n";' '#endif' '#endif' > tests/out/def-host.HC
 case "$(uname -s)" in
 Darwin) host=apple ;;
@@ -160,6 +160,23 @@ Linux) host=linux ;;
 *) host=other ;;
 esac
 [ "$(./aholyc run -b c tests/out/def-host.HC 2>/dev/null)" = "$host" ] || defok=0
+printf '%s\n' '#ifdef IS_UNIX' '"unix\n";' '#else' '"other\n";' '#endif' > tests/out/def-unix.HC
+case "$host" in
+apple|linux) unix=unix ;;
+*) unix=other ;;
+esac
+[ "$(./aholyc run -b c tests/out/def-unix.HC 2>/dev/null)" = "$unix" ] || defok=0
+for platform in NETBSD OPENBSD FREEBSD; do
+	macro_file="tests/out/def-${platform}.HC"
+	printf '%s\n' "#ifdef IS_${platform}" '"yes\n";' '#else' '"no\n";' '#endif' > "$macro_file"
+	case "$(uname -s)" in
+	NetBSD) expected=$([ "$platform" = NETBSD ] && echo yes || echo no) ;;
+	OpenBSD) expected=$([ "$platform" = OPENBSD ] && echo yes || echo no) ;;
+	FreeBSD) expected=$([ "$platform" = FREEBSD ] && echo yes || echo no) ;;
+	*) expected=no ;;
+	esac
+	[ "$(./aholyc run -b c "$macro_file" 2>/dev/null)" = "$expected" ] || defok=0
+done
 if [ "$defok" = 1 ]; then
 	echo "ok   defines(-D)"
 else

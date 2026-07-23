@@ -30,6 +30,39 @@ void lex_reset(Aholyc *cc) {
 	cc->cwd = xstrdup (cc, cwd? cwd: ".");
 	if (cwd) cleanup_pop (cc);
 	free (cwd);
+	/* expose HolyC platform names, rather than the compiler's C macros */
+#if defined(__x86_64__) || defined(_M_X64)
+	lex_define (cc, "IS_X86_64", "1");
+#elif defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)
+	lex_define (cc, "IS_ARM_64", "1");
+#elif defined(__powerpc__) || defined(__powerpc64__) || defined(__ppc__) || \
+	defined(__ppc64__) || defined(_ARCH_PPC) || defined(_ARCH_PPC64)
+	lex_define (cc, "IS_POWERPC", "1");
+#elif defined(__riscv)
+	lex_define (cc, "IS_RISCV", "1");
+#elif defined(__mips__) || defined(__mips) || defined(_MIPS_ARCH)
+	lex_define (cc, "IS_MIPS", "1");
+#elif defined(__arm__) || defined(__thumb__) || defined(_M_ARM)
+	lex_define (cc, "IS_ARM_32", "1");
+#endif
+#ifdef __APPLE__
+	lex_define (cc, "IS_MACOS", "1");
+#elif defined(__linux__)
+	lex_define (cc, "IS_LINUX", "1");
+#elif defined(__NetBSD__)
+	lex_define (cc, "IS_NETBSD", "1");
+#elif defined(__OpenBSD__)
+	lex_define (cc, "IS_OPENBSD", "1");
+#elif defined(__FreeBSD__)
+	lex_define (cc, "IS_FREEBSD", "1");
+#endif
+#if defined(__unix__) || defined(__unix) || defined(__APPLE__) || defined(__linux__) || \
+	defined(__NetBSD__) || defined(__OpenBSD__) || defined(__FreeBSD__)
+	lex_define (cc, "IS_UNIX", "1");
+#endif
+#ifdef _WIN32
+	lex_define (cc, "IS_WINDOWS", "1");
+#endif
 }
 
 Aholyc *aholyc_init(void) {
