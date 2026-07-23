@@ -30,6 +30,48 @@ for b in $backends; do
 	done
 done
 
+# The portable thread library targets native OS threads.  Exercise both
+# native code generators; JS intentionally has no FFI/thread backend.
+for b in $backends; do
+	[ "$b" = js ] && continue
+	if ./aholyc -b "$b" tests/thread.HC -o "tests/out/thread-$b" \
+		2>"tests/out/thread-$b.err"; then
+		"tests/out/thread-$b" >"tests/out/thread-$b.txt" 2>&1
+		if cmp -s tests/expected/thread.out "tests/out/thread-$b.txt"; then
+			echo "ok   $b/thread-library"
+		else
+			echo "FAIL $b/thread-library"
+			diff tests/expected/thread.out "tests/out/thread-$b.txt" | head -10
+			fail=1
+		fi
+	else
+		echo "FAIL build $b/thread-library"
+		head -5 "tests/out/thread-$b.err"
+		fail=1
+	fi
+done
+
+# Compile the same fixture against Win32 when the optional MinGW cross
+# toolchain used by demos/windows is installed.
+if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 &&
+   [ -x demos/windows/ccwin.sh ] &&
+   CC=demos/windows/ccwin.sh ./aholyc -b c -DTHREAD_WINDOWS tests/thread.HC \
+	-o tests/out/thread-windows.exe 2>tests/out/thread-windows.err; then
+	if command -v x86_64-w64-mingw32-objdump >/dev/null 2>&1 &&
+	   x86_64-w64-mingw32-objdump -p tests/out/thread-windows.exe |
+		grep -q 'libwinpthread'; then
+		echo "FAIL windows/thread-library imported libwinpthread"
+		fail=1
+	else
+		echo "ok   windows/thread-library(cross-build)"
+	fi
+elif command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 &&
+     [ -x demos/windows/ccwin.sh ]; then
+	echo "FAIL build windows/thread-library"
+	head -5 tests/out/thread-windows.err
+	fail=1
+fi
+
 # AOT process arguments: the synthetic top-level entry receives only the user
 # arguments (not the executable name), then explicitly forwards argc/argv to
 # Main.  Exercise direct binaries and the compiler driver's `run` argv path; the

@@ -1,6 +1,7 @@
 /* aholyc comment hints: parse annotations, attach them to tokens, and
  * preserve them while the preprocessor expands macros. */
 #include "aholyc.h"
+#include <ctype.h>
 
 static bool comment_space(int c) {
 	return c == ' ' || c == '\t' || c == '\r' || c == '\n';

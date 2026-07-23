@@ -21,8 +21,10 @@ typedef double hc_f64;
 #define HC_API
 #endif
 
-/* C11 spelling when available, compiler spelling for the C99 backend. */
-#if defined(_MSC_VER)
+/* Use native Windows TLS even under MinGW; its C11 TLS may be emulated
+ * through winpthreads, adding a DLL dependency to otherwise Win32-only
+ * programs.  Elsewhere prefer the standard spelling when available. */
+#if defined(_WIN32)
 #define HC_TLS __declspec(thread)
 #elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 #define HC_TLS _Thread_local

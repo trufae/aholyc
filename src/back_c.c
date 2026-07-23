@@ -878,7 +878,7 @@ static void emit_obj_preamble(CGen *cg) {
 		"#include <stdint.h>\n"
 		"#include <string.h>\n"
 		"#include <setjmp.h>\n"
-		"#if defined(_MSC_VER)\n"
+		"#if defined(_WIN32)\n"
 		"#define HC_TLS __declspec(thread)\n"
 		"#elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L\n"
 		"#define HC_TLS _Thread_local\n"

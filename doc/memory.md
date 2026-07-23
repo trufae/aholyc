@@ -156,16 +156,18 @@ Mechanics worth knowing:
   right thread's task.
 * The TLS spelling is picked per compiler (`_Thread_local`, `__thread`,
   `__declspec(thread)`), see `HC_TLS` in `runtime/rt.c`.
-* aholyc has no thread-spawning API of its own. The supported pattern is
-  library interop: mark a HolyC function `public`, hand it to
-  `pthread_create` from a small C shim, link with `-lpthread` — see
-  `tests/tls_threads.c` / `tests/tls_threads.HC`. Each new thread gets
-  fresh exception state automatically.
+* [`lib/thread/thread.hc`](../lib/thread/README.md) provides portable hosted
+  threads, mutexes, counting semaphores, TempleOS-style spin locks, and
+  user TLS on Linux, macOS, and Windows. Each new native thread gets fresh
+  runtime exception state automatically. Direct library interop remains
+  possible; `tests/tls_threads.c` / `tests/tls_threads.HC` is the low-level
+  pthread example.
 
 What is *not* per-thread or protected:
 
-* Your globals — shared, unsynchronized. `lock{}` compiles its body
-  without atomicity; bring your own mutex (via a C shim).
+* Your globals — shared, unsynchronized. `lock{}` compiles its body without
+  atomicity; protect shared state with `CThreadMutex`, `CThreadLock`, or
+  another suitable primitive.
 * The PRNG state behind `Seed`/`RandI64`/`Rand` — shared and racy.
 * Heap blocks are handed out thread-safely (libc `malloc`), but nothing
   stops two threads from stomping the same buffer.
