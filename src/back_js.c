@@ -321,6 +321,22 @@ static char *emit_val(JsGen *g, Node *n) {
 	}
 	case ND_CAST: {
 		Type *to = n->ty, *from = n->lhs->ty;
+		if (n->bit_cast) {
+			Node *l = n->lhs;
+			bool tof = to->kind == TY_F64;
+			bool mem = (l->kind == ND_DEREF || l->kind == ND_MEMBER ||
+				(l->kind == ND_VAR && !native_var (l->var))) &&
+				(from->kind == TY_F64 || from->kind == TY_PTR ||
+					from->size == 8);
+			if (mem) {
+				/* reread the 8-byte slot under the other view: exact,
+				 * where a JS-number round trip keeps only 53 bits */
+				return xasprintf (g->cc, "%s(%s)", RT (tof? "ldf": "ld8"),
+					emit_addr (g, l));
+			}
+			return xasprintf (g->cc, "%s(%s)", RT (tof? "hcB2F": "hcF2B"),
+				emit_val (g, l));
+		}
 		char *v = emit_val (g, n->lhs);
 		if (to->kind != TY_F64 && from->kind == TY_F64) {
 			return xasprintf (g->cc, "Math.trunc(%s)", v);

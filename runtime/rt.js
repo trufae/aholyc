@@ -64,6 +64,15 @@ function st4(a, v) { DV.setUint32 (a, v >>> 0, true); return v; }
 //@ stf
 function stf(a, v) { DV.setFloat64 (a, v, true); return v; }
 
+//@ hcF2B stf
+// postfix-cast bit images through the scratch slot at 40 (data starts at
+// 64); values keep only 53 mantissa bits, so the backend fuses casts of
+// memory loads into ldf/ld8 rereads and calls these only for computed
+// operands
+function hcF2B(v) { stf (40, v); return ld8 (40); }
+//@ hcB2F ldf
+function hcB2F(v) { st8 (40, v); return ldf (40); }
+
 //@ B
 // 64-bit bitwise ops via BigInt (numbers are exact to 53 bits)
 function B(v) { return BigInt (Math.trunc (v)); }

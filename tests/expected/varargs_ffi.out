@@ -1,0 +1,4 @@
+pi=3.14 n=42 s=str
+int 7 str seven f64 1.5 2.5 3.5
+reals: 3 floats sum 4.00
+from C: HcSum=42

@@ -373,6 +373,31 @@ if [ -f tests/out/libhctest.a ]; then
 	done
 fi
 
+# variadic FFI, both directions: a bodiless extern with ... calls a real
+# C varargs function (printf/snprintf, F64 re-blessed as double), and C
+# calls a public HolyC variadic through its (argc, I64 *argv) pair
+cc -c tests/varargs_ffi.c -o tests/out/varargs_ffi.o 2>/dev/null
+if [ -f tests/out/varargs_ffi.o ]; then
+	for b in $backends; do
+		[ "$b" = js ] && continue
+		if ./aholyc -b "$b" tests/varargs.HC tests/out/varargs_ffi.o \
+			-o "tests/out/varargs-ffi-$b" 2>"tests/out/varargs-ffi-$b.err"; then
+			"./tests/out/varargs-ffi-$b" >"tests/out/varargs-ffi-$b.txt" 2>&1
+			if cmp -s tests/expected/varargs_ffi.out "tests/out/varargs-ffi-$b.txt"; then
+				echo "ok   $b/varargs-ffi"
+			else
+				echo "FAIL $b/varargs-ffi output"
+				diff tests/expected/varargs_ffi.out "tests/out/varargs-ffi-$b.txt" | head -10
+				fail=1
+			fi
+		else
+			echo "FAIL build $b/varargs-ffi"
+			head -5 "tests/out/varargs-ffi-$b.err"
+			fail=1
+		fi
+	done
+fi
+
 # make-style env flags: $CFLAGS joins every compile, $LDFLAGS only a link;
 # linking through LDFLAGS alone proves the words reach the toolchain
 envok=1

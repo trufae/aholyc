@@ -966,6 +966,12 @@ static Node *postfix(Parser *ps) {
 				Type *ty = parse_typespec (ps);
 				expect (ps, ")");
 				n = new_cast (rvalize (n), ty);
+				/* explicit I64<->F64 casts reinterpret the 8-byte slot,
+				 * as in argv[i](F64); implicit conversions still convert */
+				if (n->kind == ND_CAST &&
+				    (ty->kind == TY_F64) != (n->lhs->ty->kind == TY_F64)) {
+					n->bit_cast = true;
+				}
 				continue;
 			}
 			ps->tk = ps->tk->next;
@@ -2058,8 +2064,9 @@ static void parse_params(Parser *ps, Obj *fn) {
 		cur = p;
 	}
 	expect (ps, ")");
-	if (fn->is_variadic) {
-		/* implicit argc/argv params */
+	/* implicit argc/argv params; a bodiless non-prelude extern with ...
+	 * is a C import instead and keeps the real C varargs ABI */
+	if (fn->is_variadic && (!fn->is_extern || fn->from_prelude)) {
 		Obj *pargc = new_obj (ps, xstrdup (ps->cc, "argc"), ty_i64);
 		Obj *pargv = new_obj (ps, xstrdup (ps->cc, "argv"),
 			ptr_to (ps->cc, ty_i64));

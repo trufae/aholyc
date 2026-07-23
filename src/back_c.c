@@ -37,6 +37,11 @@ static bool is_fs_obj(Obj *v) {
 	return v->is_extern && v->from_prelude && !strcmp (v->name, "Fs");
 }
 
+/* bodiless '...' import (e.g. printf): real C varargs, not argc/argv */
+static bool is_c_varargs(Obj *fn) {
+	return fn->is_variadic && fn->is_extern && !fn->from_prelude;
+}
+
 static const char *scalar_ctype(Type *ty) {
 	if (ty->kind == TY_F64) {
 		return "hc_f64";
@@ -155,7 +160,8 @@ static void emit_call(CGen *cg, Node *n, bool value) {
 		sb_printf (cg->out, "(hc_i64)(intptr_t)");
 	}
 	if (fn) {
-		sb_printf (cg->out, "%s(", objname (cg, fn));
+		sb_printf (cg->out, "%s%s(", is_c_varargs (fn)? "hc_cv_": "",
+			objname (cg, fn));
 		Obj *p = fn->params;
 		Node *a = n->args;
 		int i = 0;
@@ -170,7 +176,16 @@ static void emit_call(CGen *cg, Node *n, bool value) {
 				p = p->next;
 			}
 		}
-		if (fn->is_variadic) {
+		if (is_c_varargs (fn)) {
+			/* extras go straight through the C varargs ABI; F64 stays
+			 * a double here, unlike the bit-copied argc/argv slots */
+			for (Node *e = a; e; e = e->next, i++) {
+				if (i) {
+					sb_printf (cg->out, ", ");
+				}
+				emit_val (cg, e);
+			}
+		} else if (fn->is_variadic) {
 			/* count extras */
 			int extras = 0;
 			for (Node *e = a; e; e = e->next) {
@@ -396,7 +411,18 @@ static void emit_val(CGen *cg, Node *n) {
 	case ND_CAST: {
 		Type *to = n->ty;
 		Type *from = n->lhs->ty;
-		if (to->kind == TY_F64 && from->kind != TY_F64) {
+		if (n->bit_cast && to->kind == TY_F64) {
+			sb_printf (cg->out, "hc_b2f(");
+			emit_val (cg, n->lhs);
+			sb_printf (cg->out, ")");
+		} else if (n->bit_cast) {
+			if (to->kind == TY_INT && to->size < 8) {
+				sb_printf (cg->out, "(hc_i64)(%s)", scalar_ctype (to));
+			}
+			sb_printf (cg->out, "hc_f2b(");
+			emit_val (cg, n->lhs);
+			sb_printf (cg->out, ")");
+		} else if (to->kind == TY_F64 && from->kind != TY_F64) {
 			sb_printf (cg->out, "(hc_f64)%s", value_unsig (from)? "(hc_u64)": "");
 			emit_val (cg, n->lhs);
 		} else if (to->kind != TY_F64 && from->kind == TY_F64) {
@@ -791,20 +817,47 @@ static void emit_func(CGen *cg, Obj *fn) {
 /* only_user skips the runtime API already embedded in the translation unit. */
 static void emit_extern_decls(CGen *cg, bool only_user) {
 	Program *prog = cg->prog;
+	bool have_cva = false;
+	for (Obj *f = prog->funcs; f; f = f->next) {
+		if (f->is_extern && is_c_varargs (f)) {
+			have_cva = true;
+			break;
+		}
+	}
+	if (have_cva) {
+		/* C varargs imports are declared under an hc_cv_ alias bound to
+		 * the real symbol: libc headers pulled in by the runtime may
+		 * already declare (printf) or #define (snprintf) these names,
+		 * and our I64-shaped prototype must not clash with them */
+		sb_printf (cg->out,
+			"#define HC_S_(x) #x\n"
+			"#define HC_S(x) HC_S_(x)\n"
+			"#if defined(__GNUC__) || defined(__clang__)\n"
+			"#define HC_CSYM(name) __asm__(HC_S(__USER_LABEL_PREFIX__) name)\n"
+			"#else\n"
+			"#define HC_CSYM(name)\n"
+			"#endif\n");
+	}
 	for (Obj *f = prog->funcs; f; f = f->next) {
 		if (!f->is_extern || (only_user && f->from_prelude)) {
 			continue;
 		}
 		Type *ret = f->ty->base;
-		sb_printf (cg->out, "extern %s%s%s %s(",
+		bool cva = is_c_varargs (f);
+		sb_printf (cg->out, "extern %s%s%s %s%s(",
 			f->hints & HINT_INLINE? "inline ": "",
 			f->hints & HINT_NOINLINE? "__attribute__((noinline)) ": "",
-			ret->kind == TY_VOID? "void": extern_ctype (ret), f->name);
+			ret->kind == TY_VOID? "void": extern_ctype (ret),
+			cva? "hc_cv_": "", f->name);
 		int np = 0;
 		for (Obj *p = f->params; p; p = p->next, np++) {
 			sb_printf (cg->out, "%s%s", np? ", ": "", extern_ctype (p->ty));
 		}
-		sb_printf (cg->out, "%s);\n", np? "": "void");
+		if (cva) {
+			sb_printf (cg->out, "%s...) HC_CSYM(\"%s\");\n", np? ", ": "", f->name);
+		} else {
+			sb_printf (cg->out, "%s);\n", np? "": "void");
+		}
 	}
 	for (Obj *g = prog->globals; g; g = g->next) {
 		if (!g->is_extern || !strcmp (g->name, "Fs") ||
@@ -865,6 +918,7 @@ static void c_emit(Aholyc *cc, Program *prog, StrBuf *out,
 	}
 	sb_printf (cg->out, "\n/* ---- program ---- */\n");
 	sb_printf (cg->out, "static hc_i64 hc_f2b(hc_f64 d){hc_i64 v;memcpy(&v,&d,8);return v;}\n");
+	sb_printf (cg->out, "static hc_f64 hc_b2f(hc_i64 v){hc_f64 d;memcpy(&d,&v,8);return d;}\n");
 	for (StrLit *s = prog->strings; s; s = s->next) {
 		sb_printf (cg->out, "static unsigned char hcs%d[] = {", s->id);
 		for (int i = 0; i < s->len; i++) {

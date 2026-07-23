@@ -155,6 +155,15 @@ I64 AddNums(...)
 }
 ```
 
+  Each extra fills one I64 slot; an F64 lands as its bit pattern and is
+  read back with the postfix cast, `argv[i](F64)`, which reinterprets
+  the bits (`ToF64`/`ToI64` convert numerically, C-style). There is no
+  `va_list`: a variadic forwards by passing `argc, argv` to a helper
+  declared `(I64 argc, I64 *argv)`, the way `Print` hands off to
+  `StrPrintJoin`. A bodiless `extern` declared with `...` is different —
+  it imports a real C varargs function such as `printf` and calls it
+  with the C ABI (see [usage.md](usage.md)).
+
 * `public` exports a function or global as an unmangled symbol so other
   objects can `extern` it — see "Separate compilation" in
   [usage.md](usage.md). In whole-program builds it is a no-op.

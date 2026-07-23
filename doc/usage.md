@@ -157,9 +157,13 @@ $ aholyc zdemo.HC -lz -o zdemo
 aholyc emits matching declarations for every `extern` symbol your source
 declares that the runtime doesn't provide. All HolyC integers are 64-bit,
 so prefer C functions with pointer/`long long`/`double`-shaped
-signatures; mask narrower return values yourself (e.g. `x(I32)`), and
-avoid C-variadic functions like `printf` (HolyC varargs use the
-`argc`/`argv` convention instead).
+signatures and mask narrower return values yourself (e.g. `x(I32)`).
+C-variadic functions work too: a bodiless `extern` declared with `...`
+uses the real C varargs ABI, so
+`extern I64 printf(U8 *fmt, ...); printf("%s %lld %f\n", s, n, f);`
+calls libc directly (use C format sizes: `%lld` for I64, `%f`/`%g` read
+a double). Only variadic functions with HolyC bodies use the
+`argc`/`argv` convention.
 
 ## Dead code elimination
 

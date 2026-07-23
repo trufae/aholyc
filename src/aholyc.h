@@ -160,6 +160,8 @@ struct Node {
 	int str_len;
 	int str_id;            /* assigned string-literal index */
 	int nfixed;            /* ND_CALL: args bound to named params; rest variadic */
+	bool bit_cast;         /* ND_CAST: postfix I64<->F64 keeps the bit pattern
+	                          (TempleOS spec; ToI64/ToF64 convert the value) */
 	TryMode try_mode;       /* ND_TRY lowering selected by effect analysis */
 };
 

@@ -69,6 +69,11 @@ static bool is_fs_obj(Obj *v) {
 	return v->is_extern && v->from_prelude && !strcmp (v->name, "Fs");
 }
 
+/* bodiless '...' import (e.g. printf): real C varargs, not argc/argv */
+static bool is_c_varargs(Obj *fn) {
+	return fn->is_variadic && fn->is_extern && !fn->from_prelude;
+}
+
 static bool value_unsig(Type *ty) {
 	return ty->kind == TY_INT && ty->is_unsigned;
 }
@@ -349,10 +354,18 @@ static char *emit_call(LlGen *lg, Node *n) {
 		argf[nargs] = is_f (a);
 		nargs++;
 	}
+	/* C varargs import: extras keep their own types in the call */
+	if (fn && is_c_varargs (fn)) {
+		for (Node *e = a; e; e = e->next) {
+			args[nargs] = emit_val (lg, e);
+			argf[nargs] = is_f (e);
+			nargs++;
+		}
+	}
 	/* variadic extras -> [k x i64] alloca */
 	char *extras_ptr = NULL;
 	int nextras = 0;
-	if (fn && fn->is_variadic) {
+	if (fn && fn->is_variadic && !is_c_varargs (fn)) {
 		Node *e = a;
 		char *slots[256];
 		for (; e; e = e->next) {
@@ -389,11 +402,22 @@ static char *emit_call(LlGen *lg, Node *n) {
 		sb_printf (lg->out, "  ");
 	}
 	const char *rty = retf? "double": retv? "void": "i64";
-	sb_printf (lg->out, "call %s %s(", rty, objref (lg, fn));
+	if (fn && is_c_varargs (fn)) {
+		/* variadic calls carry the callee's full function type */
+		sb_printf (lg->out, "call %s (", rty);
+		int np = 0;
+		for (Obj *p = fn->params; p; p = p->next, np++) {
+			sb_printf (lg->out, "%s%s", np? ", ": "",
+				p->ty->kind == TY_F64? "double": "i64");
+		}
+		sb_printf (lg->out, "%s...) %s(", np? ", ": "", objref (lg, fn));
+	} else {
+		sb_printf (lg->out, "call %s %s(", rty, objref (lg, fn));
+	}
 	for (int k = 0; k < nargs; k++) {
 		sb_printf (lg->out, "%s%s %s", k? ", ": "", argf[k]? "double": "i64", args[k]);
 	}
-	if (fn && fn->is_variadic) {
+	if (fn && fn->is_variadic && !is_c_varargs (fn)) {
 		sb_printf (lg->out, "%si64 %d, i64 %s", nargs? ", ": "", nextras,
 			extras_ptr? extras_ptr: "0");
 	}
@@ -644,13 +668,14 @@ static char *emit_val(LlGen *lg, Node *n) {
 			ensure_block (lg);
 			char *t = tmp_ (lg);
 			sb_printf (lg->out, "  %s = %s i64 %s to double\n", t,
-				value_unsig (from)? "uitofp": "sitofp", v);
+				n->bit_cast? "bitcast": value_unsig (from)? "uitofp": "sitofp", v);
 			return t;
 		}
 		if (to->kind != TY_F64 && from->kind == TY_F64) {
 			ensure_block (lg);
 			char *t = tmp_ (lg);
-			sb_printf (lg->out, "  %s = fptosi double %s to i64\n", t, v);
+			sb_printf (lg->out, "  %s = %s double %s to i64\n", t,
+				n->bit_cast? "bitcast": "fptosi", v);
 			v = t;
 		}
 		if (to->kind == TY_INT && to->size < 8) {
@@ -1065,6 +1090,9 @@ static void ll_emit(Aholyc *cc, Program *prog, StrBuf *out,
 		for (Obj *p = f->params; p; p = p->next, np++) {
 			sb_printf (lg->out, "%s%s", np? ", ": "",
 				p->ty->kind == TY_F64? "double": "i64");
+		}
+		if (is_c_varargs (f)) {
+			sb_printf (lg->out, "%s...", np? ", ": "");
 		}
 		sb_printf (lg->out, ")%s\n",
 			f->hints & HINT_INLINE? " alwaysinline":

@@ -182,7 +182,16 @@ int run_cmd(Aholyc *cc, char *const argv[]) {
 	if (waitpid (pid, &st, 0) < 0) {
 		error (cc, "waitpid failed");
 	}
-	return WIFEXITED (st)? WEXITSTATUS (st): 1;
+	if (WIFEXITED (st)) {
+		return WEXITSTATUS (st);
+	}
+	if (WIFSIGNALED (st)) {
+		/* surface crashes instead of a silent exit 1 */
+		fprintf (stderr, "aholyc: %s terminated by signal %d (%s)\n",
+			argv[0], WTERMSIG (st), strsignal (WTERMSIG (st)));
+		return 128 + WTERMSIG (st);
+	}
+	return 1;
 }
 
 void arg_push(Aholyc *cc, Argv *a, const char *s) {
