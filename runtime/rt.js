@@ -363,6 +363,10 @@ function hcFormat(fmtAddr, argc, argvAddr) {
 function Print(fmt, argc, argv) {
 	W (hcFormat (fmt, argc, argv));
 }
+//@ StreamPrint
+function StreamPrint(fmt, argc, argv) {
+	console.error ("StreamPrint called outside an active #exe block");
+}
 //@ StrPrint wstr hcFormat
 function StrPrint(dst, fmt, argc, argv) {
 	wstr (dst, hcFormat (fmt, argc, argv));

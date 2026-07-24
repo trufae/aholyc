@@ -337,6 +337,13 @@ HC_API void Print(char *fmt, hc_i64 argc, hc_i64 *argv) {
 	fflush (stdout);
 }
 
+HC_API void StreamPrint(char *fmt, hc_i64 argc, hc_i64 *argv) {
+	(void)fmt;
+	(void)argc;
+	(void)argv;
+	fputs ("StreamPrint called outside an active #exe block\n", stderr);
+}
+
 HC_API char *StrPrint(char *dst, char *fmt, hc_i64 argc, hc_i64 *argv) {
 	HcOut o = { dst, 0, (size_t)-1 };
 	if (dst) {

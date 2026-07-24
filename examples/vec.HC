@@ -1,5 +1,7 @@
-// Both forms live in lib/data/vec.HC.  The #exe generator must be included
-// at top level: it injects the typed class and its global functions here.
+// Both forms live in lib/data/vec.HC. Include it once, then register all
+// specialized vectors from a top-level #exe block.
+
+#include "../lib/data/vec.HC"
 
 class CPoint
 {
@@ -7,9 +9,9 @@ class CPoint
   I64 y;
 };
 
-#define VEC_NAME "CPointVec"
-#define VEC_TYPE "CPoint"
-#include "../lib/data/vec.HC"
+#exe {
+  VecDefine("CPointVec", "CPoint");
+};
 
 I64 CompareI64(U8 *a, U8 *b)
 {

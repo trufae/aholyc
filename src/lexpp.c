@@ -32,6 +32,43 @@ static Token *copy_token(Aholyc *cc, Token *t) {
 	return n;
 }
 
+static void remember_exe_prefix(Aholyc *cc, Token *t) {
+	Token *n = copy_token (cc, t);
+	if (cc->exe_prefix_tail) {
+		cc->exe_prefix_tail->next = n;
+	} else {
+		cc->exe_prefix = n;
+	}
+	cc->exe_prefix_tail = n;
+	if (n->kind != TK_PUNCT || !n->str) {
+		return;
+	}
+	if (!strcmp (n->str, "{")) {
+		cc->pp_brace_depth++;
+	} else if (!strcmp (n->str, "}")) {
+		if (cc->pp_brace_depth > 0) {
+			cc->pp_brace_depth--;
+		}
+	} else if (!strcmp (n->str, "(")) {
+		cc->pp_paren_depth++;
+	} else if (!strcmp (n->str, ")")) {
+		if (cc->pp_paren_depth > 0) {
+			cc->pp_paren_depth--;
+		}
+	} else if (!strcmp (n->str, "[")) {
+		cc->pp_bracket_depth++;
+	} else if (!strcmp (n->str, "]")) {
+		if (cc->pp_bracket_depth > 0) {
+			cc->pp_bracket_depth--;
+		}
+	}
+	if ((!strcmp (n->str, "}") || !strcmp (n->str, ";")) &&
+	    cc->pp_brace_depth == 0 && cc->pp_paren_depth == 0 &&
+	    cc->pp_bracket_depth == 0) {
+		cc->exe_prefix_visible_tail = n;
+	}
+}
+
 static Token *new_eof(Aholyc *cc, Token *near) {
 	Token *t = xcalloc (cc, 1, sizeof(*t));
 	t->kind = TK_EOF;
@@ -288,6 +325,7 @@ Token *lex_preprocess(Aholyc *cc, Token *tok) {
 	Token head = {0};
 	Token *cur = &head;
 	int cond_depth = 0;
+	bool remember = cc->pp_depth++ == 0;
 
 	while (tok && tok->kind != TK_EOF) {
 		if (tok->at_bol && tok_is (tok, "#")) {
@@ -505,11 +543,15 @@ Token *lex_preprocess(Aholyc *cc, Token *tok) {
 		}
 		cur->next = tok;
 		cur = tok;
+		if (remember) {
+			remember_exe_prefix (cc, tok);
+		}
 		Token *nx = tok->next;
 		cur->next = NULL;
 		tok = nx;
 	}
 	cur->next = tok? tok: new_eof (cc, cur == &head? NULL: cur);
+	cc->pp_depth--;
 	return head.next;
 }
 

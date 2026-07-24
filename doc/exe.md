@@ -50,20 +50,48 @@ temporary shared library that is `dlopen`ed into the running compiler. One
 compiler, one set of semantics and native speed; callbacks provide controlled
 access to its compiler instance, with token pointers as plain addresses.
 
-The C backend is the natural fit for the dl target: aholyc's HolyC class
-layout uses the same natural-alignment rules as C structs, so a HolyC
-`class` can mirror a compiler `struct` byte for byte, and the block
-manipulates live compiler data through ordinary member access.
+To reproduce TempleOS's ability to call an already-known generator, aholyc
+keeps the complete top-level preprocessed constructs preceding each block.
+The temporary program contains the normal prelude, the `#exe` API, that source
+prefix, a private startup marker, and the block. Earlier classes, globals, and
+function bodies are consequently in scope. An unfinished containing function
+is not copied when `#exe` appears inside it. Startup statements from the prefix
+are cut from the temporary entry point, so compiling a block does not
+accidentally execute ordinary program code:
+
+```c
+U0 VecDefine(U8 *name, U8 *type)
+{
+  StreamPrint("class %s { %s *data; I64 count; };", name, type);
+}
+
+#exe {
+  VecDefine("I64Vec", "I64");
+  VecDefine("U8Vec", "U8");
+};
+```
+
+The helper is ordinary HolyC and remains part of the final program as well.
+Calling `StreamPrint` at runtime, when no `#exe` stream is active, reports an
+error instead of injecting source.
+
+The C backend is the natural fit for the dl target. HolyC classes are packed
+by default, so the `Token` mirror in `runtime/exe.hc` uses explicit `$$`
+offsets for the padding present in the compiler's C `struct Token`. The block
+can then manipulate live token data through ordinary member access.
 
 ### Flow
 
 ```
-lexer hits "#exe {"           (src/lex.c, preprocess)
+lexer hits "#exe {"           (src/lexpp.c, preprocess)
   cut the {...} tokens out of the stream
   preprocess them            (same macro table: one compile stream)
   exe_run(block, &rest) (src/exe.c)
-    prepend runtime prelude + exe API   (runtime/exe.hc)
+    prepend runtime prelude + exe API
+    append preceding preprocessed user source
+    append private marker + block
     parse                    (same parser, invocation-local state)
+    discard startup statements before the marker
     emit C                   (same C backend, runtime embedded)
     append callback bridge; cc -shared -> /tmp/aholyc-exe-XXXXXX/block.so
     dlopen(RTLD_LOCAL); initialize callbacks; call __hc_start; dlclose
@@ -72,8 +100,8 @@ lexer hits "#exe {"           (src/lex.c, preprocess)
 ```
 
 The dl glue lives in `src/exe.c` and `runtime/exe.hc`. Nested parsing and
-emission use local contexts; the macro table and virtual working directory
-remain part of the containing `Aholyc` instance.
+emission use local contexts; the macro table, preceding source history, and
+virtual working directory remain part of the containing `Aholyc` instance.
 
 ### The shim
 
@@ -97,8 +125,8 @@ try/catch, ...) plus:
 | name | meaning |
 |------|---------|
 | `U0 StreamPrint(U8 *fmt, ...)` | inject formatted source text after the block (TempleOS) |
-| `Token *ExeStream()` | the compiler's live token stream right after the block |
-| `U0 ExeStreamSet(Token *t)` | advance the stream: consume tokens the block read |
+| `Token *ExeStream()` | aholyc adapter: live token stream right after the block |
+| `U0 ExeStreamSet(Token *t)` | aholyc adapter: advance the stream to consume tokens |
 | `I64 Cd(U8 *path)` | change this compiler instance's cwd |
 | `I64 Now()` | compile-time clock, unix seconds (TempleOS: CDate) |
 | `__FILE__`, `__DIR__` | macros: file containing the block, its directory |
@@ -112,6 +140,9 @@ Semantics worth knowing:
   defined before the block work inside it, and `#define`s made inside
   the block (or injected by it) are visible after it. One compile
   stream, like TempleOS.
+* Classes, globals, and functions declared earlier in the source are visible
+  inside the block. aholyc recompiles those declarations into the temporary
+  DSO; it does not replay earlier top-level statements.
 * Injected text is **re-lexed in full**: it may contain declarations,
   macros, and further `#exe` blocks.
 * Each `StreamPrint` starts on a **fresh line** in the injected text
@@ -121,7 +152,45 @@ Semantics worth knowing:
 * A compile-time `Print` writes to the compiler's stdout — useful as a
   build-time trace, like TempleOS `Echo`.
 
-## Limitations
+## Compatibility with TempleOS
+
+The reference for "standard" behavior here is the bundled official TempleOS
+source, especially `Compiler/PrsStmt.HC:PrsStreamBlk`,
+`Compiler/CMisc.HC:StreamPrint`, `Compiler/CMain.HC:StreamExePrint`, and
+`Kernel/StrPrint.HC:StrPrintJoin`. The differences are:
+
+| Area | TempleOS | aholyc |
+|------|----------|--------|
+| Earlier symbols | `PrsStreamBlk` switches to JIT mode and uses the task's `Fs->hash_table`, so already-JIT-loaded functions, types, globals, and system symbols are live. | Recompiles the preprocessed source before the block. Earlier source functions and types can be called, including generator helpers, but they are copies in the temporary DSO. |
+| Values and addresses | Uses the task's live global storage and symbol addresses. Mutations can survive and addresses keep their identity. | Earlier globals are newly allocated and zero-initialized in each DSO. Earlier top-level initializers and statements are deliberately not replayed. Mutations and addresses do not survive `dlclose`, and each block starts with another copy. |
+| Stream insertion | Consecutive `StreamPrint` calls concatenate raw bytes in one `CStreamBlk`. Token fragments may intentionally join. | Adds a newline after every call. This prevents accidental token joining and makes injected directives start on a line, but code depending on raw concatenation differs. |
+| Directive position | The TempleOS lexer handles `#exe` when it encounters `#`; it is not restricted by aholyc's beginning-of-line check. | `#exe` must be the first token on its source line. It may appear inside a function, but the injected text must be legal at that function-body location. |
+| Format language | Uses the full TempleOS `StrPrintJoin`, including formats such as `%C`, `%T`, `%z`, function-format callbacks, and TempleOS field/justification flags. | Implements the common hosted subset: `d i u x X o p P c s f e g`, flags, width, and precision. Unsupported TempleOS conversions are emitted literally, so generators using them must be adapted. |
+| Compiler controls | `Option`, `PassTrace`, `Echo`, and related calls alter the active compiler. | `Option`, `PassTrace`, and `Echo` are accepted no-ops. |
+| Compiler reflection | Code can use TempleOS's in-process compiler and task structures directly. | Exposes only the `Token` mirror plus `ExeStream`/`ExeStreamSet` callbacks. Those two functions are aholyc adapters, not TempleOS APIs. |
+| Time and directory | `Now` is a TempleOS `CDate`; `Cd` changes the task's drive/directory state. | `Now()` is Unix seconds. `Cd` changes a compiler-instance virtual CWD without changing the host process CWD. |
+| Runtime compilation | `ExePutS`, `ExePrint`, `ExeFile`, `RunFile`, and `StreamExePrint` use the resident JIT. | These runtime APIs are not implemented. `StreamPrint` is available for compile-time generation only. |
+| Execution environment | Runs through TempleOS's resident x86-64 JIT and shares the compiler task. | Builds a host C shared library, loads it with `dlopen`, and uses a private embedded runtime. The build machine needs a C compiler even when the outer target is LLVM, C, or JS. |
+| Block-local definitions | Definitions execute in TempleOS's compiler/JIT symbol environment. | Functions and classes defined inside a block exist only in that block's DSO. Use `StreamPrint` to add definitions to the output program. |
+| Nested blocks | An inner block can use definitions the outer block has already JIT-compiled. | Macros and injected text nest, but an inner block cannot call a helper declared earlier inside its enclosing block; put reusable helpers before the outermost block. |
+
+These distinctions matter most for stateful metaprograms. Pure generators
+whose earlier helper functions compute text from their arguments are portable:
+
+```c
+#include "vec.HC"
+
+#exe {
+  VecDefine("PointVec", "CPoint");
+  VecDefine("NumberVec", "I64");
+};
+```
+
+Generators that read a previously initialized global, retain a pointer between
+blocks, join tokens across multiple `StreamPrint` calls, or use a TempleOS-only
+format conversion are not equivalent yet.
+
+## Remaining limitations
 
 * **Compile time only.** aholyc produces self-contained native binaries
   with no compiler inside, so the runtime half of the TempleOS API
@@ -135,16 +204,14 @@ Semantics worth knowing:
   deliberately does not. Blocks inspect and rewrite *tokens*.
 * `#exe` is a directive: it must be the first token on its line.
   Mid-expression `#exe` (TempleOS `StreamExePrint`) is not supported.
-* **No state across blocks.** Each block is its own shared library
-  with its own globals; TempleOS blocks share the task's symbol table.
-  Persist through injected code, macros, files, or `Cd` (the cwd persists
-  for that compiler invocation without changing the process cwd).
+* **No live state across blocks.** Each block is its own shared library.
+  Source declarations are visible, but global values are fresh and earlier
+  startup code is not executed. Persist through injected code, macros, files,
+  or `Cd` (the virtual cwd persists for that compiler invocation).
 * Functions and classes defined inside a block exist only during the
   block. To add them to the program, `StreamPrint` their source.
-* `Option`/`PassTrace`/`Echo` do nothing — aholyc's codegen has no
-  equivalent knobs.
-* `Now()` returns unix seconds, not the TempleOS `CDate` 32.32 fixed
-  point.
+* Recompiling the full preceding source for every block makes many-block
+  metaprograms progressively more expensive than TempleOS's shared JIT.
 * The build machine needs a C compiler and `dlopen` at compile time.
   When cross-compiling, blocks still run on the build machine.
 
@@ -225,6 +292,8 @@ patches to the running image.
 `aholyc -V` prints the `cc -shared` command used for each block; `-k`
 keeps its `/tmp/aholyc-exe-XXXXXX/` directory for inspection.
 
-See `examples/exe.HC` (code generation, computed macros, config
-patterns) and `examples/exetokens.HC` (stream reflection, in-place
-token patching, a compile-time mini-DSL).
+See `examples/exe.HC` (code generation, computed macros, config patterns),
+`examples/exe_symbols.HC` (earlier helpers and in-function placement),
+`examples/vec.HC` (an include-once typed generator), and
+`examples/exetokens.HC` (stream reflection, in-place token patching, a
+compile-time mini-DSL).

@@ -20,6 +20,7 @@ extern CTask *Fs;
 
 // console
 extern U0 Print(U8 *fmt,...);
+extern U0 StreamPrint(U8 *fmt,...);
 extern U0 PutChars(I64 ch);
 extern U0 PutS(U8 *s);
 extern I64 GetChar();

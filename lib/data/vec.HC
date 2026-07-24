@@ -2,20 +2,22 @@
 //
 // CVec is the data-driven form: item_size is supplied at initialization, so
 // one implementation handles any trivially-copyable type.  For hot code,
-// define VEC_NAME and VEC_TYPE (as strings) before including this file.  The
-// #exe block then emits a compact, statically typed vector for that type:
+// include this file once, then call VecDefine from a top-level #exe block to
+// emit compact, statically typed vectors:
 //
 //   class CPoint { I64 x; I64 y; };
-//   #define VEC_NAME "CPointVec"
-//   #define VEC_TYPE "CPoint"
 //   #include "../lib/data/vec.HC"
+//   #exe {
+//     VecDefine("CPointVec", "CPoint");
+//     VecDefine("I64Vec", "I64");
+//   };
 //
 // Generated vectors store only data/count/capacity and expose CPointVecInit,
 // CPointVecReserve, CPointVecEmplace, CPointVecPush, CPointVecAt,
 // CPointVecLast, CPointVecPop, CPointVecErase, CPointVecFind,
 // CPointVecFindIf, CPointVecSort, CPointVecClear, and CPointVecFini.
-// Include this file again with another pair of definitions to generate
-// another type.  Elements must be trivially copyable.
+// Register any number of types in the same #exe block. Elements must be
+// trivially copyable.
 
 #ifndef AHOLYC_LIB_DATA_VEC_HC
 #define AHOLYC_LIB_DATA_VEC_HC
@@ -239,7 +241,7 @@ U0 VecSiftDown(CVec *vector, I64 root, I64 end,
         vector->data + (child + 1) * vector->item_size) < 0)
       child++;
     if (compare(vector->data + root * vector->item_size,
-      vector->data + child * vector->item_size) >= 0)
+        vector->data + child * vector->item_size) >= 0)
       return;
     VecSwapItems(vector, root, child, temporary);
     root = child;
@@ -295,48 +297,42 @@ U0 VecSwap(CVec *a, CVec *b)
   *b = temporary;
 }
 
-#endif
-
-#ifdef VEC_NAME
-#ifndef VEC_TYPE
-#error VEC_TYPE must be a string when VEC_NAME is defined
-#endif
-#exe {
+U0 VecDefine(U8 *name, U8 *type)
+{
   StreamPrint("/* @align */ class %s { %s *data; I64 count; I64 capacity; };",
-    VEC_NAME, VEC_TYPE);
+    name, type);
   StreamPrint("/* @inline */ U0 %sInit(%s *vector) { vector->data = 0; vector->count = 0; vector->capacity = 0; }",
-    VEC_NAME, VEC_NAME);
+    name, name);
   StreamPrint("/* @inline */ Bool %sReserve(%s *vector, I64 needed) { %s *data; I64 capacity; if (needed <= vector->capacity) return TRUE; capacity = VecCapacityFor(vector->capacity, needed); if (!capacity || capacity > I64_MAX / sizeof(%s)) return FALSE; data = MAlloc(capacity * sizeof(%s)); if (!data) return FALSE; if (vector->data) { MemCpy(data, vector->data, vector->count * sizeof(%s)); Free(vector->data); } vector->data = data; vector->capacity = capacity; return TRUE; }",
-    VEC_NAME, VEC_NAME, VEC_TYPE, VEC_TYPE, VEC_TYPE, VEC_TYPE);
+    name, name, type, type, type, type);
   StreamPrint("/* @inline */ %s *%sEmplace(%s *vector) { %s *item; if (vector->count == I64_MAX || !%sReserve(vector, vector->count + 1)) return 0; item = &vector->data[vector->count++]; return item; }",
-    VEC_TYPE, VEC_NAME, VEC_NAME, VEC_TYPE, VEC_NAME);
+    type, name, name, type, name);
   StreamPrint("/* @inline */ Bool %sPush(%s *vector, %s *item) { %s *destination = %sEmplace(vector); if (!destination) return FALSE; *destination = *item; return TRUE; }",
-    VEC_NAME, VEC_NAME, VEC_TYPE, VEC_TYPE, VEC_NAME);
+    name, name, type, type, name);
   StreamPrint("/* @inline */ %s *%sAt(%s *vector, I64 index) { if (index < 0 || index >= vector->count) return 0; return &vector->data[index]; }",
-    VEC_TYPE, VEC_NAME, VEC_NAME);
+    type, name, name);
   StreamPrint("/* @inline */ %s *%sLast(%s *vector) { return %sAt(vector, vector->count - 1); }",
-    VEC_TYPE, VEC_NAME, VEC_NAME, VEC_NAME);
+    type, name, name, name);
   StreamPrint("/* @inline */ Bool %sPop(%s *vector, %s *item) { if (!vector->count) return FALSE; vector->count--; if (item) *item = vector->data[vector->count]; return TRUE; }",
-    VEC_NAME, VEC_NAME, VEC_TYPE);
+    name, name, type);
   StreamPrint("/* @inline */ Bool %sErase(%s *vector, I64 index) { I64 i; if (index < 0 || index >= vector->count) return FALSE; for (i = index; i + 1 < vector->count; i++) vector->data[i] = vector->data[i + 1]; vector->count--; return TRUE; }",
-    VEC_NAME, VEC_NAME);
+    name, name);
   StreamPrint("/* @inline */ Bool %sEraseSwap(%s *vector, I64 index) { if (index < 0 || index >= vector->count) return FALSE; vector->count--; if (index != vector->count) vector->data[index] = vector->data[vector->count]; return TRUE; }",
-    VEC_NAME, VEC_NAME);
+    name, name);
   StreamPrint("/* @inline */ I64 %sFind(%s *vector, %s *needle, I64 compare) { I64 i; if (!compare) return -1; for (i = 0; i < vector->count; i++) if (!compare(&vector->data[i], needle)) return i; return -1; }",
-    VEC_NAME, VEC_NAME, VEC_TYPE);
+    name, name, type);
   StreamPrint("/* @inline */ I64 %sFindIf(%s *vector, I64 matches, U8 *context=0) { I64 i; if (!matches) return -1; for (i = 0; i < vector->count; i++) if (matches(&vector->data[i], context)) return i; return -1; }",
-    VEC_NAME, VEC_NAME);
+    name, name);
   StreamPrint("/* @inline */ U0 %sSwapItems(%s *vector, I64 a, I64 b) { %s temporary; if (a == b) return; temporary = vector->data[a]; vector->data[a] = vector->data[b]; vector->data[b] = temporary; }",
-    VEC_NAME, VEC_NAME, VEC_TYPE);
+    name, name, type);
   StreamPrint("/* @inline */ U0 %sSiftDown(%s *vector, I64 root, I64 end, I64 compare) { I64 child; while (root * 2 + 1 <= end) { child = root * 2 + 1; if (child + 1 <= end && compare(&vector->data[child], &vector->data[child + 1]) < 0) child++; if (compare(&vector->data[root], &vector->data[child]) >= 0) return; %sSwapItems(vector, root, child); root = child; } }",
-    VEC_NAME, VEC_NAME, VEC_NAME);
+    name, name, name);
   StreamPrint("/* @inline */ Bool %sSort(%s *vector, I64 compare) { I64 root; I64 end; if (!compare) return FALSE; if (vector->count < 2) return TRUE; root = vector->count / 2; while (root) { root--; %sSiftDown(vector, root, vector->count - 1, compare); } end = vector->count; while (end > 1) { end--; %sSwapItems(vector, 0, end); %sSiftDown(vector, 0, end - 1, compare); } return TRUE; }",
-    VEC_NAME, VEC_NAME, VEC_NAME, VEC_NAME, VEC_NAME);
+    name, name, name, name, name);
   StreamPrint("/* @inline */ U0 %sClear(%s *vector) { vector->count = 0; }",
-    VEC_NAME, VEC_NAME);
+    name, name);
   StreamPrint("/* @inline */ U0 %sFini(%s *vector) { Free(vector->data); %sInit(vector); }",
-    VEC_NAME, VEC_NAME, VEC_NAME);
-};
-#undef VEC_NAME
-#undef VEC_TYPE
+    name, name, name);
+}
+
 #endif

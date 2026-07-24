@@ -256,6 +256,9 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 	if (sources.n > 0) {
 		/* prelude first so its macros exist, then user files in order */
 		Token *toks = lex_string (cc, aholyc_i_prelude_hc, "<prelude>", NULL);
+		/* #exe recompiles the preceding user declarations as its symbol
+		 * context.  The standard prelude is supplied separately there. */
+		cc->exe_prefix = cc->exe_prefix_tail = cc->exe_prefix_visible_tail = NULL;
 		for (int i = 0; i < sources.n; i++) {
 			toks = token_join (toks, lex_file (cc, sources.v[i]));
 		}

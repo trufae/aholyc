@@ -55,6 +55,38 @@ static int64_t exe_now(void *ctx) { (void)ctx; return (int64_t)time (NULL); }
 
 static void cleanup_dso(void *handle) { dlclose (handle); }
 
+static Token *copy_prefix(Aholyc *cc) {
+	Token head = {0};
+	Token *cur = &head;
+	for (Token *t = cc->exe_prefix; t && cc->exe_prefix_visible_tail;
+	     t = t->next) {
+		Token *n = xmalloc (cc, sizeof(*n));
+		*n = *t;
+		n->next = NULL;
+		cur->next = n;
+		cur = n;
+		if (t == cc->exe_prefix_visible_tail) {
+			break;
+		}
+	}
+	Token *eof = xcalloc (cc, 1, sizeof(*eof));
+	eof->kind = TK_EOF;
+	eof->cc = cc;
+	cur->next = eof;
+	return head.next;
+}
+
+static void keep_exe_startup(Aholyc *cc, Program *p, const char *marker) {
+	for (Node *n = p->startup->body->body; n; n = n->next) {
+		if (n->kind == ND_LABEL && n->label &&
+		    !strcmp (n->label, marker)) {
+			p->startup->body->body = n->next;
+			return;
+		}
+	}
+	error (cc, "#exe: internal startup marker was lost");
+}
+
 /* Definitions for the externs declared by runtime/exe.hc.  The bridge lives
  * in each generated DSO, so concurrent compilers never need a global router. */
 static const char exe_bridge[] =
@@ -74,12 +106,22 @@ static const char exe_bridge[] =
  * EOF-terminated; *rest is the stream after the block, which the
  * block may advance. Returns the text to splice into the stream. */
 char *exe_run(Aholyc *cc, Token *block, Token **rest) {
-	/* a stand-alone program: runtime prelude, exe API, block body.
-	 * The body is preprocessed last so the exe API macros apply. */
+	/* Recompile the already-preprocessed outer prefix so functions, classes,
+	 * and globals declared before this block are in scope, as in TempleOS.
+	 * A marker separates ordinary outer startup statements from the block:
+	 * only the block's startup tail executes in the compiler process. */
 	Token *toks = lex_string (cc, aholyc_i_prelude_hc, "<prelude>", NULL);
 	toks = token_join (toks, lex_string (cc, aholyc_i_exe_hc, "<exe-api>", NULL));
+	toks = token_join (toks, copy_prefix (cc));
+	char *source_marker = xasprintf (cc, "__aholyc_exe_begin_%d",
+		++cc->exe_serial);
+	char *node_marker = xasprintf (cc, "u_%s", source_marker);
+	Token *marker = tokenize (cc, xasprintf (cc, "%s:", source_marker),
+		"<exe-marker>");
+	toks = token_join (toks, marker);
 	toks = token_join (toks, lex_preprocess (cc, block));
 	Program *p = parse (cc, toks, true);
+	keep_exe_startup (cc, p, node_marker);
 	ExeRun run = { .cc = cc, .stream = *rest };
 	sb_init (&run.out, cc);
 

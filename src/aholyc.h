@@ -236,13 +236,15 @@ struct Aholyc {
 	void *allocs;
 	AholyIncDir *inc_dirs;
 	AholyMacro *macros;
+	Token *exe_prefix, *exe_prefix_tail, *exe_prefix_visible_tail;
 	char *cwd;
 	Argv ccflags;
 	FILE *diagnostics;
 	AholyCleanup cleanups[8];
 	jmp_buf error_jmp;
 	char error[1024];
-	int ncleanups;
+	int ncleanups, pp_depth, pp_brace_depth, pp_paren_depth, pp_bracket_depth;
+	int exe_serial;
 	bool verbose, keep, use_hints, error_active;
 };
 

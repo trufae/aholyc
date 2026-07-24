@@ -13,9 +13,16 @@ for b in $backends; do
 		n=$(basename "$f" .HC)
 		exp="tests/expected/$n.out"
 		[ -f "$exp" ] || continue
-		if ! ./aholyc -b "$b" -o "tests/out/$n-$b" "$f" 2>"tests/out/$n-$b.err"; then
+		if ! ./aholyc -b "$b" -o "tests/out/$n-$b" "$f" \
+			>"tests/out/$n-$b.build" 2>"tests/out/$n-$b.err"; then
 			echo "FAIL build $b/$n"
 			head -5 "tests/out/$n-$b.err"
+			fail=1
+			continue
+		fi
+		if [ "$n" = exe_symbols ] && [ -s "tests/out/$n-$b.build" ]; then
+			echo "FAIL build $b/$n replayed outer startup"
+			head -5 "tests/out/$n-$b.build"
 			fail=1
 			continue
 		fi

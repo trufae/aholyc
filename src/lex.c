@@ -25,6 +25,9 @@ void lex_reset(Aholyc *cc) {
 	clear_config (cc);
 	cc->verbose = cc->keep = false;
 	cc->use_hints = true;
+	cc->exe_prefix = cc->exe_prefix_tail = cc->exe_prefix_visible_tail = NULL;
+	cc->pp_depth = cc->pp_brace_depth = cc->pp_paren_depth = 0;
+	cc->pp_bracket_depth = cc->exe_serial = 0;
 	char *cwd = getcwd (NULL, 0);
 	if (cwd) cleanup_push (cc, free, cwd);
 	cc->cwd = xstrdup (cc, cwd? cwd: ".");
