@@ -20,7 +20,7 @@ class CHashTable
 
 // FNV-1a followed by a 64-bit finalizer.  The finalizer matters because table
 // indices are the low bits of the hash when capacity is a power of two.
-U64 HtHash(U8 *key)
+/* @inline */ U64 HtHash(U8 *key)
 {
   U64 hash = 1469598103934665603;
 
@@ -35,7 +35,7 @@ U64 HtHash(U8 *key)
   return hash ^ hash >> 33;
 }
 
-Bool HtKeyEquals(U8 *a, U8 *b)
+/* @inline */ Bool HtKeyEquals(U8 *a, U8 *b)
 {
   while (*a == *b) {
     if (!*a)
@@ -46,7 +46,7 @@ Bool HtKeyEquals(U8 *a, U8 *b)
   return FALSE;
 }
 
-I64 HtRoundCapacity(I64 capacity)
+/* @inline */ I64 HtRoundCapacity(I64 capacity)
 {
   I64 result = 8;
 
@@ -55,7 +55,7 @@ I64 HtRoundCapacity(I64 capacity)
   return result;
 }
 
-U0 HtInitCapacity(CHashTable *table, I64 capacity)
+/* @inline */ U0 HtInitCapacity(CHashTable *table, I64 capacity)
 {
   if (capacity < 8)
     capacity = 8;
@@ -64,13 +64,13 @@ U0 HtInitCapacity(CHashTable *table, I64 capacity)
   table->count = 0;
 }
 
-U0 HtInit(CHashTable *table)
+/* @inline */ U0 HtInit(CHashTable *table)
 {
   HtInitCapacity(table, 8);
 }
 
 // Return the occupied slot for key, or NULL when it is absent.
-CHashEntry *HtFind(CHashTable *table, U8 *key)
+/* @inline */ CHashEntry *HtFind(CHashTable *table, U8 *key)
 {
   I64 mask;
   I64 index;
@@ -90,7 +90,7 @@ CHashEntry *HtFind(CHashTable *table, U8 *key)
   }
 }
 
-Bool HtGet(CHashTable *table, U8 *key, I64 *value)
+/* @inline */ Bool HtGet(CHashTable *table, U8 *key, I64 *value)
 {
   CHashEntry *entry = HtFind(table, key);
 
@@ -101,7 +101,7 @@ Bool HtGet(CHashTable *table, U8 *key, I64 *value)
   return TRUE;
 }
 
-U0 HtResize(CHashTable *table, I64 capacity)
+/* @inline */ U0 HtResize(CHashTable *table, I64 capacity)
 {
   CHashEntry *old_entries = table->entries;
   I64 old_capacity = table->capacity;
@@ -126,7 +126,7 @@ U0 HtResize(CHashTable *table, I64 capacity)
 }
 
 // Insert or replace key.  Returns TRUE only when a new key was inserted.
-Bool HtPut(CHashTable *table, U8 *key, I64 value)
+/* @inline */ Bool HtPut(CHashTable *table, U8 *key, I64 value)
 {
   CHashEntry *entry;
   I64 index;
@@ -158,7 +158,7 @@ Bool HtPut(CHashTable *table, U8 *key, I64 value)
 
 // Delete key using backward-shift deletion.  It preserves every probe chain
 // and avoids the extra state byte or tombstone required by other schemes.
-Bool HtDelete(CHashTable *table, U8 *key)
+/* @inline */ Bool HtDelete(CHashTable *table, U8 *key)
 {
   CHashEntry *entry = HtFind(table, key);
   I64 hole;
@@ -185,14 +185,14 @@ Bool HtDelete(CHashTable *table, U8 *key)
   return TRUE;
 }
 
-U0 HtClear(CHashTable *table)
+/* @inline */ U0 HtClear(CHashTable *table)
 {
   if (table->entries)
     MemSet(table->entries, 0, table->capacity * sizeof(CHashEntry));
   table->count = 0;
 }
 
-U0 HtFini(CHashTable *table)
+/* @inline */ U0 HtFini(CHashTable *table)
 {
   Free(table->entries);
   table->entries = NULL;
@@ -202,7 +202,7 @@ U0 HtFini(CHashTable *table)
 
 // Pass index = 0 for the first entry, then pass the returned index + 1.
 // Returns -1 when no more entries exist.
-I64 HtNext(CHashTable *table, I64 index, CHashEntry **entry)
+/* @inline */ I64 HtNext(CHashTable *table, I64 index, CHashEntry **entry)
 {
   while (index < table->capacity) {
     if (table->entries[index].key) {
