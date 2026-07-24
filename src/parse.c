@@ -1471,6 +1471,11 @@ static Node *local_decl(Parser *ps) {
 		}
 		Token *nt = ps->tk;
 		char *name = take_name (ps, "variable name", true);
+		if (is_punct (ps, "(")) {
+			error_tok (ps->cc, nt,
+				"local functions are not allowed in HolyC; move '%s' to file scope",
+				name);
+		}
 		while (eat (ps, "[")) {
 			Node *len = comma_expr (ps);
 			expect (ps, "]");

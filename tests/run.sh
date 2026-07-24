@@ -173,6 +173,27 @@ else
 	fail=1
 fi
 
+# A function-looking declaration in a block is not a malformed local
+# variable: HolyC deliberately has no local functions. Diagnose the actual
+# unsupported construct instead of falling through to "expected ','".
+localfnok=1
+if printf '%s\n' 'U0 Foo() { U0 Bar() {} }' |
+	./aholyc -S -b c -o tests/out/local-function.c - \
+		>/dev/null 2>tests/out/local-function.err; then
+	localfnok=0
+elif ! grep -Fq \
+	"local functions are not allowed in HolyC; move 'Bar' to file scope" \
+	tests/out/local-function.err; then
+	localfnok=0
+fi
+if [ "$localfnok" = 1 ]; then
+	echo "ok   local-function diagnostic"
+else
+	echo "FAIL local-function diagnostic"
+	head -1 tests/out/local-function.err 2>/dev/null
+	fail=1
+fi
+
 # Primitive types, class types, and hard keywords are not legal symbol names.
 # Keep the cases separate so every declaration path reaches the same early
 # reserved-name validation instead of leaking a bad name into a backend.
