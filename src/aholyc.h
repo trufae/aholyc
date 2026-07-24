@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <setjmp.h>
@@ -53,12 +54,27 @@ typedef struct {
 } LexHints;
 struct Token {
 	TokenKind kind;
+#if UINTPTR_MAX == UINT32_MAX
+	uint32_t abi_pad_kind;
+#endif
 	Token *next;
+#if UINTPTR_MAX == UINT32_MAX
+	uint32_t abi_pad_next;
+#endif
 	int64_t ival;      /* TK_NUM, TK_CHR */
 	double fval;       /* TK_FNUM */
 	char *str;         /* TK_STR: decoded bytes; word/punctuation token text */
+#if UINTPTR_MAX == UINT32_MAX
+	uint32_t abi_pad_str;
+#endif
 	int len;           /* length of str (TK_STR may contain NULs) */
+#if UINTPTR_MAX == UINT32_MAX
+	uint32_t abi_pad_len;
+#endif
 	char *file;        /* source file name */
+#if UINTPTR_MAX == UINT32_MAX
+	uint32_t abi_pad_file;
+#endif
 	int line;
 	bool at_bol;       /* first token on its line (for directives) */
 	bool has_space;    /* preceded by whitespace */
@@ -66,8 +82,23 @@ struct Token {
 	int hint_bits;      /* @bits=N attached by a preceding comment; 0 if none */
 	int hint_align;     /* @align=N, -1 for natural, 0 if absent */
 	unsigned hints;     /* HINT_* flags attached by a preceding comment */
+#if UINTPTR_MAX == UINT32_MAX
+	uint32_t abi_pad_hints;
+#endif
 	Aholyc *cc;         /* owning compiler */
+#if UINTPTR_MAX == UINT32_MAX
+	uint32_t abi_pad_cc;
+#endif
 };
+
+/* runtime/exe.hc reflects this public prefix directly from #exe blocks. */
+typedef char AholyTokenLayoutCheck[
+	sizeof(Token) == 88 &&
+	offsetof(Token, next) == 8 &&
+	offsetof(Token, ival) == 16 &&
+	offsetof(Token, str) == 32 &&
+	offsetof(Token, file) == 48 &&
+	offsetof(Token, line) == 56? 1: -1];
 
 /* ----------------------------------------------------------------- types */
 
@@ -101,6 +132,10 @@ struct Type {
 	int bits;          /* requested integer value width; 0 if unhinted */
 	Type *base;        /* TY_PTR/TY_ARRAY element, TY_FUNC return type */
 	int array_len;
+	/* TY_FUNC */
+	Obj *params;
+	int nparams;
+	bool is_variadic;
 	/* TY_CLASS */
 	char *name;
 	Member *members;

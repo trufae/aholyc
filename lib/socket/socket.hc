@@ -53,8 +53,9 @@
 #endif
 
 // addrinfo is almost portable, except Linux places ai_addr before
-// ai_canonname.  Explicit cursors reproduce each C ABI without relying on
-// HolyC's packed default layout.
+// ai_canonname. Explicit cursors reproduce each C ABI without relying on
+// HolyC's packed default layout. C pointer fields use USZ because an ordinary
+// HolyC pointer still occupies eight bytes in a class on a 32-bit target.
 class CSocketAddrInfo
 {
   I32 flags;
@@ -62,21 +63,21 @@ class CSocketAddrInfo
   I32 socket_type;
   I32 protocol;
   #ifdef IS_WINDOWS
-  U64 address_length;
-  U8 *canonical_name;
-  U8 *address;
+  USZ address_length;
   #else
   U32 address_length;
+  #ifdef IS_64BIT
   $$ = 24;
+  #endif
+  #endif
   #ifdef IS_LINUX
-  U8 *address;
-  U8 *canonical_name;
+  USZ address;
+  USZ canonical_name;
   #else
-  U8 *canonical_name;
-  U8 *address;
+  USZ canonical_name;
+  USZ address;
   #endif
-  #endif
-  CSocketAddrInfo *next;
+  USZ next;
 };
 
 // Opaque enough for sockaddr_in, sockaddr_in6, and their platform variants.
@@ -269,22 +270,22 @@ U0 SocketNativeClose(I64 handle)
 
 #else
 
-extern I64 socket(I64 family, I64 type, I64 protocol);
-extern I64 bind(I64 socket, U8 *address, I64 address_length);
-extern I64 listen(I64 socket, I64 backlog);
-extern I64 accept(I64 socket, U8 *address, U8 *address_length);
-extern I64 connect(I64 socket, U8 *address, I64 address_length);
-extern I64 send(I64 socket, U8 *data, I64 size, I64 flags);
-extern I64 recv(I64 socket, U8 *data, I64 size, I64 flags);
-extern I64 recvfrom(I64 socket, U8 *data, I64 size, I64 flags,
-  U8 *address, U8 *address_length);
-extern I64 sendto(I64 socket, U8 *data, I64 size, I64 flags,
-  U8 *address, I64 address_length);
-extern I64 shutdown(I64 socket, I64 how);
-extern I64 close(I64 socket);
-extern I64 setsockopt(I64 socket, I64 level, I64 option,
-  U8 *value, I64 value_size);
-extern I64 getaddrinfo(U8 *host, U8 *service, CSocketAddrInfo *hints,
+extern I32 socket(I32 family, I32 type, I32 protocol);
+extern I32 bind(I32 socket, U8 *address, U32 address_length);
+extern I32 listen(I32 socket, I32 backlog);
+extern I32 accept(I32 socket, U8 *address, U32 *address_length);
+extern I32 connect(I32 socket, U8 *address, U32 address_length);
+extern ISZ send(I32 socket, U8 *data, USZ size, I32 flags);
+extern ISZ recv(I32 socket, U8 *data, USZ size, I32 flags);
+extern ISZ recvfrom(I32 socket, U8 *data, USZ size, I32 flags,
+  U8 *address, U32 *address_length);
+extern ISZ sendto(I32 socket, U8 *data, USZ size, I32 flags,
+  U8 *address, U32 address_length);
+extern I32 shutdown(I32 socket, I32 how);
+extern I32 close(I32 socket);
+extern I32 setsockopt(I32 socket, I32 level, I32 option,
+  U8 *value, U32 value_size);
+extern I32 getaddrinfo(U8 *host, U8 *service, CSocketAddrInfo *hints,
   CSocketAddrInfo **result);
 extern U0 freeaddrinfo(CSocketAddrInfo *result);
 

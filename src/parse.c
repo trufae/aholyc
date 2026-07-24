@@ -760,15 +760,39 @@ static Node *make_indirect_call(Parser *ps, Node *callee, Node *args, Token *tok
 		fnty = callee->ty->base;
 	}
 	n->ty = fnty && fnty->base? value_type (ps->cc, fnty->base): ty_i64;
-	for (Node *a = args; a; a = a->next) {
+	Node head = {0};
+	Node *cur = &head;
+	Obj *p = fnty? fnty->params: NULL;
+	int fixed_left = fnty? fnty->nparams: 0;
+	int argc = 0;
+	for (Node *a = args; a;) {
+		Node *next = a->next;
+		a->next = NULL;
 		if (a->kind == ND_NOP) {
 			error_tok (ps->cc, tok, "default arguments require a direct call");
 		}
+		if (fnty && !fixed_left && !fnty->is_variadic) {
+			error_tok (ps->cc, tok, "too many arguments to function pointer");
+		}
+		if (fixed_left) {
+			if (p->ty->kind == TY_F64 && a->ty->kind != TY_F64) {
+				a = new_cast (a, ty_f64);
+			} else if (p->ty->kind != TY_F64 && a->ty->kind == TY_F64) {
+				a = new_cast (a, ty_i64);
+			}
+			p = p->next;
+			fixed_left--;
+		}
+		cur->next = a;
+		cur = a;
+		argc++;
+		a = next;
 	}
-	n->args = args;
-	int cnt = 0;
-	for (Node *a = args; a; a = a->next) cnt++;
-	n->nfixed = cnt;
+	if (fixed_left) {
+		error_tok (ps->cc, tok, "too few arguments to function pointer");
+	}
+	n->args = head.next;
+	n->nfixed = fnty && argc > fnty->nparams? fnty->nparams: argc;
 	return n;
 }
 
@@ -1411,6 +1435,19 @@ static Node *print_stmt(Parser *ps) {
 }
 
 /* variable declaration (local) starting at a type token */
+static void parse_params(Parser *ps, Obj *fn);
+
+static Type *parse_func_pointer_type(Parser *ps, Type *ret) {
+	Obj signature = { .is_extern = true };
+	parse_params (ps, &signature);
+	Type *fnty = new_type (ps->cc, TY_FUNC, 8, 8);
+	fnty->base = ret;
+	fnty->params = signature.params;
+	fnty->nparams = signature.nparams;
+	fnty->is_variadic = signature.is_variadic;
+	return ptr_to (ps->cc, fnty);
+}
+
 static Node *local_decl(Parser *ps) {
 	Token *t = ps->tk;
 	Token *hint = NULL, *func_hint = NULL, *align_hint = NULL;
@@ -1448,18 +1485,8 @@ static Node *local_decl(Parser *ps) {
 			expect (ps, "*");
 			char *name = take_name (ps, "function pointer name", true);
 			expect (ps, ")");
-			expect (ps, "(");
-			/* skip param list: types only matter for docs */
-			int depth = 1;
-			while (depth > 0 && ps->tk->kind != TK_EOF) {
-				if (is_punct (ps, "(")) depth++;
-				if (is_punct (ps, ")")) depth--;
-				ps->tk = ps->tk->next;
-			}
-			Type *fnty = new_type (ps->cc, TY_FUNC, 8, 8);
-			fnty->base = ty;
 			Obj *var = new_local (ps, name,
-				hinted_type (ps, ptr_to (ps->cc, fnty), hint));
+				hinted_type (ps, parse_func_pointer_type (ps, ty), hint));
 			var->align = hint_alignment (ps, var->ty, align_hint);
 			if (eat (ps, "=")) {
 				Node *rhs = expr (ps);
@@ -2294,6 +2321,9 @@ static void parse_func(Parser *ps, Type *ret, char *name, bool is_extern, bool i
 	ps->fn_labels = NULL;
 	ps->cur_fn = fn;
 	parse_params (ps, fn);
+	fnty->params = fn->params;
+	fnty->nparams = fn->nparams;
+	fnty->is_variadic = fn->is_variadic;
 	if (fresh) {
 		add_func (ps, fn);
 	}
@@ -2345,17 +2375,8 @@ static Node *global_decl(Parser *ps, Type *base, bool is_extern, bool is_public,
 			expect (ps, "*");
 			char *name = take_name (ps, "function pointer name", true);
 			expect (ps, ")");
-			expect (ps, "(");
-			int depth = 1;
-			while (depth > 0 && ps->tk->kind != TK_EOF) {
-				if (is_punct (ps, "(")) depth++;
-				if (is_punct (ps, ")")) depth--;
-				ps->tk = ps->tk->next;
-			}
-			Type *fnty = new_type (ps->cc, TY_FUNC, 8, 8);
-			fnty->base = ty;
 			Obj *var = new_global (ps, name,
-				hinted_type (ps, ptr_to (ps->cc, fnty), hint));
+				hinted_type (ps, parse_func_pointer_type (ps, ty), hint));
 			var->is_extern = is_extern;
 			var->is_public = is_public;
 			if (eat (ps, "=")) {
@@ -2447,6 +2468,8 @@ Program *parse(Aholyc *cc, Token *tok, bool align_hints) {
 	pargc->next = pargv;
 	startup->params = pargc;
 	startup->is_variadic = true;
+	fnty->params = pargc;
+	fnty->is_variadic = true;
 	startup->defaults = xmalloc (ps->cc, sizeof(Node *));
 	ps->prog->startup = startup;
 

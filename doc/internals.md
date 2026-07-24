@@ -69,22 +69,34 @@ process working directory.
 
 ## Calling convention
 
-All HolyC scalars travel as 64-bit values (`i64`/`double`). Variadic
-functions follow the TempleOS model rather than C varargs: the compiler
-packs the extra arguments into an on-stack array of 8-byte slots and
+HolyC expressions and parameter storage use 64-bit values (`i64` or
+`double`), but native function boundaries use the declared type. `I8` through
+`I64` use the matching integer width and signedness; pointers use the host
+pointer width and are widened back into HolyC's 64-bit pointer storage on
+entry. This applies to imports, exported callbacks, and indirect calls, so an
+i386 target does not accidentally consume pairs of stack slots for every
+argument.
+
+The prelude aliases `ISZ` and `USZ` to the signed and unsigned native C ABI
+integer widths. They cover `size_t`/`ssize_t`, pointer-sized integers, and
+similar platform typedefs without duplicating `IS_32BIT` conditionals in each
+binding.
+
+Variadic HolyC functions follow the TempleOS model rather than C varargs: the
+compiler packs the extra arguments into an on-stack array of 8-byte slots and
 passes `(named..., I64 argc, I64 *argv)`. F64 varargs are bit-copied into
 their slot; `%f` in `Print` reads the slot as a double, and user code
 re-blesses a slot with the postfix cast (`argv[i](F64)` reinterprets the
-bits; `ToF64`/`ToI64` convert the value). This sidesteps C vararg ABI
-headaches and gives HolyC's `argc`/`argv` for free.
+bits; `ToF64`/`ToI64` convert the value). This gives HolyC its
+`argc`/`argv` convention independently of the host ABI.
 
 The exception is a bodiless non-prelude `extern` declared with `...`
-(e.g. `extern I64 printf(U8 *fmt, ...);`): that is a C import, so no
+(e.g. `extern I32 printf(U8 *fmt, ...);`): that is a C import, so no
 implicit argc/argv pair is added and calls use the real C varargs ABI,
 with F64 extras passed as typed doubles. Prelude variadics (`Print`,
 `StrPrint`, ...) keep the argc/argv contract their C implementations
 expect. In generated C the import is declared under an `hc_cv_` alias
-bound to the real symbol with `__asm__`, so the I64-shaped prototype
+bound to the real symbol with `__asm__`, so the generated prototype
 never clashes with declarations or macros from libc headers the runtime
 already includes. The reverse direction stays explicit: C code calls a
 `public` HolyC variadic by passing the pair itself, e.g.

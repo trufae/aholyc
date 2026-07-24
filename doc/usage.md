@@ -129,7 +129,7 @@ The rules, HolyC-style:
 ## What happens under the hood
 
 1. The embedded prelude (`runtime/prelude.hc`) is compiled first: it
-   defines `TRUE`/`NULL`/`Bool`... and declares the runtime API.
+   defines `TRUE`/`NULL`/`Bool`, `ISZ`/`USZ`, and declares the runtime API.
 2. Your file(s) are lexed, preprocessed, and parsed into one AST.
    Top-level statements become the startup function.
 3. The selected backend emits a source artifact next to the output
@@ -150,24 +150,24 @@ Declare foreign functions and globals with `extern` and link with
 `-L`/`-l` (native backends only):
 
 ```holyc
-// zdemo.HC
-extern U64 crc32(U64 crc, U8 *buf, U32 len);
-"%X\n", crc32(0, "hello", 5);
-```
-
-```console
-$ aholyc zdemo.HC -lz -o zdemo
+extern I32 puts(U8 *text);
+puts("hello from libc");
 ```
 
 aholyc emits matching declarations for every `extern` symbol your source
-declares that the runtime doesn't provide. All HolyC integers are 64-bit,
-so prefer C functions with pointer/`long long`/`double`-shaped
-signatures and mask narrower return values yourself (e.g. `x(I32)`).
-C-variadic functions work too: a bodiless `extern` declared with `...`
-uses the real C varargs ABI, so
-`extern I64 printf(U8 *fmt, ...); printf("%s %lld %f\n", s, n, f);`
-calls libc directly (use C format sizes: `%lld` for I64, `%f`/`%g` read
-a double). Only variadic functions with HolyC bodies use the
+declares that the runtime doesn't provide. The declaration must match the C
+prototype: `I8` through `I64` map to the corresponding fixed-width C integer,
+`F64` maps to `double`, and HolyC pointers cross the native ABI as host-width
+C pointers. Values widen back to HolyC's 64-bit expression model after the
+call. `USZ` maps C's unsigned native-width types such as `size_t` and
+`uintptr_t`; `ISZ` maps signed counterparts such as `ssize_t`, `intptr_t`,
+and `ptrdiff_t`.
+
+C-variadic functions work too: a bodiless `extern` declared with `...` uses
+the real C varargs ABI, so
+`extern I32 printf(U8 *fmt, ...); printf("%s %lld %f\n", s, n, f);` calls
+libc directly. Use C format sizes: `%lld` for `I64`; `%f` and `%g` read a
+promoted `double`. Only variadic functions with HolyC bodies use the
 `argc`/`argv` convention.
 
 ## Dead code elimination
