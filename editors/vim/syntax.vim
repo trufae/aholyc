@@ -78,7 +78,7 @@ syn match	hcInclude	display "^\s*\zs\%(%:\|#\)\s*link\>\s*["<]" contains=hcInclu
 " ---------------------------------------------------------------------------
 " Types & structures
 " ---------------------------------------------------------------------------
-syn keyword hcType      U0 Bool I8 U8 I16 U16 I32 U32 I64 U64 F32 F64 auto
+syn keyword hcType      U0 Bool I8 U8 I16 U16 I32 U32 I64 U64 ISZ USZ F32 F64 auto
 syn keyword hcStructure class union
 
 syntax match PascalType /\%(\( \|\t\|\n\|$\|<\|}\|(\)\{1}\)\@<=\<\u[[:alnum:]]*\>\( \|\t\|\n\|$\|>\)\%( \|=\|,\|!\|:\)\@!/ containedin=cStatement,cType,cStructure
@@ -109,6 +109,7 @@ syn keyword hcBoolean  TRUE FALSE ON OFF
 syn keyword hcConstant NULL EXIT_FAILURE EXIT_SUCCESS EXIT_FAIL EXIT_OK
 syn keyword hcConstant I64_MIN I64_MAX I32_MIN I32_MAX I16_MIN I16_MAX
 syn keyword hcConstant I8_MIN I8_MAX U64_MAX U32_MAX U16_MAX U8_MAX
+syn keyword hcConstant ISZ_MIN ISZ_MAX USZ_MAX
 syn keyword hcConstant STDIN STDOUT STDERR __BUFSIZ__
 
 " ---------------------------------------------------------------------------

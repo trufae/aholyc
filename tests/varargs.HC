@@ -1,9 +1,9 @@
 // HolyC <-> C variadic FFI (wired in tests/run.sh with tests/varargs_ffi.c).
 // A bodiless extern declared with ... imports a real C varargs function;
 // HolyC-bodied variadics keep the TempleOS argc/argv convention.
-extern I64 printf(U8 *fmt, ...);
-extern I64 snprintf(U8 *buf, I64 n, U8 *fmt, ...);
-extern I64 puts(U8 *s);
+extern I32 printf(U8 *fmt, ...);
+extern I32 snprintf(U8 *buf, USZ n, U8 *fmt, ...);
+extern I32 puts(U8 *s);
 extern I64 CallHcSum();  // C helper calling back into HcSum below
 
 // C -> HolyC: public variadics keep the implicit argc/argv pair, so the

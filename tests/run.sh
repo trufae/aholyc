@@ -4,6 +4,9 @@
 cd "$(dirname "$0")/.." || exit 1
 mkdir -p tests/out
 fail=0
+test_cc=${CC:-cc}
+test_ar=${AR:-ar}
+test_cflags=${CFLAGS:-}
 backends="c"
 command -v clang >/dev/null 2>&1 && backends="$backends llvm"
 command -v node >/dev/null 2>&1 && backends="$backends js"
@@ -453,22 +456,22 @@ for b in $backends; do
 	fi
 done
 
-# A timed connect temporarily enables nonblocking mode, then restores blocking
-# mode before returning its socket to the caller.
+# Exercise native address layouts, numeric resolution, ephemeral UDP binding,
+# and restoration of blocking mode after a timed TCP connect.
 for b in $backends; do
 	[ "$b" = js ] && continue
 	if ./aholyc -b "$b" tests/socket.HC -o "tests/out/socket-$b" \
 		2>"tests/out/socket-$b.err"; then
 		"tests/out/socket-$b" >"tests/out/socket-$b.txt" 2>&1
 		if cmp -s tests/expected/socket.out "tests/out/socket-$b.txt"; then
-			echo "ok   $b/socket-timeout"
+			echo "ok   $b/socket-library"
 		else
-			echo "FAIL $b/socket-timeout"
+			echo "FAIL $b/socket-library"
 			diff tests/expected/socket.out "tests/out/socket-$b.txt" | head -10
 			fail=1
 		fi
 	else
-		echo "FAIL build $b/socket-timeout"
+		echo "FAIL build $b/socket-library"
 		head -5 "tests/out/socket-$b.err"
 		fail=1
 	fi
@@ -1296,8 +1299,8 @@ cd ok" ]; then
 done
 
 # linking against a C library with -L/-l
-cc -c tests/clib.c -o tests/out/clib.o 2>/dev/null &&
-	ar rcs tests/out/libhctest.a tests/out/clib.o 2>/dev/null
+"$test_cc" $test_cflags -c tests/clib.c -o tests/out/clib.o 2>/dev/null &&
+	"$test_ar" rcs tests/out/libhctest.a tests/out/clib.o 2>/dev/null
 if [ -f tests/out/libhctest.a ]; then
 	for b in $backends; do
 		[ "$b" = js ] && continue
@@ -1322,7 +1325,7 @@ fi
 # variadic FFI, both directions: a bodiless extern with ... calls a real
 # C varargs function (printf/snprintf, F64 re-blessed as double), and C
 # calls a public HolyC variadic through its (argc, I64 *argv) pair
-cc -c tests/varargs_ffi.c -o tests/out/varargs_ffi.o 2>/dev/null
+"$test_cc" $test_cflags -c tests/varargs_ffi.c -o tests/out/varargs_ffi.o 2>/dev/null
 if [ -f tests/out/varargs_ffi.o ]; then
 	for b in $backends; do
 		[ "$b" = js ] && continue
@@ -1344,15 +1347,40 @@ if [ -f tests/out/varargs_ffi.o ]; then
 	done
 fi
 
+# Fixed-width integers and native pointers must cross the C ABI at their
+# declared widths, while HolyC keeps 64-bit values in its own storage.
+"$test_cc" $test_cflags -c tests/abi_ffi.c -o tests/out/abi_ffi.o 2>/dev/null
+if [ -f tests/out/abi_ffi.o ]; then
+	for b in $backends; do
+		[ "$b" = js ] && continue
+		if ./aholyc -b "$b" tests/abi_ffi.HC tests/out/abi_ffi.o \
+			-o "tests/out/abi-ffi-$b" 2>"tests/out/abi-ffi-$b.err"; then
+			"tests/out/abi-ffi-$b" >"tests/out/abi-ffi-$b.txt" 2>&1
+			if cmp -s tests/expected/abi_ffi.out "tests/out/abi-ffi-$b.txt"; then
+				echo "ok   $b/abi-ffi"
+			else
+				echo "FAIL $b/abi-ffi output"
+				diff tests/expected/abi_ffi.out "tests/out/abi-ffi-$b.txt" | head -10
+				fail=1
+			fi
+		else
+			echo "FAIL build $b/abi-ffi"
+			head -5 "tests/out/abi-ffi-$b.err"
+			fail=1
+		fi
+	done
+fi
+
 # make-style env flags: $CFLAGS joins every compile, $LDFLAGS only a link;
 # linking through LDFLAGS alone proves the words reach the toolchain
 envok=1
 if [ -f tests/out/libhctest.a ]; then
-	LDFLAGS='-Ltests/out -lhctest' ./aholyc -b c tests/uselib.HC \
+	LDFLAGS="${LDFLAGS:+$LDFLAGS }-Ltests/out -lhctest" ./aholyc -b c tests/uselib.HC \
 		-o tests/out/uselib-env 2>tests/out/env-flags.err || envok=0
 	[ "$(tests/out/uselib-env 2>&1)" = "quad(7)=28" ] || envok=0
 fi
-CFLAGS='-DHC_ENV_CFLAG' LDFLAGS='-DHC_ENV_LDFLAG' ./aholyc -V -b c -c \
+CFLAGS="${CFLAGS:+$CFLAGS }-DHC_ENV_CFLAG" \
+	LDFLAGS="${LDFLAGS:+$LDFLAGS }-DHC_ENV_LDFLAG" ./aholyc -V -b c -c \
 	tests/mod_a.HC -o tests/out/mod_env.o 2>>tests/out/env-flags.err || envok=0
 grep -q 'HC_ENV_CFLAG' tests/out/env-flags.err || envok=0
 grep -q 'HC_ENV_LDFLAG' tests/out/env-flags.err && envok=0
@@ -1379,7 +1407,8 @@ fi
 
 # Native runtime exception state is TLS.  Synchronizing inside both try and
 # catch makes a shared Fs or handler stack fail deterministically.
-if cc -pthread -c tests/tls_threads.c -o tests/out/tls_threads.o 2>/dev/null; then
+if "$test_cc" $test_cflags -pthread -c tests/tls_threads.c \
+	-o tests/out/tls_threads.o 2>/dev/null; then
 	for b in $backends; do
 		[ "$b" = js ] && continue
 		if ./aholyc -b "$b" tests/tls_threads.HC tests/out/tls_threads.o -lpthread \
