@@ -1,5 +1,7 @@
 # aholyc — another Holy-C compiler
 
+[![CI](https://github.com/trufae/aholyc/actions/workflows/ci.yml/badge.svg)](https://github.com/trufae/aholyc/actions/workflows/ci.yml)
+
 `aholyc` compiles [HolyC](https://templeos.org) — the language Terry A. Davis
 created for TempleOS — into real native executables, using the LLVM
 toolchain for code generation without ever linking against LLVM libraries:
