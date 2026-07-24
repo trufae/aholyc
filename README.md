@@ -1,6 +1,6 @@
 # aholyc — another Holy-C compiler
 
-`aholyc` (invoked as `aholyc`) compiles [HolyC](https://templeos.org) — the language Terry A. Davis
+`aholyc` compiles [HolyC](https://templeos.org) — the language Terry A. Davis
 created for TempleOS — into real native executables, using the LLVM
 toolchain for code generation without ever linking against LLVM libraries:
 aholyc emits textual LLVM-IR and lets `clang`/`llc` do the rest.
@@ -51,7 +51,8 @@ $ make AHOLYC_BACKEND_C=0 AHOLYC_BACKEND_JS=0  # LLVM-only build
 ```
 
 `AHOLYC_BACKEND_LLVM`, `AHOLYC_BACKEND_C`, and `AHOLYC_BACKEND_JS` default
-to `1`.  A build without the C backend does not support `#exe{}` blocks.
+to `1`. `#exe{}` works with every output backend, but needs the C backend
+to execute its compile-time block.
 
 ## Library
 

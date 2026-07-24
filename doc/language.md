@@ -309,7 +309,8 @@ identifier with no macro evaluates to 0.
 ### `#exe{}` — compile-time execution
 
 `#exe {...}` runs the block *inside the compiler* at compile time and
-splices its `StreamPrint` output into the source stream, like TempleOS:
+splices its `StreamPrint` output into the source stream before output-backend
+selection, like TempleOS:
 
 ```holyc
 #exe {StreamPrint("#define BUILT_AT %d\n", Now);}

@@ -44,12 +44,11 @@ has to become native code some other way. The options were:
 * a **JIT** — big, platform-specific, exactly what aholyc avoids;
 * a **shared library dlopened into the compiler** — the one aholyc took.
 
-The block is compiled by the *same* lexer, parser and codegen as any
-program, using the C backend, into a temporary shared library that is
-`dlopen`ed into the running compiler and executed. One compiler, one
-set of semantics and native speed. A small callback API gives the block
-controlled access to its compiler instance; token pointers remain plain
-addresses because the block runs in the same process.
+The block uses the same lexer and parser as any program, but always executes
+through the C backend, independent of the outer output backend. It becomes a
+temporary shared library that is `dlopen`ed into the running compiler. One
+compiler, one set of semantics and native speed; callbacks provide controlled
+access to its compiler instance, with token pointers as plain addresses.
 
 The C backend is the natural fit for the dl target: aholyc's HolyC class
 layout uses the same natural-alignment rules as C structs, so a HolyC

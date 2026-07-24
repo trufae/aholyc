@@ -33,10 +33,9 @@ Compiling hinted output therefore requires a compiler with `_BitInt` support;
 [hints.md](hints.md).
 
 This backend is the reference implementation and works on any machine
-with a C compiler — no LLVM needed. It is also how `#exe{}` blocks run,
-whatever backend the outer program uses: each block is emitted as C,
-built into a shared library and dlopened into the compiler process
-(see `doc/exe.md`).
+with a C compiler — no LLVM needed. It also executes `#exe{}` blocks for
+every output backend, including JS: each block is emitted as C, built into a
+shared library, and dlopened into the compiler process (see `doc/exe.md`).
 
 In whole-program mode the runtime is injected with `#define HC_API
 static`, so the C compiler discards every runtime function the program
