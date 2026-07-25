@@ -5,13 +5,13 @@
 #define THREAD_INFINITE      0xFFFFFFFF
 #define THREAD_FLS_INVALID   0xFFFFFFFF
 
-extern U8 *CreateThread(U8 *attributes, U64 stack_size, U8 *entry,
+extern U8 *CreateThread(U8 *attributes, USZ stack_size, U8 *entry,
   U8 *data, U32 flags, U32 *thread_id);
 extern U32 WaitForSingleObject(U8 *handle, U32 milliseconds);
-extern Bool CloseHandle(U8 *handle);
+extern I32 CloseHandle(U8 *handle);
 extern U32 GetCurrentThreadId();
-extern Bool SwitchToThread();
-extern U32 SleepEx(U32 milliseconds, Bool alertable);
+extern I32 SwitchToThread();
+extern U32 SleepEx(U32 milliseconds, I32 alertable);
 extern U0 ExitThread(U32 exit_code);
 
 extern U0 InitializeSRWLock(U8 *srw);
@@ -20,14 +20,14 @@ extern Bool TryAcquireSRWLockExclusive(U8 *srw);
 extern U0 ReleaseSRWLockExclusive(U8 *srw);
 
 extern U0 InitializeConditionVariable(U8 *condition);
-extern Bool SleepConditionVariableSRW(U8 *condition, U8 *srw,
+extern I32 SleepConditionVariableSRW(U8 *condition, U8 *srw,
   U32 milliseconds, U32 flags);
 extern U0 WakeConditionVariable(U8 *condition);
 
 extern U32 FlsAlloc(U8 *destructor);
-extern Bool FlsFree(U32 key);
+extern I32 FlsFree(U32 key);
 extern U8 *FlsGetValue(U32 key);
-extern Bool FlsSetValue(U32 key, U8 *value);
+extern I32 FlsSetValue(U32 key, U8 *value);
 
 Bool ThreadNativeCreate(CThread *thread, U8 *entry, U8 *data)
 {

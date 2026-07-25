@@ -11,6 +11,7 @@
 
 typedef int64_t hc_i64;
 typedef uint64_t hc_u64;
+typedef uint8_t hc_u8;
 typedef double hc_f64;
 
 /* HC_API marks the public runtime API. The C backend defines it as
@@ -111,7 +112,7 @@ HC_API void throw(hc_i64 ch) {
 	exit (1);
 }
 
-HC_API void PutExcept(hc_i64 catch_it) {
+HC_API void PutExcept(hc_u8 catch_it) {
 	HcTask *task = __hc_fs ();
 	char buf[24];
 	printf ("Except:%s\n", hc_except_str (task->except_ch, buf));
@@ -128,7 +129,7 @@ HC_API void *__hc_rip(void) {
 #if defined(__GNUC__) || defined(__clang__)
 	return __builtin_return_address (0);
 #else
-	return (void *)(size_t)&__hc_rip;
+	return (void *)(uintptr_t)&__hc_rip;
 #endif
 }
 
@@ -302,7 +303,7 @@ static void hc_format(HcOut *o, char *fmt, hc_i64 argc, hc_i64 *argv) {
 			break;
 		}
 		case 's': {
-			char *s = (char *)(intptr_t)a;
+			char *s = (char *)(uintptr_t)a;
 			spec[si] = 0;
 			strcat (spec, "s");
 			snprintf (out, sizeof(out), spec, s? s: "(null)");
@@ -469,38 +470,38 @@ HC_API hc_i64 BCnt(hc_i64 v) {
 #endif
 }
 
-HC_API hc_i64 Bt(void *p, hc_i64 bit) {
+HC_API hc_u8 Bt(void *p, hc_i64 bit) {
 	unsigned char m, *b = hc_bitp (p, bit, &m);
 	return (*b & m)? 1: 0;
 }
 
-HC_API hc_i64 Bts(void *p, hc_i64 bit) {
+HC_API hc_u8 Bts(void *p, hc_i64 bit) {
 	unsigned char m, *b = hc_bitp (p, bit, &m);
-	hc_i64 r = (*b & m)? 1: 0;
+	hc_u8 r = (*b & m)? 1: 0;
 	*b |= m;
 	return r;
 }
 
-HC_API hc_i64 Btr(void *p, hc_i64 bit) {
+HC_API hc_u8 Btr(void *p, hc_i64 bit) {
 	unsigned char m, *b = hc_bitp (p, bit, &m);
-	hc_i64 r = (*b & m)? 1: 0;
+	hc_u8 r = (*b & m)? 1: 0;
 	*b &= (unsigned char)~m;
 	return r;
 }
 
-HC_API hc_i64 Btc(void *p, hc_i64 bit) {
+HC_API hc_u8 Btc(void *p, hc_i64 bit) {
 	unsigned char m, *b = hc_bitp (p, bit, &m);
-	hc_i64 r = (*b & m)? 1: 0;
+	hc_u8 r = (*b & m)? 1: 0;
 	*b ^= m;
 	return r;
 }
 
-HC_API hc_i64 BEqu(void *p, hc_i64 bit, hc_i64 val) {
+HC_API hc_u8 BEqu(void *p, hc_i64 bit, hc_u8 val) {
 	return val? Bts (p, bit): Btr (p, bit);
 }
 
 /* L* forms are atomic across host threads (TempleOS: across cores) */
-HC_API hc_i64 LBts(void *p, hc_i64 bit) {
+HC_API hc_u8 LBts(void *p, hc_i64 bit) {
 	unsigned char m, *b = hc_bitp (p, bit, &m);
 #if defined(__GNUC__) || defined(__clang__)
 	return (__atomic_fetch_or (b, m, __ATOMIC_SEQ_CST) & m)? 1: 0;
@@ -509,7 +510,7 @@ HC_API hc_i64 LBts(void *p, hc_i64 bit) {
 #endif
 }
 
-HC_API hc_i64 LBtr(void *p, hc_i64 bit) {
+HC_API hc_u8 LBtr(void *p, hc_i64 bit) {
 	unsigned char m, *b = hc_bitp (p, bit, &m);
 #if defined(__GNUC__) || defined(__clang__)
 	return (__atomic_fetch_and (b, (unsigned char)~m, __ATOMIC_SEQ_CST) & m)? 1: 0;
@@ -518,7 +519,7 @@ HC_API hc_i64 LBtr(void *p, hc_i64 bit) {
 #endif
 }
 
-HC_API hc_i64 LBtc(void *p, hc_i64 bit) {
+HC_API hc_u8 LBtc(void *p, hc_i64 bit) {
 	unsigned char m, *b = hc_bitp (p, bit, &m);
 #if defined(__GNUC__) || defined(__clang__)
 	return (__atomic_fetch_xor (b, m, __ATOMIC_SEQ_CST) & m)? 1: 0;
@@ -527,7 +528,7 @@ HC_API hc_i64 LBtc(void *p, hc_i64 bit) {
 #endif
 }
 
-HC_API hc_i64 LBEqu(void *p, hc_i64 bit, hc_i64 val) {
+HC_API hc_u8 LBEqu(void *p, hc_i64 bit, hc_u8 val) {
 	return val? LBts (p, bit): LBtr (p, bit);
 }
 
@@ -579,7 +580,7 @@ HC_API void Exit(hc_i64 code) {
 /* -c modules register their synthetic startup functions from ordinary
  * no-argument constructors.  The hosted main can then invoke them portably
  * with process arguments, in the constructors' (link) order. */
-typedef hc_i64 (*HcStart)(hc_i64 argc, hc_i64 argv);
+typedef hc_i64 (*HcStart)(hc_i64 argc, void *argv);
 static HcStart *hc_module_starts;
 static size_t hc_nmodule_starts, hc_cmodule_starts;
 
@@ -602,31 +603,34 @@ HC_API void __hc_register_start(HcStart start) {
  * .o files has a required external start; an object-only link has constructors
  * instead and deliberately carries no start symbol. */
 #if defined(HC_EXTERNAL_START)
-hc_i64 __hc_start(hc_i64 argc, hc_i64 argv);
+hc_i64 __hc_start(hc_i64 argc, void *argv);
 #elif !defined(HC_OBJECT_RUNTIME)
-hc_i64 __hc_start(hc_i64 argc, hc_i64 argv) __attribute__((weak));
+hc_i64 __hc_start(hc_i64 argc, void *argv) __attribute__((weak));
 #endif
 
 int main(int sys_argc, char **sys_argv) {
 	hc_i64 argc = sys_argc > 0? sys_argc - 1: 0;
-	char *empty_argv[] = { NULL };
-	char **user_argv = sys_argv? sys_argv: empty_argv;
-	if (sys_argv && sys_argc > 0) {
-		user_argv++;
+	hc_i64 *argv = calloc ((size_t)argc + 1, sizeof(hc_i64));
+	if (!argv) {
+		fputs ("aholyc-rt: cannot allocate process argument vector\n", stderr);
+		return 1;
 	}
-	hc_i64 argv = (hc_i64)(intptr_t)user_argv;
+	for (hc_i64 i = 0; i < argc; i++) {
+		argv[i] = (hc_i64)(uintptr_t)sys_argv[i + 1];
+	}
 	hc_i64 status = 0;
 	for (size_t i = 0; i < hc_nmodule_starts; i++) {
 		status = hc_module_starts[i](argc, argv);
 	}
 #if defined(HC_EXTERNAL_START) || !defined(HC_OBJECT_RUNTIME)
 #if defined(HC_EXTERNAL_START)
-	return (int)__hc_start (argc, argv);
+	status = __hc_start (argc, argv);
 #else
 	if (__hc_start) {
-		return (int)__hc_start (argc, argv);
+		status = __hc_start (argc, argv);
 	}
 #endif
 #endif
+	free (argv);
 	return (int)status;
 }

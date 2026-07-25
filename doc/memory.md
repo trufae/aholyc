@@ -22,6 +22,9 @@ can.
 
 * `I8/U8` take 1 byte, `I16/U16` 2, `I32/U32` 4, `I64/U64/F64` and
   pointers 8. `U0` is size **zero**.
+* The prelude aliases `ISZ`/`USZ` to `I32`/`U32` on a 32-bit C ABI and
+  `I64`/`U64` on a 64-bit C ABI. They describe native C integer widths;
+  they do not change HolyC's fixed eight-byte pointer storage.
 * Class members are laid out in declaration order, packed back to back
   with **no alignment and no padding**, exactly like TempleOS; `$$ = n;`
   places the next member at an explicit offset (see `doc/struct.md`).
@@ -46,7 +49,7 @@ why struct-shaped code is byte-portable across `c`, `llvm` and `js`.
 |---|---|---|
 | globals | zero-initialized data segment (`static`/`internal`, unless `public`) | fixed addresses in the data segment, from 64 up |
 | locals | stack (C locals / LLVM allocas), zeroed on entry | frame in linear memory: `fp+offset`, zeroed on entry |
-| parameters | full 64-bit slots (spilled so `&param` works) | 8-byte slots in the frame |
+| parameters | native ABI values widened into full 64-bit slots (spilled so `&param` works) | 8-byte slots in the frame |
 | string literals | private constant arrays | interned into the data segment at startup |
 | heap | libc `malloc` behind `MAlloc` | bump allocator region |
 

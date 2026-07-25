@@ -49,9 +49,15 @@ class CThreadLock
   U8 taken;
 };
 
+#ifdef IS_MACOS
+#define THREAD_KEY_TYPE USZ
+#else
+#define THREAD_KEY_TYPE U32
+#endif
+
 class CThreadTLS
 {
-  U64 key;
+  THREAD_KEY_TYPE key;
   Bool valid;
 };
 
@@ -77,7 +83,13 @@ class CThreadTLS
 #endif
 #endif
 
-I64 ThreadMain(CThreadStart *start)
+#ifdef THREAD_WINDOWS
+#define THREAD_ENTRY_TYPE U32
+#else
+#define THREAD_ENTRY_TYPE U8 *
+#endif
+
+THREAD_ENTRY_TYPE ThreadMain(CThreadStart *start)
 {
   U0 (*entry)(U8 *argument);
   U8 *data;

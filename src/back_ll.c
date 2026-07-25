@@ -17,6 +17,7 @@ typedef struct {
 	Aholyc *cc;
 	Program *prog;
 	StrBuf *out;
+	Type *ret;
 	int ntmp, nlab, try_depth, nhandlers;
 	LlHandler handlers[256];
 	bool block_open, ret_f, ret_void, ctor_mode;
@@ -63,6 +64,10 @@ static char *labname(LlGen *lg, const char *l) {
 
 static bool is_agg(Type *ty) {
 	return ty && (ty->kind == TY_CLASS || ty->kind == TY_ARRAY);
+}
+
+static bool is_ptr(Type *ty) {
+	return ty && (ty->kind == TY_PTR || ty->kind == TY_ARRAY);
 }
 
 static bool is_fs_obj(Obj *v) {
@@ -113,6 +118,72 @@ static const char *ityp(int size) {
 	case 4: return "i32";
 	}
 	return "i64";
+}
+
+static const char *abi_type(Type *ty) {
+	if (ty->kind == TY_VOID) {
+		return "void";
+	}
+	if (ty->kind == TY_F64) {
+		return "double";
+	}
+	if (is_ptr (ty)) {
+		return "ptr";
+	}
+	return ty->kind == TY_INT? ityp (ty->size): "i64";
+}
+
+static const char *abi_ext(Type *ty) {
+	if (ty->kind == TY_INT && ty->size < 4) {
+		return ty->is_unsigned? "zeroext ": "signext ";
+	}
+	return "";
+}
+
+static char *to_abi(LlGen *lg, char *val, Type *ty) {
+	if (is_ptr (ty)) {
+		char *p = tmp_ (lg);
+		sb_printf (lg->out, "  %s = inttoptr i64 %s to ptr\n", p, val);
+		return p;
+	}
+	if (ty->kind == TY_INT && ty->size < 8) {
+		char *v = tmp_ (lg);
+		sb_printf (lg->out, "  %s = trunc i64 %s to %s\n", v, val,
+			ityp (ty->size));
+		return v;
+	}
+	return val;
+}
+
+static char *from_abi(LlGen *lg, char *val, Type *ty) {
+	if (is_ptr (ty)) {
+		char *v = tmp_ (lg);
+		sb_printf (lg->out, "  %s = ptrtoint ptr %s to i64\n", v, val);
+		return v;
+	}
+	if (ty->kind == TY_INT && ty->size < 8) {
+		char *v = tmp_ (lg);
+		sb_printf (lg->out, "  %s = %s %s %s to i64\n", v,
+			ty->is_unsigned? "zext": "sext", ityp (ty->size), val);
+		return v;
+	}
+	return val;
+}
+
+static const char *c_vararg_type(Type *ty) {
+	if (ty->kind == TY_INT && ty->size < 4) {
+		return "i32";
+	}
+	return abi_type (ty);
+}
+
+static char *to_c_vararg(LlGen *lg, char *val, Type *ty) {
+	if (ty->kind == TY_INT && ty->size < 4) {
+		char *v = tmp_ (lg);
+		sb_printf (lg->out, "  %s = trunc i64 %s to i32\n", v, val);
+		return v;
+	}
+	return to_abi (lg, val, ty);
 }
 
 /* Keep ordinary storage/ABI width, but expose the requested range at value
@@ -340,32 +411,37 @@ static bool is_bit_intrin(Obj *fn) {
 
 static char *emit_call(LlGen *lg, Node *n) {
 	Obj *fn = n->func;
+	Type *ret = fn->ty->base;
 	if (is_bit_intrin (fn)) {
 		return emit_bit_intrin (lg, n);
 	}
 	char *args[300];
-	bool argf[300];
+	const char *argtypes[300];
+	const char *argattrs[300];
 	int nargs = 0;
 	Node *a = n->args;
+	Obj *p = fn->params;
 	int i = 0;
 	/* fixed args */
-	for (; a && (fn? i < n->nfixed: true); a = a->next, i++) {
-		args[nargs] = emit_val (lg, a);
-		argf[nargs] = is_f (a);
+	for (; a && i < n->nfixed; a = a->next, p = p->next, i++) {
+		args[nargs] = to_abi (lg, emit_val (lg, a), p->ty);
+		argtypes[nargs] = abi_type (p->ty);
+		argattrs[nargs] = abi_ext (p->ty);
 		nargs++;
 	}
-	/* C varargs import: extras keep their own types in the call */
-	if (fn && is_c_varargs (fn)) {
+	/* C varargs imports use native pointer widths and default promotions. */
+	if (is_c_varargs (fn)) {
 		for (Node *e = a; e; e = e->next) {
-			args[nargs] = emit_val (lg, e);
-			argf[nargs] = is_f (e);
+			args[nargs] = to_c_vararg (lg, emit_val (lg, e), e->ty);
+			argtypes[nargs] = c_vararg_type (e->ty);
+			argattrs[nargs] = "";
 			nargs++;
 		}
 	}
 	/* variadic extras -> [k x i64] alloca */
-	char *extras_ptr = NULL;
+	char *extras_addr = NULL;
 	int nextras = 0;
-	if (fn && fn->is_variadic && !is_c_varargs (fn)) {
+	if (fn->is_variadic && !is_c_varargs (fn)) {
 		Node *e = a;
 		char *slots[256];
 		for (; e; e = e->next) {
@@ -379,84 +455,110 @@ static char *emit_call(LlGen *lg, Node *n) {
 			slots[nextras++] = v;
 		}
 		ensure_block (lg);
-		char *arr = tmp_ (lg);
-		sb_printf (lg->out, "  %s = alloca [%d x i64], align 8\n", arr,
+		extras_addr = tmp_ (lg);
+		sb_printf (lg->out, "  %s = alloca [%d x i64], align 8\n", extras_addr,
 			nextras? nextras: 1);
 		for (int k = 0; k < nextras; k++) {
 			char *gep = tmp_ (lg);
 			sb_printf (lg->out, "  %s = getelementptr [%d x i64], ptr %s, i64 0, i64 %d\n",
-				gep, nextras? nextras: 1, arr, k);
+				gep, nextras? nextras: 1, extras_addr, k);
 			sb_printf (lg->out, "  store i64 %s, ptr %s\n", slots[k], gep);
 		}
-		extras_ptr = tmp_ (lg);
-		sb_printf (lg->out, "  %s = ptrtoint ptr %s to i64\n", extras_ptr, arr);
 	}
 	ensure_block (lg);
-	/* return kind */
-	bool retf = n->ty && n->ty->kind == TY_F64;
-	bool retv = n->ty && n->ty->kind == TY_VOID;
-	char *res = retv? NULL: tmp_ (lg);
-	if (res) {
-		sb_printf (lg->out, "  %s = ", res);
+	bool retv = ret->kind == TY_VOID;
+	char *raw = retv? NULL: tmp_ (lg);
+	if (raw) {
+		sb_printf (lg->out, "  %s = ", raw);
 	} else {
 		sb_printf (lg->out, "  ");
 	}
-	const char *rty = retf? "double": retv? "void": "i64";
-	if (fn && is_c_varargs (fn)) {
+	const char *rty = abi_type (ret);
+	if (is_c_varargs (fn)) {
 		/* variadic calls carry the callee's full function type */
-		sb_printf (lg->out, "call %s (", rty);
+		sb_printf (lg->out, "call %s%s (", abi_ext (ret), rty);
 		int np = 0;
-		for (Obj *p = fn->params; p; p = p->next, np++) {
-			sb_printf (lg->out, "%s%s", np? ", ": "",
-				p->ty->kind == TY_F64? "double": "i64");
+		for (Obj *fp = fn->params; fp; fp = fp->next, np++) {
+			sb_printf (lg->out, "%s%s", np? ", ": "", abi_type (fp->ty));
 		}
 		sb_printf (lg->out, "%s...) %s(", np? ", ": "", objref (lg, fn));
 	} else {
-		sb_printf (lg->out, "call %s %s(", rty, objref (lg, fn));
+		sb_printf (lg->out, "call %s%s %s(", abi_ext (ret), rty,
+			objref (lg, fn));
 	}
 	for (int k = 0; k < nargs; k++) {
-		sb_printf (lg->out, "%s%s %s", k? ", ": "", argf[k]? "double": "i64", args[k]);
+		sb_printf (lg->out, "%s%s %s%s", k? ", ": "", argtypes[k],
+			argattrs[k], args[k]);
 	}
-	if (fn && fn->is_variadic && !is_c_varargs (fn)) {
-		sb_printf (lg->out, "%si64 %d, i64 %s", nargs? ", ": "", nextras,
-			extras_ptr? extras_ptr: "0");
+	if (fn->is_variadic && !is_c_varargs (fn)) {
+		sb_printf (lg->out, "%si64 %d, ptr %s", nargs? ", ": "", nextras,
+			extras_addr? extras_addr: "null");
 	}
 	sb_printf (lg->out, ")\n");
 	if (retv) {
 		return xstrdup (lg->cc, "0");
 	}
-	return res;
+	return from_abi (lg, raw, ret);
 }
 
 /* indirect calls need the callee converted before the call instruction,
  * so they get their own routine */
 static char *emit_indirect_call(LlGen *lg, Node *n) {
+	Type *callee_ty = n->lhs->ty;
+	Type *fnty = callee_ty && callee_ty->kind == TY_PTR &&
+		callee_ty->base && callee_ty->base->kind == TY_FUNC?
+		callee_ty->base: NULL;
+	Type *ret = fnty && fnty->base? fnty->base: n->ty;
 	char *callee = emit_val (lg, n->lhs);
 	char *args[300];
-	bool argf[300];
+	const char *argtypes[300];
+	const char *argattrs[300];
 	int nargs = 0;
+	Obj *p = fnty? fnty->params: NULL;
 	for (Node *a = n->args; a; a = a->next) {
-		args[nargs] = emit_val (lg, a);
-		argf[nargs] = is_f (a);
+		Type *ty = fnty && nargs < fnty->nparams? p->ty: a->ty;
+		if (fnty && nargs >= fnty->nparams) {
+			args[nargs] = to_c_vararg (lg, emit_val (lg, a), ty);
+			argtypes[nargs] = c_vararg_type (ty);
+			argattrs[nargs] = "";
+		} else {
+			args[nargs] = to_abi (lg, emit_val (lg, a), ty);
+			argtypes[nargs] = abi_type (ty);
+			argattrs[nargs] = abi_ext (ty);
+			if (p) {
+				p = p->next;
+			}
+		}
 		nargs++;
 	}
 	ensure_block (lg);
 	char *fp = tmp_ (lg);
 	sb_printf (lg->out, "  %s = inttoptr i64 %s to ptr\n", fp, callee);
-	bool retf = n->ty && n->ty->kind == TY_F64;
-	bool retv = n->ty && n->ty->kind == TY_VOID;
-	char *res = retv? NULL: tmp_ (lg);
-	if (res) {
-		sb_printf (lg->out, "  %s = ", res);
+	bool retv = ret->kind == TY_VOID;
+	char *raw = retv? NULL: tmp_ (lg);
+	if (raw) {
+		sb_printf (lg->out, "  %s = ", raw);
 	} else {
 		sb_printf (lg->out, "  ");
 	}
-	sb_printf (lg->out, "call %s %s(", retf? "double": retv? "void": "i64", fp);
+	if (fnty && fnty->is_variadic) {
+		sb_printf (lg->out, "call %s%s (", abi_ext (ret), abi_type (ret));
+		int i = 0;
+		for (p = fnty->params; p && i < fnty->nparams;
+		     p = p->next, i++) {
+			sb_printf (lg->out, "%s%s", i? ", ": "", abi_type (p->ty));
+		}
+		sb_printf (lg->out, "%s...) %s(", fnty->nparams? ", ": "", fp);
+	} else {
+		sb_printf (lg->out, "call %s%s %s(", abi_ext (ret),
+			abi_type (ret), fp);
+	}
 	for (int k = 0; k < nargs; k++) {
-		sb_printf (lg->out, "%s%s %s", k? ", ": "", argf[k]? "double": "i64", args[k]);
+		sb_printf (lg->out, "%s%s %s%s", k? ", ": "", argtypes[k],
+			argattrs[k], args[k]);
 	}
 	sb_printf (lg->out, ")\n");
-	return res? res: xstrdup (lg->cc, "0");
+	return raw? from_abi (lg, raw, ret): xstrdup (lg->cc, "0");
 }
 
 static char *emit_binop(LlGen *lg, Node *n) {
@@ -583,6 +685,11 @@ static char *emit_val(LlGen *lg, Node *n) {
 			return var_addr (lg, v);
 		}
 		ensure_block (lg);
+		if (v->is_extern && is_ptr (v->ty)) {
+			char *p = tmp_ (lg);
+			sb_printf (lg->out, "  %s = load ptr, ptr %s\n", p, objref (lg, v));
+			return from_abi (lg, p, v->ty);
+		}
 		if (v->is_global || v->is_extern) {
 			char *addr = var_addr (lg, v);
 			char *val = load_from (lg, addr, v->ty, v->is_param);
@@ -631,6 +738,12 @@ static char *emit_val(LlGen *lg, Node *n) {
 			return la;
 		}
 		rv = apply_bits_hint (lg, rv, l->ty);
+		if (l->kind == ND_VAR && l->var->is_extern && is_ptr (l->ty)) {
+			char *p = to_abi (lg, rv, l->ty);
+			sb_printf (lg->out, "  store ptr %s, ptr %s\n", p,
+				objref (lg, l->var));
+			return rv;
+		}
 		if (l->kind == ND_VAR && !l->var->is_global && !l->var->is_extern) {
 			Obj *v = l->var;
 			ensure_block (lg);
@@ -903,12 +1016,12 @@ static void emit_stmt(LlGen *lg, Node *n) {
 		if (lg->ret_void) {
 			sb_printf (lg->out, "  ret void\n");
 		} else if (n->lhs) {
-			char *v = emit_val (lg, n->lhs);
+			char *v = to_abi (lg, emit_val (lg, n->lhs), lg->ret);
 			ensure_block (lg);
-			sb_printf (lg->out, "  ret %s %s\n", lg->ret_f? "double": "i64", v);
+			sb_printf (lg->out, "  ret %s %s\n", abi_type (lg->ret), v);
 		} else {
-			sb_printf (lg->out, "  ret %s %s\n", lg->ret_f? "double": "i64",
-				lg->ret_f? "0.0": "0");
+			sb_printf (lg->out, "  ret %s %s\n", abi_type (lg->ret),
+				lg->ret_f? "0.0": is_ptr (lg->ret)? "null": "0");
 		}
 		lg->block_open = false;
 		break;
@@ -984,6 +1097,7 @@ static void emit_str_escaped(LlGen *lg, StrLit *s) {
 
 static void emit_func(LlGen *lg, Obj *fn) {
 	Type *ret = fn->ty->base;
+	lg->ret = ret;
 	lg->ret_f = ret->kind == TY_F64;
 	lg->ret_void = ret->kind == TY_VOID;
 	lg->ntmp = 0;
@@ -992,12 +1106,12 @@ static void emit_func(LlGen *lg, Obj *fn) {
 	lg->nhandlers = 0;
 	bool is_start = fn == lg->prog->startup;
 	bool exported = fn->is_public || (is_start && !lg->ctor_mode);
-	sb_printf (lg->out, "define %s %s %s(", exported? "": "internal",
-		lg->ret_f? "double": lg->ret_void? "void": "i64", objref (lg, fn));
+	sb_printf (lg->out, "define %s %s%s %s(", exported? "": "internal",
+		abi_ext (ret), abi_type (ret), objref (lg, fn));
 	int np = 0;
 	for (Obj *p = fn->params; p; p = p->next, np++) {
-		sb_printf (lg->out, "%s%s %%a%d", np? ", ": "",
-			p->ty->kind == TY_F64? "double": "i64", np);
+		sb_printf (lg->out, "%s%s %s%%a%d", np? ", ": "",
+			abi_type (p->ty), abi_ext (p->ty), np);
 	}
 	sb_printf (lg->out, ")%s {\nentry:\n",
 		fn->hints & HINT_INLINE? " alwaysinline":
@@ -1011,7 +1125,8 @@ static void emit_func(LlGen *lg, Obj *fn) {
 			sb_printf (lg->out, "  store double %%a%d, ptr %s\n", np, objref (lg, p));
 		} else {
 			sb_printf (lg->out, "  %s = alloca i64, align 8\n", objref (lg, p));
-			sb_printf (lg->out, "  store i64 %%a%d, ptr %s\n", np, objref (lg, p));
+			char *v = from_abi (lg, xasprintf (lg->cc, "%%a%d", np), p->ty);
+			sb_printf (lg->out, "  store i64 %s, ptr %s\n", v, objref (lg, p));
 		}
 	}
 	/* locals */
@@ -1036,8 +1151,8 @@ static void emit_func(LlGen *lg, Obj *fn) {
 		if (lg->ret_void) {
 			sb_printf (lg->out, "  ret void\n");
 		} else {
-			sb_printf (lg->out, "  ret %s %s\n", lg->ret_f? "double": "i64",
-				lg->ret_f? "0.0": "0");
+			sb_printf (lg->out, "  ret %s %s\n", abi_type (ret),
+				lg->ret_f? "0.0": is_ptr (ret)? "null": "0");
 		}
 	}
 	sb_printf (lg->out, "}\n\n");
@@ -1057,8 +1172,8 @@ static void ll_emit(Aholyc *cc, Program *prog, StrBuf *out,
 	/* globals */
 	for (Obj *g = prog->globals; g; g = g->next) {
 		if (g->is_extern) {
-			sb_printf (lg->out, "@%s = external %sglobal i64\n", g->name,
-				is_fs_obj (g)? "thread_local ": "");
+			sb_printf (lg->out, "@%s = external %sglobal %s\n", g->name,
+				is_fs_obj (g)? "thread_local ": "", abi_type (g->ty));
 			continue;
 		}
 		const char *lnk = g->is_public? "": "internal ";
@@ -1083,13 +1198,12 @@ static void ll_emit(Aholyc *cc, Program *prog, StrBuf *out,
 			continue; /* declared but never defined: skip */
 		}
 		Type *ret = f->ty->base;
-		sb_printf (lg->out, "declare %s @%s(",
-			ret->kind == TY_F64? "double": ret->kind == TY_VOID? "void": "i64",
-			f->name);
+		sb_printf (lg->out, "declare %s%s @%s(",
+			abi_ext (ret), abi_type (ret), f->name);
 		int np = 0;
 		for (Obj *p = f->params; p; p = p->next, np++) {
-			sb_printf (lg->out, "%s%s", np? ", ": "",
-				p->ty->kind == TY_F64? "double": "i64");
+			sb_printf (lg->out, "%s%s %s", np? ", ": "",
+				abi_type (p->ty), abi_ext (p->ty));
 		}
 		if (is_c_varargs (f)) {
 			sb_printf (lg->out, "%s...", np? ", ": "");

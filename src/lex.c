@@ -36,6 +36,8 @@ void lex_reset(Aholyc *cc) {
 	/* expose HolyC platform names, rather than the compiler's C macros */
 #if defined(__x86_64__) || defined(_M_X64)
 	lex_define (cc, "IS_X86_64", "1");
+#elif defined(__i386__) || defined(_M_IX86)
+	lex_define (cc, "IS_X86_32", "1");
 #elif defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)
 	lex_define (cc, "IS_ARM_64", "1");
 #elif defined(__powerpc__) || defined(__powerpc64__) || defined(__ppc__) || \
@@ -65,6 +67,11 @@ void lex_reset(Aholyc *cc) {
 #endif
 #ifdef _WIN32
 	lex_define (cc, "IS_WINDOWS", "1");
+#endif
+#if UINTPTR_MAX == UINT32_MAX
+	lex_define (cc, "IS_32BIT", "1");
+#elif UINTPTR_MAX == UINT64_MAX
+	lex_define (cc, "IS_64BIT", "1");
 #endif
 }
 

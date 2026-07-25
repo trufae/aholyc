@@ -145,16 +145,32 @@ char *exe_run(Aholyc *cc, Token *block, Token **rest) {
 	if (!tool || !*tool) {
 		tool = have_cmd (cc, "cc")? "cc": have_cmd (cc, "clang")? "clang": "gcc";
 	}
-	char *argv[] = {
-		(char *)tool, "-O0", "-w", "-fno-strict-aliasing",
+	Argv argv = { 0 };
+	arg_push (cc, &argv, tool);
+	arg_push (cc, &argv, "-O0");
+	arg_push (cc, &argv, "-w");
+	arg_push (cc, &argv, "-fno-strict-aliasing");
+	const char *cflags = getenv ("CFLAGS");
+	if (cflags) {
+		arg_push_words (cc, &argv, xstrdup (cc, cflags));
+	}
 #ifdef __APPLE__
-		"-bundle", "-Wl,-undefined,dynamic_lookup",
+	arg_push (cc, &argv, "-bundle");
+	arg_push (cc, &argv, "-Wl,-undefined,dynamic_lookup");
 #else
-		"-shared", "-fPIC",
+	arg_push (cc, &argv, "-shared");
+	arg_push (cc, &argv, "-fPIC");
 #endif
-		"-o", sopath, cpath, "-lm", NULL
-	};
-	if (run_cmd (cc, argv) != 0) {
+	arg_push (cc, &argv, "-o");
+	arg_push (cc, &argv, sopath);
+	arg_push (cc, &argv, cpath);
+	const char *ldflags = getenv ("LDFLAGS");
+	if (ldflags) {
+		arg_push_words (cc, &argv, xstrdup (cc, ldflags));
+	}
+	arg_push (cc, &argv, "-lm");
+	arg_push (cc, &argv, NULL);
+	if (run_cmd (cc, argv.v) != 0) {
 		error (cc, "#exe: failed to build %s (kept for inspection)", cpath);
 	}
 	void *h = dlopen (sopath, RTLD_NOW | RTLD_LOCAL);
@@ -162,20 +178,20 @@ char *exe_run(Aholyc *cc, Token *block, Token **rest) {
 		error (cc, "#exe: dlopen: %s", dlerror ());
 	}
 	cleanup_push (cc, cleanup_dso, h);
-	void (*init)(void *, void *) = (void (*)(void *, void *))(intptr_t)
+	void (*init)(void *, void *) = (void (*)(void *, void *))(uintptr_t)
 		dlsym (h, "__aholyc_exe_init");
 	if (!init) {
 		error (cc, "#exe: callback bridge missing in %s", sopath);
 	}
 	ExeApi api = { stream_put, stream_get, stream_set, exe_cd, exe_now };
 	init (&run, &api);
-	int64_t (*entry)(int64_t, int64_t) =
-		(int64_t (*)(int64_t, int64_t))(intptr_t)dlsym (h, "__hc_start");
+	int64_t (*entry)(int64_t, void *) =
+		(int64_t (*)(int64_t, void *))(uintptr_t)dlsym (h, "__hc_start");
 	if (!entry) {
 		error (cc, "#exe: no __hc_start in %s", sopath);
 	}
 	int64_t noargs = 0;
-	entry (0, (int64_t)(intptr_t)&noargs);
+	entry (0, &noargs);
 	cleanup_pop (cc);
 	dlclose (h);
 	if (!cc->keep) {

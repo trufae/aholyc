@@ -13,6 +13,7 @@ the end.
 | `I16`/`U16` | 16-bit               |
 | `I32`/`U32` | 32-bit               |
 | `I64`/`U64` | 64-bit               |
+| `ISZ`/`USZ` | target C ABI signed/unsigned native width (prelude aliases) |
 | `F64` | 8-byte float (there is no F32) |
 | `Bool`| alias for `U8` (prelude)   |
 
@@ -327,8 +328,9 @@ the design, the full API, the limitations, and how the runtime half of
 the TempleOS compiler API (`ExePrint`, `ExeFile`, `RunFile`) could be
 provided on POSIX.
 
-The prelude defines `TRUE`, `FALSE`, `NULL`, `ON`, `OFF`, `Bool`,
-`I64_MAX`, `I64_MIN` and declares the runtime API (see below).
+The prelude defines `TRUE`, `FALSE`, `NULL`, `ON`, `OFF`, `Bool`, the
+integer limits, and the target C ABI aliases `ISZ`/`USZ` with
+`ISZ_MIN`/`ISZ_MAX`/`USZ_MAX`. It also declares the runtime API (see below).
 
 ## Runtime library
 

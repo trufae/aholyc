@@ -1,30 +1,30 @@
 // pthread backend shared by Linux and macOS.
 // @ldflags=-pthread
 
-extern I64 pthread_create(U8 **thread, U8 *attributes, U8 *entry, U8 *data);
-extern I64 pthread_join(U8 *thread, U8 **value);
-extern I64 pthread_detach(U8 *thread);
-extern U64 pthread_self();
+extern I32 pthread_create(U8 **thread, U8 *attributes, U8 *entry, U8 *data);
+extern I32 pthread_join(U8 *thread, U8 **value);
+extern I32 pthread_detach(U8 *thread);
+extern U8 *pthread_self();
 extern U0 pthread_exit(U8 *value);
 
-extern I64 pthread_mutex_init(U8 *mutex, U8 *attributes);
-extern I64 pthread_mutex_destroy(U8 *mutex);
-extern I64 pthread_mutex_lock(U8 *mutex);
-extern I64 pthread_mutex_trylock(U8 *mutex);
-extern I64 pthread_mutex_unlock(U8 *mutex);
+extern I32 pthread_mutex_init(U8 *mutex, U8 *attributes);
+extern I32 pthread_mutex_destroy(U8 *mutex);
+extern I32 pthread_mutex_lock(U8 *mutex);
+extern I32 pthread_mutex_trylock(U8 *mutex);
+extern I32 pthread_mutex_unlock(U8 *mutex);
 
-extern I64 pthread_cond_init(U8 *condition, U8 *attributes);
-extern I64 pthread_cond_destroy(U8 *condition);
-extern I64 pthread_cond_wait(U8 *condition, U8 *mutex);
-extern I64 pthread_cond_signal(U8 *condition);
+extern I32 pthread_cond_init(U8 *condition, U8 *attributes);
+extern I32 pthread_cond_destroy(U8 *condition);
+extern I32 pthread_cond_wait(U8 *condition, U8 *mutex);
+extern I32 pthread_cond_signal(U8 *condition);
 
-extern I64 pthread_key_create(U32 *key, U8 *destructor);
-extern I64 pthread_key_delete(U32 key);
-extern U8 *pthread_getspecific(U32 key);
-extern I64 pthread_setspecific(U32 key, U8 *value);
+extern I32 pthread_key_create(THREAD_KEY_TYPE *key, U8 *destructor);
+extern I32 pthread_key_delete(THREAD_KEY_TYPE key);
+extern U8 *pthread_getspecific(THREAD_KEY_TYPE key);
+extern I32 pthread_setspecific(THREAD_KEY_TYPE key, U8 *value);
 
-extern I64 sched_yield();
-extern I64 usleep(U32 microseconds);
+extern I32 sched_yield();
+extern I32 usleep(U32 microseconds);
 
 Bool ThreadNativeCreate(CThread *thread, U8 *entry, U8 *data)
 {
