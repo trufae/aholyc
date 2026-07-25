@@ -5,11 +5,18 @@
 #define ON 1
 #define OFF 0
 #define Bool U8
-#define I64_MAX 0x7FFFFFFFFFFFFFFF
+#define I8_MIN (-0x7F-1)
+#define I8_MAX 0x7F
+#define I16_MIN (-0x7FFF-1)
+#define I16_MAX 0x7FFF
+#define I32_MIN (-0x7FFFFFFF-1)
+#define I32_MAX 0x7FFFFFFF
 #define I64_MIN (-0x7FFFFFFFFFFFFFFF-1)
+#define I64_MAX 0x7FFFFFFFFFFFFFFF
 #define U8_MAX 0xFF
 #define U16_MAX 0xFFFF
 #define U32_MAX 0xFFFFFFFF
+#define U64_MAX 0xFFFFFFFFFFFFFFFF
 
 class CTask
 {

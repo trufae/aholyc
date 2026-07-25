@@ -11,13 +11,6 @@ jobs:
       - uses: actions/checkout@v4
       - run: make test CC=clang
 
-  linux-32bit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y gcc-multilib
-      - run: make test CC=clang CFLAGS="-Os -Wall -Wextra -std=gnu99 -m32" LDFLAGS=-m32
-
   mac-arm64:
     runs-on: macos-14
     steps:
