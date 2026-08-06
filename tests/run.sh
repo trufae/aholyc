@@ -263,6 +263,28 @@ else
 	fail=1
 fi
 
+# The command-line disable must reach native source and runtime compilation
+# after environment flags, so it can override hardened CFLAGS explicitly.
+stackprotok=1
+./aholyc -h | grep -q -- '-fno-stack-protector' || stackprotok=0
+for b in $backends; do
+	[ "$b" = js ] && continue
+	if ! CFLAGS=-fstack-protector-all ./aholyc -V -fno-stack-protector \
+		-b "$b" tests/out/nopic.HC -o "tests/out/no-stack-$b" \
+		2>"tests/out/no-stack-$b.err" ||
+	   [ "$("tests/out/no-stack-$b" 2>&1)" != nopic ] ||
+	   ! grep -q -- '-fstack-protector-all.*-fno-stack-protector' \
+		"tests/out/no-stack-$b.err"; then
+		stackprotok=0
+	fi
+done
+if [ "$stackprotok" = 1 ]; then
+	echo "ok   native code(no-stack-protector)"
+else
+	echo "FAIL native code(no-stack-protector)"
+	fail=1
+fi
+
 # -shared uses the native object path, exports public symbols, and runs the
 # HolyC top-level initializer when the library is loaded.
 sharedok=1

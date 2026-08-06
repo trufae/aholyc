@@ -312,6 +312,9 @@ int run_cc(Aholyc *cc, const char *tool, const char *opt, const char *out,
 	if (cc->shared && !object) {
 		arg_push (cc, &a, "-shared");
 	}
+	if (!cc->use_stack_protector) {
+		arg_push (cc, &a, "-fno-stack-protector");
+	}
 	if (!cc->use_pic) {
 #ifdef __APPLE__
 		/* Darwin keeps -fno-pic relocatable; dynamic-no-pic is its

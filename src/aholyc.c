@@ -52,6 +52,7 @@ static int usage(int code) {
 		"  -fno-hints    ignore all source hints\n"
 		"  -fno-asm      reject asm blocks and omit HAS_ASM\n"
 		"  -fno-pic      disable position-independent native code\n"
+		"  -fno-stack-protector  disable native stack protection\n"
 		"  -k            keep intermediate files\n"
 		"  -V            verbose: show toolchain commands\n"
 		"  -h            show this help\n"
@@ -194,6 +195,8 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 				cc->use_asm = false;
 			} else if (!strcmp (go.arg, "no-pic")) {
 				cc->use_pic = false;
+			} else if (!strcmp (go.arg, "no-stack-protector")) {
+				cc->use_stack_protector = false;
 			} else {
 				error (cc, "unknown option '-f%s' (try -h)", go.arg);
 			}

@@ -36,6 +36,7 @@ $ aholyc fmt -w src.HC              # format sources in place (doc/format.md)
 | `-fno-hints` | ignore all source hints, treating their annotations as ordinary comments |
 | `-fno-asm` | reject every asm block left after preprocessing and omit `HAS_ASM` |
 | `-fno-pic` | disable position-independent native code and PIE executable linking |
+| `-fno-stack-protector` | disable native stack-protector instrumentation |
 | `-k` | keep intermediate files (`.ll`, `.c`, runtime copies, `#exe` block libraries) |
 | `-V` | print the toolchain commands being executed (including `#exe` builds) |
 | `-h`, `-v` | help / version |
