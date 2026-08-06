@@ -37,6 +37,111 @@ for b in $backends; do
 	done
 done
 
+# Native assembly: a top-level block defines a callable symbol, while an
+# @inline function exercises local operands and block-local @@ labels.
+asmok=1
+case $(uname -m) in
+	x86_64|amd64|arm64|aarch64|riscv64*|mips64*) haveasm=1 ;;
+	*) haveasm=0 ;;
+esac
+if [ "$haveasm" = 1 ]; then
+	for b in $backends; do
+		[ "$b" = js ] && continue
+		if ./aholyc -b "$b" tests/asm.HC -o "tests/out/asm-$b" \
+			2>"tests/out/asm-$b.err" &&
+		   "tests/out/asm-$b" >"tests/out/asm-$b.txt" 2>&1 &&
+		   cmp -s tests/expected/asm.out "tests/out/asm-$b.txt"; then
+			echo "ok   $b/asm"
+		else
+			echo "FAIL $b/asm"
+			head -5 "tests/out/asm-$b.err" 2>/dev/null
+			asmok=0
+		fi
+		if ./aholyc -b "$b" examples/asm/data_directives.HC \
+			-o "tests/out/asm-data-$b" 2>"tests/out/asm-data-$b.err" &&
+		   "tests/out/asm-data-$b" >"tests/out/asm-data-$b.txt" 2>&1 &&
+		   grep -qx 'assembly data directives built' \
+			"tests/out/asm-data-$b.txt"; then
+			echo "ok   $b/asm-data"
+		else
+			echo "FAIL $b/asm-data"
+			head -5 "tests/out/asm-data-$b.err" 2>/dev/null
+			asmok=0
+		fi
+	done
+	if ! ./aholyc -S -b c tests/asm.HC -o tests/out/asm-inline.c ||
+	   ! grep -Eq 'static inline __attribute__\(\(always_inline\)\) hc_i64 hc_ExerciseInlineAsm' \
+		tests/out/asm-inline.c; then
+		echo "FAIL c/asm-inline-hint"
+		asmok=0
+	fi
+	case " $backends " in
+		*" llvm "*)
+			if ! ./aholyc -S -b llvm tests/asm.HC -o tests/out/asm-inline.ll ||
+			   ! grep -Eq 'define .*hc_ExerciseInlineAsm.*alwaysinline' \
+				tests/out/asm-inline.ll; then
+				echo "FAIL llvm/asm-inline-hint"
+				asmok=0
+			fi
+			;;
+	esac
+	if ! ./aholyc -S -b c tests/asm_directives.HC \
+		-o tests/out/asm-directives.c ||
+	   ! grep -Fq '.extern _ASM_IMPORT_A, _ASM_IMPORT_B' tests/out/asm-directives.c ||
+	   ! grep -Fq '.ascii \"AB\"' tests/out/asm-directives.c ||
+	   ! grep -Fq '.fill 2, 2, 4660' tests/out/asm-directives.c ||
+	   ! grep -Fq '.balign 16, 0' tests/out/asm-directives.c ||
+	   ! grep -Fq '.org 64' tests/out/asm-directives.c ||
+	   ! grep -Fq '.incbin \"not-read-while-emitting-source.bin\"' \
+		tests/out/asm-directives.c ||
+	   grep -Eq '(^|[^A-Z])(LIST|NOLIST)([^A-Z]|$)' tests/out/asm-directives.c; then
+		echo "FAIL asm-directive lowering"
+		asmok=0
+	fi
+	printf '%s\n' '/* @inline */ asm { NOP }' \
+		>tests/out/asm-hint-block.HC
+	if ./aholyc -S -b c tests/out/asm-hint-block.HC \
+		-o tests/out/asm-hint-block.c 2>tests/out/asm-hint-block.err ||
+	   ! grep -q 'inline hints apply to the enclosing function declaration' \
+		tests/out/asm-hint-block.err; then
+		echo "FAIL asm block hint diagnostic"
+		asmok=0
+	fi
+	printf '%s\n' '/* @inline */ public _extern _RAW I64 Raw();' \
+		>tests/out/asm-hint-extern.HC
+	if ./aholyc -S -b c tests/out/asm-hint-extern.HC \
+		-o tests/out/asm-hint-extern.c 2>tests/out/asm-hint-extern.err ||
+	   ! grep -q 'cannot @inline an _extern assembler symbol' \
+		tests/out/asm-hint-extern.err; then
+		echo "FAIL asm extern hint diagnostic"
+		asmok=0
+	fi
+	printf '%s\n' 'asm {' '  DU8 1' '}' >tests/out/asm-missing-semi.HC
+	if ./aholyc -S -b c tests/out/asm-missing-semi.HC \
+		-o tests/out/asm-missing-semi.c 2>tests/out/asm-missing-semi.err ||
+	   ! grep -q "DU8 requires a terminating ';'" tests/out/asm-missing-semi.err; then
+		echo "FAIL asm directive semicolon diagnostic"
+		asmok=0
+	fi
+	case " $backends " in
+		*" js "*)
+			if ./aholyc -S -b js tests/asm.HC -o tests/out/asm.js \
+				>tests/out/asm-js.txt 2>tests/out/asm-js.err; then
+				asmok=0
+			elif ! grep -q 'asm statements are not supported by the js backend' \
+				tests/out/asm-js.err; then
+				asmok=0
+			fi
+			;;
+	esac
+fi
+if [ "$asmok" = 1 ]; then
+	echo "ok   asm(target syntax/backends)"
+else
+	echo "FAIL asm(target syntax/backends)"
+	fail=1
+fi
+
 # The portable thread library targets native OS threads.  Exercise both
 # native code generators; JS intentionally has no FFI/thread backend.
 for b in $backends; do
@@ -457,7 +562,8 @@ grep -Eq 'uint8_t l[0-9]+_addressed = 0' tests/out/hints.c || hintsok=0
 grep -Eq 'unsigned _BitInt\(1\)' tests/out/hints.c || hintsok=0
 grep -Eq 'int8_t l[0-9]+_signed_bit = 0' tests/out/hints.c || hintsok=0
 grep -Eq '(^|[^[:alnum:]_])signed _BitInt\(1\)' tests/out/hints.c && hintsok=0
-grep -Eq 'static inline hc_i64 hc_InlineAdd\(' tests/out/hints.c || hintsok=0
+grep -Eq 'static inline (__attribute__\(\(always_inline\)\) )?hc_i64 hc_InlineAdd\(' \
+	tests/out/hints.c || hintsok=0
 grep -Eq 'static __attribute__\(\(noinline\)\) hc_i64 hc_NoInlineAdd\(' tests/out/hints.c || hintsok=0
 
 ./aholyc -fno-hints -S -b llvm tests/hints.HC -o tests/out/hints-no.ll \
@@ -467,7 +573,8 @@ grep -Eq '(alwaysinline|noinline)' tests/out/hints-no.ll && hintsok=0
 ./aholyc -fno-hints -S -b c tests/hints.HC -o tests/out/hints-no.c \
 	2>tests/out/hints-no-c.err || hintsok=0
 grep -q '_BitInt' tests/out/hints-no.c && hintsok=0
-grep -Eq '(static inline hc_i64 hc_InlineAdd|noinline.*hc_NoInlineAdd)' tests/out/hints-no.c && hintsok=0
+grep -Eq '(always_inline.*hc_InlineAdd|static inline hc_i64 hc_InlineAdd|noinline.*hc_NoInlineAdd)' \
+	tests/out/hints-no.c && hintsok=0
 ./aholyc -S -b js tests/hints.HC -o tests/out/hints.js 2>tests/out/hints-js.err || hintsok=0
 ./aholyc -fno-hints -S -b js tests/hints.HC -o tests/out/hints-no.js \
 	2>tests/out/hints-no-js.err || hintsok=0
@@ -792,6 +899,17 @@ printf 'U0 F(I64 x)\n{//c\n  if (x) {\n    "y\\n";\n  }\n}\n' > tests/out/fmt_ex
 cmp -s tests/out/fmt_exp.HC tests/out/fmt_got.HC || fmtok=0
 ./aholyc fmt -q tests/out/fmt_in.HC >/dev/null && fmtok=0   # must exit 1
 ./aholyc fmt -q - < tests/out/fmt_got.HC || fmtok=0         # must exit 0
+./aholyc fmt tests/asm.HC > tests/out/fmt-asm.HC || fmtok=0
+./aholyc fmt -q - < tests/out/fmt-asm.HC || fmtok=0
+if [ "$haveasm" = 1 ]; then
+	if ./aholyc -b c tests/out/fmt-asm.HC -o tests/out/fmt-asm \
+		2>/dev/null; then
+		tests/out/fmt-asm >tests/out/fmt-asm.txt 2>&1 || fmtok=0
+		cmp -s tests/expected/asm.out tests/out/fmt-asm.txt || fmtok=0
+	else
+		fmtok=0
+	fi
+fi
 for f in examples/*.HC; do
 	n=$(basename "$f" .HC)
 	./aholyc fmt "$f" > "tests/out/fmt-$n.HC" || { fmtok=0; continue; }

@@ -734,6 +734,7 @@ static void js_emit(Aholyc *cc, Program *prog, StrBuf *out,
 		bool object_mode, bool ctor_mode) {
 	(void)object_mode;
 	(void)ctor_mode;
+	asm_reject_js (cc, prog);
 	JsGen *g = xcalloc (cc, 1, sizeof(*g));
 	g->cc = cc;
 	g->prog = prog;

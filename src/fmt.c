@@ -17,7 +17,7 @@
 
 typedef struct {
 	int outer;        /* indent level of the line that opened the block */
-	bool is_switch;
+	bool is_switch, is_asm;
 	bool in_sub;      /* between start:/end: in a sub_switch */
 } FBlock;
 
@@ -33,6 +33,7 @@ typedef struct {
 	int hang;         /* pending braceless if/else/for/while/do headers */
 	bool ctrl_open;   /* control header with its '(...)' still open */
 	bool stmt_open;   /* statement continued on the next line (no parens) */
+	bool asm_stmt_open; /* semicolon-terminated asm directive continuation */
 	/* per-line facts collected by scan_line */
 	char first_word[16], last_word[16];
 	char last_code;   /* last code character on the line */
@@ -104,6 +105,22 @@ static bool is_label_line(const char *s) {
 		}
 	}
 	return true;
+}
+
+static bool is_asm_label(const char *s) {
+	int i = 0;
+	if (s[0] == '@' && s[1] == '@') {
+		i = 2;
+		if (!ident_char (s[i])) {
+			return false;
+		}
+	} else if (!ident_start (s[0]) && !(s[0] >= '0' && s[0] <= '9')) {
+		return false;
+	}
+	while (ident_char (s[i])) {
+		i++;
+	}
+	return s[i] == ':';
 }
 
 /* remember first/last code word of the line; the first-word capture
@@ -199,8 +216,12 @@ static void scan_line(FState *st, const char *s) {
 			break;
 		case '{':
 			if (st->nstk < 256) {
+				bool parent_asm = st->nstk > 0 &&
+					st->stk[st->nstk - 1].is_asm;
 				st->stk[st->nstk].outer = st->cur_indent;
 				st->stk[st->nstk].is_switch = st->sw_pending;
+				st->stk[st->nstk].is_asm = parent_asm ||
+					!strcmp (st->first_word, "asm");
 				st->nstk++;
 			}
 			st->sw_pending = false;
@@ -354,8 +375,11 @@ static char *fmt_run(Aholyc *cc, const char *src, const FmtOpts *opt) {
 		/* pick this line's indent level */
 		int level;
 		FBlock *top = st.nstk > 0? &st.stk[st.nstk - 1]: NULL;
+		bool asm_line = top && top->is_asm;
 		if (b[0] == '}') {
 			level = top? top->outer: 0;
+		} else if (asm_line && (is_asm_label (b) || b[0] == '#')) {
+			level = top->outer;
 		} else if (top && top->is_switch &&
 		           (word_is (b, "case") || word_is (b, "default") ||
 		            word_is (b, "start") || word_is (b, "end"))) {
@@ -370,7 +394,8 @@ static char *fmt_run(Aholyc *cc, const char *src, const FmtOpts *opt) {
 		} else if (is_label_line (b)) {
 			level = 0;
 		} else {
-			int add = st.hang + (st.stmt_open? 1: 0);
+			int add = st.hang + (st.stmt_open? 1: 0) +
+				(asm_line && st.asm_stmt_open? 1: 0);
 			if (b[0] == '{' && add > 0) {
 				add--; /* '{' aligns with the header it belongs to */
 			}
@@ -412,7 +437,21 @@ static char *fmt_run(Aholyc *cc, const char *src, const FmtOpts *opt) {
 		/* hanging bodies: a control header without '{' indents the
 		 * following statement; any completed statement clears it.
 		 * Directive lines are whole by definition: skip, like comments. */
-		if (!st.in_str && !st.in_bc && b[0] != '#') {
+		if (asm_line) {
+			st.hang = 0;
+			st.ctrl_open = false;
+			st.stmt_open = false;
+			if (b[0] == '}' || st.last_code == ';') {
+				st.asm_stmt_open = false;
+			} else if (!strcmp (st.first_word, "IMPORT") ||
+					!strcmp (st.first_word, "DU8") ||
+					!strcmp (st.first_word, "DU16") ||
+					!strcmp (st.first_word, "DU32") ||
+					!strcmp (st.first_word, "DU64") ||
+					!strcmp (st.first_word, "BINFILE")) {
+				st.asm_stmt_open = true;
+			}
+		} else if (!st.in_str && !st.in_bc && b[0] != '#') {
 			bool ctrl = word_is (st.first_word, "if") ||
 				word_is (st.first_word, "while") ||
 				word_is (st.first_word, "for");

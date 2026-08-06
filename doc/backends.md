@@ -19,6 +19,12 @@ function call use `@_setjmp` declared `returns_twice` plus a small frame stack
 in the runtime. Inferred no-throw `try` bodies omit the handler, while direct
 local throws use ordinary LLVM branches.
 
+Top-level `asm {}` becomes LLVM `module asm`; statement assembly becomes a
+`sideeffect` inline-asm call. LLVM can store both forms in `.ll` or bitcode,
+but the instructions are opaque target text. Such an artifact is tied to the
+architecture and object format selected when aholyc was built and must be
+compiled for that same target.
+
 ## c
 
 Emits one self-contained C translation unit: the C99 runtime source is
@@ -33,7 +39,9 @@ Compiling hinted output therefore requires a compiler with `_BitInt` support;
 [hints.md](hints.md).
 
 This backend is the reference implementation and works on any machine
-with a C compiler — no LLVM needed. It also executes `#exe{}` blocks for
+with a C compiler — no LLVM needed. Native `asm {}` is emitted with the
+compiler's GNU-style `__asm__` extension, so programs using it require GCC or
+Clang and are target-specific. The backend also executes `#exe{}` blocks for
 every output backend, including JS: each block is emitted as C, built into a
 shared library, and dlopened into the compiler process (see `doc/exe.md`).
 
@@ -59,6 +67,8 @@ for (;;) switch (pc) {
 ```
 
 HolyC exceptions map onto JS exceptions with a per-invocation try stack.
+`asm {}` is rejected with a source-located diagnostic because JavaScript has
+no native assembler.
 Caveat: `I64` is a JS number — exact to 53 bits only. The address-space
 layout is documented in [memory.md](memory.md).
 
@@ -107,8 +117,8 @@ lowered all the HolyC sugar (default args, implicit prints, `switch`,
 compound assignment, `++`/`--`, chained comparisons), so `emit` only has
 to handle: literals, variables, loads/stores, the arithmetic/logic
 operators, calls (direct, variadic with `argc`/`argv` packing, indirect),
-`if`, `while`/`do`/`for`, `goto`/labels, `return`, and `try`. Statement
-`goto` is the only unstructured control flow a backend must support —
+`if`, `while`/`do`/`for`, `goto`/labels, `return`, `try`, and native `asm`.
+Statement `goto` is the only unstructured control flow a backend must support —
 see the C backend for the simplest possible implementation, the JS
 backend for how to cope without native goto.
 

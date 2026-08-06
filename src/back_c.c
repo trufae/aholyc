@@ -112,6 +112,10 @@ static char *objname(CGen *cg, Obj *v) {
 	return buf;
 }
 
+static char *asm_objname(void *ctx, Obj *v) {
+	return objname ((CGen *)ctx, v);
+}
+
 static char *labname(CGen *cg, const char *l) {
 	char *buf = cg->label;
 	snprintf (buf, sizeof(cg->label), "L%s", l);
@@ -708,6 +712,10 @@ static void emit_stmt(CGen *cg, Node *n, int ind) {
 		ind_ (cg, ind);
 		sb_printf (cg->out, "%s: ;\n", labname (cg, n->label));
 		break;
+	case ND_ASM:
+		asm_emit_c_inline (cg->cc, cg->out, n->asm_block, ind,
+			cg, asm_objname);
+		break;
 	case ND_TRY:
 		if (n->try_mode == TRY_NONE) {
 			ind_ (cg, ind);
@@ -769,7 +777,7 @@ static void emit_func_sig(CGen *cg, Obj *fn) {
 		(cg->prog && fn == cg->prog->startup && !cg->ctor_mode);
 	sb_printf (cg->out, "%s%s%s%s %s(", exported?
 		(fn->hints & HINT_INLINE? "extern ": ""): "static ",
-		fn->hints & HINT_INLINE? "inline ": "",
+		fn->hints & HINT_INLINE? "inline __attribute__((always_inline)) ": "",
 		fn->hints & HINT_NOINLINE? "__attribute__((noinline)) ": "", rc, objname (cg, fn));
 	bool first = true;
 	for (Obj *p = fn->params; p; p = p->next) {
@@ -854,10 +862,16 @@ static void emit_extern_decls(CGen *cg, bool only_user) {
 			sb_printf (cg->out, "%s%s", np? ", ": "", extern_ctype (p->ty));
 		}
 		if (cva) {
-			sb_printf (cg->out, "%s...) HC_CSYM(\"%s\");\n", np? ", ": "", f->name);
+			sb_printf (cg->out, "%s...)", np? ", ": "");
 		} else {
-			sb_printf (cg->out, "%s);\n", np? "": "void");
+			sb_printf (cg->out, "%s)", np? "": "void");
 		}
+		if (f->link_name) {
+			sb_printf (cg->out, " __asm__(\"%s\")", f->link_name);
+		} else if (cva) {
+			sb_printf (cg->out, " HC_CSYM(\"%s\")", f->name);
+		}
+		sb_printf (cg->out, ";\n");
 	}
 	for (Obj *g = prog->globals; g; g = g->next) {
 		if (!g->is_extern || !strcmp (g->name, "Fs") ||
@@ -948,6 +962,9 @@ static void c_emit(Aholyc *cc, Program *prog, StrBuf *out,
 		sb_printf (cg->out, ";\n");
 	}
 	sb_printf (cg->out, "\n");
+	for (AholyAsm *a = prog->asms; a; a = a->next) {
+		asm_emit_c_module (cc, out, a);
+	}
 	for (Obj *f = prog->funcs; f; f = f->next) {
 		if (f->is_extern || !f->body) {
 			continue;

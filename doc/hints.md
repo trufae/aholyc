@@ -127,8 +127,15 @@ function not be inlined:
 ```
 
 The LLVM backend emits `alwaysinline` and `noinline`, respectively. The C
-backend emits the plain `inline` keyword for `@inline` and the compiler
-`noinline` attribute for `@noinline`. The JavaScript backend ignores both.
+backend emits `inline` with the compiler's `always_inline` attribute for
+`@inline`, and the `noinline` attribute for `@noinline`. The JavaScript
+backend ignores both.
+
+For a function containing `asm {}`, place the hint before the function
+definition. A hint on the block itself has no declaration to modify. A
+file-scope `_extern ASM_SYMBOL` binding cannot be inlined because its assembler
+body is opaque; use an `@inline` HolyC function with a statement-level block
+when the instructions must appear in the caller. See [asm.md](asm.md).
 
 ## Exception and effect hints
 

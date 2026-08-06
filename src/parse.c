@@ -90,7 +90,8 @@ typedef struct {
 	char *break_label;
 	ClassEnt *classes;
 	LabelRef *fn_labels;
-	int uid_counter, label_counter, class_dol_offset;
+	AholyAsm *asm_tail;
+	int uid_counter, label_counter, asm_counter, class_dol_offset;
 	bool in_class_body, align_hints;
 } Parser;
 
@@ -129,6 +130,22 @@ static Obj *find_var(Parser *ps, const char *name) {
 		}
 	}
 	return NULL;
+}
+
+static void bind_asm_operands(Parser *ps, AholyAsm *a) {
+	for (AholyAsmOperand *op = a->operands; op; op = op->next) {
+		Obj *v = find_var (ps, op->name);
+		if (op->require_local && (!ps->cur_fn || !v || v->is_global)) {
+			error_tok (ps->cc, op->tok,
+				"asm local reference '&%s[RBP]' does not name a visible local or parameter",
+				op->name);
+		}
+		if (ps->cur_fn && v && !v->is_global) {
+			op->var = v;
+			op->index = a->noperands++;
+			v->address_taken = true;
+		}
+	}
 }
 
 static Obj *find_func(Parser *ps, const char *name) {
@@ -276,6 +293,20 @@ static void collect_hints(Parser *ps, Token *t, Token **bits, Token **func, Toke
 static void reject_func_hint(Parser *ps, Token *t) {
 	if (t) {
 		error_tok (ps->cc, t, "inline hints apply only to function declarations");
+	}
+}
+
+static void reject_asm_hints(Parser *ps, Token *t) {
+	if (t->hints & (HINT_INLINE | HINT_NOINLINE)) {
+		error_tok (ps->cc, t,
+			"inline hints apply to the enclosing function declaration, not an asm block");
+	}
+	if (t->hint_bits) {
+		error_tok (ps->cc, t, "@bits applies only to integer object declarations");
+	}
+	if (t->hint_align) {
+		error_tok (ps->cc, t,
+			"@align applies only to classes, fields, and local variables");
 	}
 }
 
@@ -1955,7 +1986,15 @@ static Node *stmt(Parser *ps) {
 		return new_node (ND_NOP, t);
 	}
 	if (is_kw (ps, "asm")) {
-		error_tok (ps->cc, t, "inline asm is not supported by aholyc (portable backends only)");
+		reject_asm_hints (ps, t);
+		AholyAsm *a = asm_parse (ps->cc, &ps->tk, ++ps->asm_counter, true);
+		bind_asm_operands (ps, a);
+		Node *n = new_node (ND_ASM, t);
+		n->asm_block = a;
+		if (!ps->prog->asm_tok) {
+			ps->prog->asm_tok = t;
+		}
+		return n;
 	}
 	if (is_kw (ps, "lock")) {
 		/* compile the block without lock semantics */
@@ -2262,8 +2301,8 @@ static void parse_class(Parser *ps, bool is_union, int align_all) {
 }
 
 /* function definition or declaration after type+name(  */
-static void parse_func(Parser *ps, Type *ret, char *name, bool is_extern, bool is_public,
-                       Token *inline_tok) {
+static void parse_func(Parser *ps, Type *ret, char *name, bool is_extern,
+		bool is_public, Token *inline_tok, char *link_name) {
 	Obj *fn = find_func (ps, name);
 	bool fresh = !fn;
 	if (fresh) {
@@ -2274,6 +2313,16 @@ static void parse_func(Parser *ps, Type *ret, char *name, bool is_extern, bool i
 	fnty->base = ret;
 	fn->ty = fnty;
 	fn->is_extern = is_extern;
+	if (link_name) {
+		if (inline_tok && (inline_tok->hints & HINT_INLINE)) {
+			error_tok (ps->cc, inline_tok,
+				"cannot @inline an _extern assembler symbol; put the asm block in an @inline HolyC function");
+		}
+		if (fn->link_name && strcmp (fn->link_name, link_name)) {
+			error_tok (ps->cc, ps->tk, "conflicting assembler name for function %s", name);
+		}
+		fn->link_name = link_name;
+	}
 	if (inline_tok) {
 		if (fn->hints && fn->hints != inline_tok->hints) {
 			error_tok (ps->cc, inline_tok, "conflicting inline hint for function %s", name);
@@ -2469,13 +2518,17 @@ Program *parse(Aholyc *cc, Token *tok, bool align_hints) {
 			collect_hints (ps, ps->tk, &hint, &inline_tok, &align_tok);
 		}
 		bool is_extern = false;
+		char *link_name = NULL;
 		if (is_kw (ps, "extern") || is_kw (ps, "import") || is_kw (ps, "_extern") || is_kw (ps, "_import")) {
+			bool asm_alias = is_kw (ps, "_extern") || is_kw (ps, "_import");
 			is_extern = true;
 			ps->tk = ps->tk->next;
 			collect_hints (ps, ps->tk, &hint, &inline_tok, &align_tok);
-			/* _extern SYMBOL alias form: skip the symbol token */
-			if (ps->tk->kind == TK_ID && ps->tk->next->kind == TK_ID &&
-			    !builtin_type (ps->tk->str) && !find_class (ps, ps->tk->str)) {
+			/* `_extern ASM_SYMBOL Type HolyCName(...)` binds a source name
+			 * to a label supplied by a file-scope asm block. */
+			if (asm_alias && ps->tk->kind == TK_ID && ps->tk->next &&
+			    is_type_start (ps, ps->tk->next)) {
+				link_name = ps->tk->str;
 				ps->tk = ps->tk->next;
 				collect_hints (ps, ps->tk, &hint, &inline_tok, &align_tok);
 			}
@@ -2524,8 +2577,12 @@ Program *parse(Aholyc *cc, Token *tok, bool align_hints) {
 				}
 				char *name = ps->tk->str;
 				ps->tk = ps->tk->next;
-				parse_func (ps, ret, name, is_extern, is_public, inline_tok);
+				parse_func (ps, ret, name, is_extern, is_public, inline_tok,
+					link_name);
 				continue;
+			}
+			if (link_name) {
+				error_tok (ps->cc, save, "assembler aliases apply only to functions");
 			}
 			reject_func_hint (ps, inline_tok);
 			if (align_tok) {
@@ -2547,6 +2604,25 @@ Program *parse(Aholyc *cc, Token *tok, bool align_hints) {
 				while (top_cur->next) {
 					top_cur = top_cur->next;
 				}
+			}
+			continue;
+		}
+		if (is_kw (ps, "asm")) {
+			reject_asm_hints (ps, ps->tk);
+			AholyAsm *a = asm_parse (ps->cc, &ps->tk, ++ps->asm_counter, false);
+			if (a->operands) {
+				error_tok (ps->cc, a->operands->tok,
+					"asm local reference '&%s[RBP]' is only valid inside a function",
+					a->operands->name);
+			}
+			if (ps->asm_tail) {
+				ps->asm_tail->next = a;
+			} else {
+				ps->prog->asms = a;
+			}
+			ps->asm_tail = a;
+			if (!ps->prog->asm_tok) {
+				ps->prog->asm_tok = a->tok;
 			}
 			continue;
 		}

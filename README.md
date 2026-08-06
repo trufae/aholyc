@@ -71,7 +71,7 @@ instance-local state lets separate compilers run concurrently. Link with
 * `src/` — the compiler (lexer, parser, backends, driver)
 * `runtime/` — the HolyC runtime (C and JS) and the prelude, embedded into
   the aholyc binary at build time
-* `doc/` — [language](doc/language.md), [usage](doc/usage.md),
+* `doc/` — [language](doc/language.md), [assembly](doc/asm.md), [usage](doc/usage.md),
   [backends](doc/backends.md), [memory](doc/memory.md),
   [hints](doc/hints.md), [preprocessor](doc/pp.md),
   [internals](doc/internals.md)

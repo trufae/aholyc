@@ -51,7 +51,10 @@ Further rules, all taken from shapes in the TempleOS sources:
   (`Adam/AMathODE.HC`);
 * a statement continued on the next line without open parentheses
   (e.g. a print statement broken after a comma) indents one level;
-  lines inside unclosed `(`/`[` indent one level per open paren.
+  lines inside unclosed `(`/`[` indent one level per open paren;
+* instructions and directives inside `asm {}` indent one level,
+  assembler labels align with the block opener, and continued
+  `DU*`/`IMPORT`/`BINFILE` statements indent one additional level.
 
 ## Usage
 

@@ -90,6 +90,9 @@ static const Backend *find_backend(const char *name) {
 }
 
 static const Backend *default_backend(Aholyc *cc) {
+#if !AHOLYC_BACKEND_LLVM
+	(void)cc;
+#endif
 #if AHOLYC_BACKEND_LLVM
 	if (have_cmd (cc, "clang") || have_cmd (cc, "llc")) {
 		return &aholyc_i_backend_ll;

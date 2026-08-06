@@ -357,11 +357,36 @@ width and precision. `%c` prints all packed characters of its argument.
 Note there is no type inference in formats: `%f` expects an `F64`
 argument, `%d` an integer.
 
+## Native assembly
+
+`asm { ... }` accepts the same token-oriented block form as HolyC. A block at
+file scope contributes assembler source to the translation unit; a block in a
+function is an inline assembly statement. The preprocessor runs first, so
+constants and conditional architecture branches work normally.
+
+Double-colon labels are public, `@@name` labels are local to one block, and
+`$$` denotes the assembler's current address. A public assembler routine can
+be given a HolyC name and signature with the usual alias declaration:
+
+```holyc
+asm {
+_ANSWER::
+  MOVQ RAX, 42
+  RET
+};
+public _extern _ANSWER I64 Answer();
+```
+
+The compiler only adapts HolyC directives and x86 size-suffixed Intel
+mnemonics. Instruction selection, validation, and encoding remain the native
+assembler's job. The C and LLVM backends support `asm`; the JS backend reports
+a source error. See [asm.md](asm.md), [backends.md](backends.md), and
+[`examples/asm`](../examples/asm/README.md).
+
 ## Deviations from TempleOS
 
 aholyc targets normal OSes with portable backends, so:
 
-* **No inline `asm{}`** — rejected with an error.
 * `#exe{}` works at compile time only (`doc/exe.md`); the runtime half
   of the TempleOS compiler API (`ExePrint`, `ExeFile`, `StreamExePrint`,
   `RunFile`) is absent, since final binaries contain no compiler.

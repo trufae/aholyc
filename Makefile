@@ -16,7 +16,8 @@ CFLAGS += -DAHOLYC_BACKEND_LLVM=$(AHOLYC_BACKEND_LLVM) \
 	-DAHOLYC_BACKEND_C=$(AHOLYC_BACKEND_C) \
 	-DAHOLYC_BACKEND_JS=$(AHOLYC_BACKEND_JS)
 
-LIBSRC = src/aholyc.c src/getopt.c src/lex.c src/lexhints.c src/lexpp.c src/parse.c src/effects.c src/util.c src/sb.c src/exe.c src/fmt.c
+LIBSRC = src/aholyc.c src/getopt.c src/lex.c src/lexhints.c src/lexpp.c src/parse.c \
+	src/asm.c src/effects.c src/util.c src/sb.c src/exe.c src/fmt.c
 ifeq ($(AHOLYC_BACKEND_LLVM),1)
 LIBSRC += src/back_ll.c
 endif
@@ -35,9 +36,11 @@ aholyc: src/main.o libaholyc.a
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ src/main.o libaholyc.a -ldl
 
 libaholyc.a: $(LIBOBJ)
+	$(RM) $@
 	$(AR) rcs $@ $(LIBOBJ)
 
 $(OBJ): src/aholyc.h src/config.h
+src/asm.o: src/asm_x64.inc.c src/asm_arm64.inc.c src/asm_riscv.inc.c src/asm_mips.inc.c
 src/main.o src/getopt.o: src/getopt.h
 
 src/config.h: FORCE
@@ -51,7 +54,7 @@ src/config.h: FORCE
 # embedded runtime + prelude sources
 src/embed.c: tools/file2c runtime/rt.c runtime/rt.js runtime/prelude.hc runtime/exe.hc FORCE
 	@tmp=$@.tmp; { \
-		if [ "$(AHOLYC_BACKEND_LLVM)" = 1 ] || [ "$(AHOLYC_BACKEND_C)" = 1 ]; then ./tools/file2c aholyc_i_rt_c_src runtime/rt.c; fi; \
+		./tools/file2c aholyc_i_rt_c_src runtime/rt.c; \
 		if [ "$(AHOLYC_BACKEND_JS)" = 1 ]; then ./tools/file2c aholyc_i_rt_js_src runtime/rt.js; fi; \
 		./tools/file2c aholyc_i_prelude_hc runtime/prelude.hc; \
 		if [ "$(AHOLYC_BACKEND_C)" = 1 ]; then ./tools/file2c aholyc_i_exe_hc runtime/exe.hc; fi; \

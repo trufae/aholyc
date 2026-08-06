@@ -152,6 +152,5 @@ U8 *here = $$;
   out distinct, monotonically increasing fake ones — comparisons and
   ordering still behave.
 
-TempleOS gives `$$` a third meaning inside `asm { }` blocks (the
-instruction's own address); aholyc has no inline assembler, so that meaning
-does not apply.
+Inside `asm { }`, `$$` has its third HolyC meaning: the current assembler
+address. The native backends lower it to the target assembler's `.` expression.
