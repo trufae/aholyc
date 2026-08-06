@@ -5,6 +5,7 @@
 /* @inline */
 I64 RawWrite(I64 fd, U8 *buf, I64 len)
 {
+#ifdef HAS_ASM
   I64 result;
   asm {
     ldr x0, [&fd]
@@ -15,6 +16,14 @@ I64 RawWrite(I64 fd, U8 *buf, I64 len)
     str x0, [&result]
   };
   return result;
+#else
+  I64 i;
+  if (fd != 1)
+    return -1;
+  for (i = 0; i < len; i++)
+    PutChars(buf[i]);
+  return len;
+#endif
 }
 
 RawWrite(1, "arm64 darwin syscall\n", 21);

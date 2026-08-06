@@ -1204,6 +1204,7 @@ const Backend aholyc_i_backend_ll = {
 	.name = "llvm",
 	.ext = ".ll",
 	.descr = "LLVM-IR text, built to native with clang/llc (no LLVM libs linked)",
+	.supports_asm = true,
 	.emit = ll_emit,
 	.build = ll_build,
 	.build_obj = ll_build_obj,

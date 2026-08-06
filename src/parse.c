@@ -310,6 +310,12 @@ static void reject_asm_hints(Parser *ps, Token *t) {
 	}
 }
 
+static void require_asm_enabled(Parser *ps, Token *t) {
+	if (!ps->cc->use_asm) {
+		error_tok (ps->cc, t, "asm blocks are disabled by -fno-asm");
+	}
+}
+
 static void collect_bits_hint(Parser *ps, Token *t, Token **bits) {
 	Token *func = NULL;
 	Token *align = NULL;
@@ -1986,6 +1992,7 @@ static Node *stmt(Parser *ps) {
 		return new_node (ND_NOP, t);
 	}
 	if (is_kw (ps, "asm")) {
+		require_asm_enabled (ps, t);
 		reject_asm_hints (ps, t);
 		AholyAsm *a = asm_parse (ps->cc, &ps->tk, ++ps->asm_counter, true);
 		bind_asm_operands (ps, a);
@@ -2608,6 +2615,7 @@ Program *parse(Aholyc *cc, Token *tok, bool align_hints) {
 			continue;
 		}
 		if (is_kw (ps, "asm")) {
+			require_asm_enabled (ps, ps->tk);
 			reject_asm_hints (ps, ps->tk);
 			AholyAsm *a = asm_parse (ps->cc, &ps->tk, ++ps->asm_counter, false);
 			if (a->operands) {

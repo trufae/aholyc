@@ -863,6 +863,7 @@ const Backend aholyc_i_backend_js = {
 	.name = "js",
 	.ext = ".js",
 	.descr = "JavaScript for node (linear-memory model)",
+	.supports_asm = false,
 	.emit = js_emit,
 	.build = js_build,
 };

@@ -12,6 +12,36 @@ The trailing semicolon after `}` is optional. The preprocessor runs before the
 block is parsed, so `#define`, `#if`, and the `IS_*` target macros work inside
 it.
 
+## Capability and `-fno-asm`
+
+`HAS_ASM` is predefined as `1` when the selected backend can emit assembly and
+asm has not been disabled. Use it to keep a normal HolyC implementation next
+to a native one:
+
+```holyc
+I64 AddOne(I64 value)
+{
+#ifdef HAS_ASM
+	asm {
+		/* target implementation */
+	};
+	return value;
+#else
+	return value + 1;
+#endif
+}
+```
+
+`-fno-asm` omits `HAS_ASM` and rejects every `asm {}` block that remains after
+preprocessing, at either file or function scope. An asm block in a discarded
+`#ifdef HAS_ASM` branch is not part of the compiled program and is allowed.
+Defining `HAS_ASM` manually does not re-enable assembly under `-fno-asm`; the
+parser still rejects the block.
+
+The C and LLVM backends define `HAS_ASM`. The JS backend does not, so guarded
+sources select their portable branch. An unguarded asm block on JS retains its
+source-located unsupported-backend error.
+
 aholyc is an assembly adapter, not an assembler. It rewrites the parts of the
 TempleOS dialect that differ from native toolchains, then leaves instruction
 validation and encoding to GCC or Clang. x86-64 blocks use Intel operand order;
@@ -55,8 +85,9 @@ I64 AddOne(I64 input)
 
 The C backend emits `inline` plus `always_inline`; LLVM emits `alwaysinline`.
 `@noinline` works in the same position. The other supported hints keep their
-normal ownership: `@bits` belongs to integer objects, `@align` to storage or
-layout, and `@cflags`, `@ldflags`, and `@pkgconfig` to the translation unit.
+normal ownership: `@bits` belongs to integer objects, `@align` to class layout
+or local storage, and `@cflags`, `@ldflags`, and `@pkgconfig` to the
+translation unit.
 
 ## Local addresses
 

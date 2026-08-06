@@ -66,13 +66,17 @@ conditionals.
 
 ## Predefined macros
 
-Set in `lex_reset()` (`src/lex.c`) to expose **HolyC** platform names
-(TempleOS style) rather than the host C compiler's macros:
+The platform names are set in `lex_reset()` (`src/lex.c`) to expose **HolyC**
+names (TempleOS style) rather than the host C compiler's macros. Backend
+capabilities are added by the driver after it selects the backend:
 
 - Architecture (one of): `IS_X86_64`, `IS_ARM_64`, `IS_ARM_32`,
   `IS_POWERPC`, `IS_RISCV`, `IS_MIPS`.
 - OS (one of): `IS_MACOS`, `IS_LINUX`, `IS_NETBSD`, `IS_OPENBSD`,
   `IS_FREEBSD`, `IS_WINDOWS`; plus `IS_UNIX` on any Unix.
+- Capability: `HAS_ASM=1` when the selected backend supports `asm {}` and
+  `-fno-asm` was not requested. It is absent for the JS backend and under
+  `-fno-asm`.
 
 Inside `#exe {…}` blocks, `__FILE__` and `__DIR__` are defined to the
 current file/dir (TempleOS style).

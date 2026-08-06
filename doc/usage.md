@@ -32,6 +32,7 @@ $ aholyc fmt -w src.HC              # format sources in place (doc/format.md)
 | `-l name` | link against a library (e.g. `-lz`) |
 | `-D name[=value]` | predefine a macro; the last `-D` of a name wins |
 | `-fno-hints` | ignore all source hints, treating their annotations as ordinary comments |
+| `-fno-asm` | reject every asm block left after preprocessing and omit `HAS_ASM` |
 | `-k` | keep intermediate files (`.ll`, `.c`, runtime copies, `#exe` block libraries) |
 | `-V` | print the toolchain commands being executed (including `#exe` builds) |
 | `-h`, `-v` | help / version |
@@ -43,7 +44,9 @@ The host platform macros (`IS_MACOS`, `IS_LINUX`, `IS_NETBSD`, `IS_OPENBSD`,
 `IS_FREEBSD`, `IS_WINDOWS`, and `IS_UNIX`) and architecture macros
 (`IS_X86_64`, `IS_ARM_64`, `IS_ARM_32`, `IS_POWERPC`, `IS_RISCV`, or
 `IS_MIPS`) are predefined, so sources can `#ifdef` on them to pick platform
-defaults.
+defaults. `HAS_ASM` is predefined when the selected backend supports assembly
+and `-fno-asm` is not active; use it to select a portable alternative to an
+`asm {}` block.
 
 ## Program arguments
 

@@ -142,6 +142,81 @@ else
 	fail=1
 fi
 
+# -fno-asm is a parser policy, not merely a missing backend feature. It must
+# reject surviving blocks at both scopes even if HAS_ASM is forced with -D.
+noasmok=1
+printf '%s\n' 'asm { NOP };' >tests/out/asm-disabled-file.HC
+if ./aholyc -S -b c -fno-asm -D HAS_ASM=1 \
+	-o tests/out/asm-disabled-file.c tests/out/asm-disabled-file.HC \
+	2>tests/out/asm-disabled-file.err ||
+   ! grep -q 'asm blocks are disabled by -fno-asm' \
+	tests/out/asm-disabled-file.err; then
+	noasmok=0
+fi
+printf '%s\n' 'U0 F() { asm { NOP }; }' >tests/out/asm-disabled-func.HC
+if ./aholyc -S -b c -fno-asm \
+	-o tests/out/asm-disabled-func.c tests/out/asm-disabled-func.HC \
+	2>tests/out/asm-disabled-func.err ||
+   ! grep -q 'asm blocks are disabled by -fno-asm' \
+	tests/out/asm-disabled-func.err; then
+	noasmok=0
+fi
+
+# HAS_ASM describes the selected compilation, so native backends define it,
+# JS and -fno-asm do not.
+printf '%s\n' '#ifdef HAS_ASM' '"enabled\n";' '#else' '"disabled\n";' \
+	'#endif' >tests/out/asm-capability.HC
+for b in $backends; do
+	case "$b" in
+	js) asmcap=disabled ;;
+	*) asmcap=enabled ;;
+	esac
+	if ! ./aholyc run -b "$b" tests/out/asm-capability.HC \
+		>"tests/out/asm-capability-$b.txt" 2>"tests/out/asm-capability-$b.err" ||
+	   ! grep -qx "$asmcap" "tests/out/asm-capability-$b.txt"; then
+		noasmok=0
+	fi
+	if ! ./aholyc run -b "$b" -fno-asm tests/out/asm-capability.HC \
+		>"tests/out/asm-capability-no-$b.txt" \
+		2>"tests/out/asm-capability-no-$b.err" ||
+	   ! grep -qx disabled "tests/out/asm-capability-no-$b.txt"; then
+		noasmok=0
+	fi
+done
+
+# Force each example's platform guards while HAS_ASM is absent. No target
+# assembler is involved, so all portable branches can run on every backend.
+for n in arm64_darwin arm64_linux data_directives inline_x86_64 \
+	mips64_linux riscv64_linux x86_64_linux; do
+	case "$n" in
+	arm64_darwin) asmout='arm64 darwin syscall' ;;
+	arm64_linux) asmout='arm64 syscall' ;;
+	data_directives) asmout='assembly data directives built' ;;
+	inline_x86_64) asmout='AddOneInAsm(41)=42' ;;
+	mips64_linux) asmout='mips64 syscall' ;;
+	riscv64_linux) asmout='riscv syscall' ;;
+	x86_64_linux) asmout='x86-64 syscall' ;;
+	esac
+	for b in $backends; do
+		if ! ./aholyc -b "$b" -fno-asm \
+			-D IS_X86_64 -D IS_ARM_64 -D IS_RISCV -D IS_MIPS \
+			-D IS_LINUX -D IS_MACOS "examples/asm/$n.HC" \
+			-o "tests/out/asm-fallback-$n-$b" \
+			2>"tests/out/asm-fallback-$n-$b.err" ||
+		   ! "tests/out/asm-fallback-$n-$b" \
+			>"tests/out/asm-fallback-$n-$b.txt" 2>&1 ||
+		   ! grep -qx "$asmout" "tests/out/asm-fallback-$n-$b.txt"; then
+			noasmok=0
+		fi
+	done
+done
+if [ "$noasmok" = 1 ]; then
+	echo "ok   asm(disabled/capability/fallbacks)"
+else
+	echo "FAIL asm(disabled/capability/fallbacks)"
+	fail=1
+fi
+
 # The portable thread library targets native OS threads.  Exercise both
 # native code generators; JS intentionally has no FFI/thread backend.
 for b in $backends; do

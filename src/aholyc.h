@@ -271,7 +271,7 @@ struct Aholyc {
 	char error[1024];
 	int ncleanups, pp_depth, pp_brace_depth, pp_paren_depth, pp_bracket_depth;
 	int exe_serial;
-	bool verbose, keep, use_hints, error_active;
+	bool verbose, keep, use_hints, use_asm, error_active;
 };
 
 /* ---------------------------------------------------------------- lexer */
@@ -338,6 +338,7 @@ typedef struct Backend {
 	const char *name;   /* -b <name> */
 	const char *ext;    /* artifact extension, e.g. ".ll" */
 	const char *descr;
+	bool supports_asm;  /* defines HAS_ASM when asm is not disabled */
 	/* Append program source text to an initialized buffer. */
 	void (*emit)(Aholyc *cc, Program *prog, StrBuf *out,
 		bool object_mode, bool ctor_mode);

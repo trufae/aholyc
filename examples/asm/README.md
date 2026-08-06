@@ -11,6 +11,15 @@ and MIPS64 N64, plus ARM64 Darwin. Build the file matching the host:
 ./aholyc run -b c examples/asm/data_directives.HC
 ```
 
+Every example also contains a normal HolyC implementation selected when
+`HAS_ASM` is absent. This makes the same files usable with `-fno-asm` and with
+the JS backend:
+
+```sh
+./aholyc run -b c -fno-asm examples/asm/arm64_darwin.HC
+./aholyc run -b js examples/asm/data_directives.HC
+```
+
 The Linux syscall files use a top-level `asm {}` block to define `_RAW_WRITE`,
 then bind that exact assembler symbol to a HolyC declaration with
 `_extern _RAW_WRITE`. The ARM64 Darwin example instead puts the syscall in an
@@ -33,4 +42,5 @@ stack-frame displacement.
 native assembler directives. `.byte` and `.string` are passed through. The
 `.dword` example is ARM64-only because dot-directive names and widths belong
 to the selected assembler, not to HolyC; Apple's ARM64 assembler emits it as
-an eight-byte doubleword.
+an eight-byte doubleword. Its `HAS_ASM` fallback expresses the same values as
+ordinary typed HolyC data.

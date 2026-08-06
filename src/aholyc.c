@@ -49,6 +49,7 @@ static int usage(int code) {
 		"  -l <name>     link against a library (e.g. -lz)\n"
 		"  -D name[=v]   predefine a macro\n"
 		"  -fno-hints    ignore all source hints\n"
+		"  -fno-asm      reject asm blocks and omit HAS_ASM\n"
 		"  -k            keep intermediate files\n"
 		"  -V            verbose: show toolchain commands\n"
 		"  -h            show this help\n"
@@ -181,10 +182,13 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 			arg_push (cc, &defines, go.arg);
 			break;
 		case 'f':
-			if (strcmp (go.arg, "no-hints")) {
+			if (!strcmp (go.arg, "no-hints")) {
+				cc->use_hints = false;
+			} else if (!strcmp (go.arg, "no-asm")) {
+				cc->use_asm = false;
+			} else {
 				error (cc, "unknown option '-f%s' (try -h)", go.arg);
 			}
-			cc->use_hints = false;
 			break;
 		case 'k': cc->keep = true; break;
 		case 'V': cc->verbose = true; break;
@@ -197,19 +201,6 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 			break;
 		default:
 			error (cc, "unknown option '-%c' (try -h)", go.opt);
-		}
-	}
-	/* last -D wins: skip any define shadowed by a later one of the same
-	 * name, so its name_value dispatch macro is never created either */
-	for (int i = 0; i < defines.n; i++) {
-		size_t n = strcspn (defines.v[i], "=");
-		bool last = true;
-		for (int j = i + 1; last && j < defines.n; j++) {
-			last = strncmp (defines.v[i], defines.v[j], n) ||
-				(defines.v[j][n] && defines.v[j][n] != '=');
-		}
-		if (last) {
-			add_define (cc, defines.v[i]);
 		}
 	}
 	if (inputs.n == 0) {
@@ -240,6 +231,22 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 		be = default_backend (cc);
 		if (!be) {
 			error (cc, "no compiler backends enabled; rebuild with AHOLYC_BACKEND_*=1");
+		}
+	}
+	if (cc->use_asm && be->supports_asm) {
+		lex_define (cc, "HAS_ASM", "1");
+	}
+	/* Command-line definitions follow compiler definitions, so -D retains
+	 * its normal ability to override a predefined macro. Last -D wins. */
+	for (int i = 0; i < defines.n; i++) {
+		size_t n = strcspn (defines.v[i], "=");
+		bool last = true;
+		for (int j = i + 1; last && j < defines.n; j++) {
+			last = strncmp (defines.v[i], defines.v[j], n) ||
+				(defines.v[j][n] && defines.v[j][n] != '=');
+		}
+		if (last) {
+			add_define (cc, defines.v[i]);
 		}
 	}
 	if (compile_obj && objects.n > 0) {

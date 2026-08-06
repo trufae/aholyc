@@ -1000,6 +1000,7 @@ const Backend aholyc_i_backend_c = {
 	.name = "c",
 	.ext = ".c",
 	.descr = "portable C99 (built with the system C compiler)",
+	.supports_asm = true,
 	.emit = c_emit,
 	.build = c_build,
 	.build_obj = c_build_obj,
