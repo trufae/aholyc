@@ -303,6 +303,21 @@ int run_cc(Aholyc *cc, const char *tool, const char *opt, const char *out,
 		arg_push_env (cc, &a, "LDFLAGS");
 		arg_push (cc, &a, "-lm");
 	}
+	if (!cc->use_pic) {
+#ifdef __APPLE__
+		/* Darwin keeps -fno-pic relocatable; dynamic-no-pic is its
+		 * actual non-relocatable code model. */
+		arg_push (cc, &a, "-mdynamic-no-pic");
+		if (!object) {
+			arg_push (cc, &a, "-Wl,-no_pie");
+		}
+#else
+		arg_push (cc, &a, "-fno-pic");
+		if (!object) {
+			arg_push (cc, &a, "-no-pie");
+		}
+#endif
+	}
 	arg_push (cc, &a, NULL);
 	return run_cmd (cc, a.v);
 }

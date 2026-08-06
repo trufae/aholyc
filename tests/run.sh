@@ -153,6 +153,7 @@ fi
 # -fno-asm is a parser policy, not merely a missing backend feature. It must
 # reject surviving blocks at both scopes even if HAS_ASM is forced with -D.
 noasmok=1
+./aholyc -h | grep -q -- '-fno-asm' || noasmok=0
 printf '%s\n' 'asm { NOP };' >tests/out/asm-disabled-file.HC
 if ./aholyc -S -b c -fno-asm -D HAS_ASM=1 \
 	-o tests/out/asm-disabled-file.c tests/out/asm-disabled-file.HC \
@@ -224,6 +225,41 @@ if [ "$noasmok" = 1 ]; then
 	echo "ok   asm(disabled/capability/fallbacks)"
 else
 	echo "FAIL asm(disabled/capability/fallbacks)"
+	fail=1
+fi
+
+# -fno-pic reaches every native compiler invocation. Executable builds also
+# disable PIE linking, while -c only selects non-PIC code generation.
+nopicok=1
+./aholyc -h | grep -q -- '-fno-pic' || nopicok=0
+printf '%s\n' '"nopic\n";' >tests/out/nopic.HC
+case $(uname -s) in
+Darwin) piccode=' -mdynamic-no-pic'; pielink=' -Wl,-no_pie' ;;
+*) piccode=' -fno-pic'; pielink=' -no-pie' ;;
+esac
+for b in $backends; do
+	[ "$b" = js ] && continue
+	if ! ./aholyc -V -fno-pic -b "$b" tests/out/nopic.HC \
+		-o "tests/out/nopic-$b" 2>"tests/out/nopic-$b.err" ||
+	   [ "$("tests/out/nopic-$b" 2>&1)" != nopic ] ||
+	   ! grep -q -- "$piccode " "tests/out/nopic-$b.err" ||
+	   ! grep -q -- "$pielink" "tests/out/nopic-$b.err"; then
+		nopicok=0
+	fi
+done
+if ! ./aholyc -V -fno-pic -b c -c tests/out/nopic.HC \
+	-o tests/out/nopic.o 2>tests/out/nopic-obj.err ||
+   ! grep -q -- "$piccode" tests/out/nopic-obj.err; then
+	nopicok=0
+fi
+if grep -q -- ' -no-pie' tests/out/nopic-obj.err ||
+   grep -q -- ' -Wl,-no_pie' tests/out/nopic-obj.err; then
+	nopicok=0
+fi
+if [ "$nopicok" = 1 ]; then
+	echo "ok   native code(no-pic/no-pie)"
+else
+	echo "FAIL native code(no-pic/no-pie)"
 	fail=1
 fi
 

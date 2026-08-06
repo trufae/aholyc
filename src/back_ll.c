@@ -1157,11 +1157,22 @@ static int ll_build_obj(Aholyc *cc, const char *artifact,
 		return run_cc (cc, "clang", opt, outpath, inputs, 1, true, false);
 	}
 	if (have_cmd (cc, "llc")) {
-		char *argv[] = {
-			"llc", "-O2", "-filetype=obj", (char *)artifact,
-			"-o", (char *)outpath, NULL
-		};
-		return run_cmd (cc, argv);
+		Argv a = { 0 };
+		arg_push (cc, &a, "llc");
+		arg_push (cc, &a, "-O2");
+		arg_push (cc, &a, "-filetype=obj");
+		if (!cc->use_pic) {
+#ifdef __APPLE__
+			arg_push (cc, &a, "-relocation-model=dynamic-no-pic");
+#else
+			arg_push (cc, &a, "-relocation-model=static");
+#endif
+		}
+		arg_push (cc, &a, artifact);
+		arg_push (cc, &a, "-o");
+		arg_push (cc, &a, outpath);
+		arg_push (cc, &a, NULL);
+		return run_cmd (cc, a.v);
 	}
 	error (cc, "LLVM backend needs 'clang' or 'llc' in PATH for -c");
 	return 1;
@@ -1179,8 +1190,21 @@ static int ll_build(Aholyc *cc, const char *artifact,
 		r = run_cc (cc, "clang", opt, outpath, inputs, 2, false, true);
 	} else if (have_cmd (cc, "llc")) {
 		char *spath = xasprintf (cc, "%s.s", artifact);
-		char *largv[] = { "llc", "-O2", (char *)artifact, "-o", spath, NULL };
-		r = run_cmd (cc, largv);
+		Argv a = { 0 };
+		arg_push (cc, &a, "llc");
+		arg_push (cc, &a, "-O2");
+		if (!cc->use_pic) {
+#ifdef __APPLE__
+			arg_push (cc, &a, "-relocation-model=dynamic-no-pic");
+#else
+			arg_push (cc, &a, "-relocation-model=static");
+#endif
+		}
+		arg_push (cc, &a, artifact);
+		arg_push (cc, &a, "-o");
+		arg_push (cc, &a, spath);
+		arg_push (cc, &a, NULL);
+		r = run_cmd (cc, a.v);
 		if (r == 0) {
 			const char *ccbin = getenv ("CC");
 			const char *inputs[] = { spath, rtpath };

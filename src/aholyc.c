@@ -50,6 +50,7 @@ static int usage(int code) {
 		"  -D name[=v]   predefine a macro\n"
 		"  -fno-hints    ignore all source hints\n"
 		"  -fno-asm      reject asm blocks and omit HAS_ASM\n"
+		"  -fno-pic      disable position-independent native code\n"
 		"  -k            keep intermediate files\n"
 		"  -V            verbose: show toolchain commands\n"
 		"  -h            show this help\n"
@@ -186,6 +187,8 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 				cc->use_hints = false;
 			} else if (!strcmp (go.arg, "no-asm")) {
 				cc->use_asm = false;
+			} else if (!strcmp (go.arg, "no-pic")) {
+				cc->use_pic = false;
 			} else {
 				error (cc, "unknown option '-f%s' (try -h)", go.arg);
 			}
