@@ -1,6 +1,8 @@
 #ifndef AHOLYC_LIB_JSON_ENCODE_HC
 #define AHOLYC_LIB_JSON_ENCODE_HC
 
+#include "../text/utf8.HC"
+
 // Heap-free JSON encoder writing into caller-owned memory.
 //
 // Capacity includes the trailing NUL. Pass NULL as the buffer to perform a
@@ -82,50 +84,6 @@ U0 JsonEncoderPutBytes(CJsonEncoder *encoder, U8 *data, I64 length)
       encoder->error = JSON_ENCODE_NO_SPACE;
   }
   encoder->length += length;
-}
-
-Bool JsonEncoderUtf8(U8 *data, I64 length)
-{
-  I64 i = 0;
-  U8 first;
-  U8 second;
-
-  while (i < length) {
-    first = data[i];
-    if (first < 0x80) {
-      i++;
-    } else if (first >= 0xC2 && first <= 0xDF) {
-      if (i + 1 >= length || data[i + 1] < 0x80 || data[i + 1] > 0xBF)
-        return FALSE;
-      i += 2;
-    } else if (first >= 0xE0 && first <= 0xEF) {
-      if (i + 2 >= length)
-        return FALSE;
-      second = data[i + 1];
-      if (second < 0x80 || second > 0xBF ||
-        data[i + 2] < 0x80 || data[i + 2] > 0xBF)
-        return FALSE;
-      if (first == 0xE0 && second < 0xA0 ||
-        first == 0xED && second >= 0xA0)
-        return FALSE;
-      i += 3;
-    } else if (first >= 0xF0 && first <= 0xF4) {
-      if (i + 3 >= length)
-        return FALSE;
-      second = data[i + 1];
-      if (second < 0x80 || second > 0xBF ||
-        data[i + 2] < 0x80 || data[i + 2] > 0xBF ||
-        data[i + 3] < 0x80 || data[i + 3] > 0xBF)
-        return FALSE;
-      if (first == 0xF0 && second < 0x90 ||
-        first == 0xF4 && second > 0x8F)
-        return FALSE;
-      i += 4;
-    } else {
-      return FALSE;
-    }
-  }
-  return TRUE;
 }
 
 U64 JsonEncoderLevelBit(CJsonEncoder *encoder)
@@ -242,7 +200,7 @@ Bool JsonEncodeKeyN(CJsonEncoder *encoder, U8 *key, I64 length)
   }
   if (JsonEncoderFatal(encoder))
     return FALSE;
-  if (length && !JsonEncoderUtf8(key, length)) {
+  if (length && !Utf8Valid(key, length)) {
     JsonEncoderSetError(encoder, JSON_ENCODE_INVALID_UTF8);
     return FALSE;
   }
@@ -365,7 +323,7 @@ Bool JsonEncodeStringN(CJsonEncoder *encoder, U8 *text, I64 length)
       JsonEncoderSetError(encoder, JSON_ENCODE_INVALID_ARGUMENT);
     return FALSE;
   }
-  if (length && !JsonEncoderUtf8(text, length)) {
+  if (length && !Utf8Valid(text, length)) {
     JsonEncoderSetError(encoder, JSON_ENCODE_INVALID_UTF8);
     return FALSE;
   }

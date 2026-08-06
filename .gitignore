@@ -1,4 +1,5 @@
 aholyc
+.DS_Store
 src/*.o
 libaholyc.a
 src/embed.c

@@ -1,6 +1,8 @@
 #ifndef AHOLYC_LIB_JSON_DECODE_HC
 #define AHOLYC_LIB_JSON_DECODE_HC
 
+#include "../text/utf8.HC"
+
 // Heap-free, zero-copy JSON decoder.
 //
 // CJsonValue values point into the input buffer, so the buffer must remain
@@ -92,59 +94,6 @@ I64 JsonDecodeHex(U8 ch)
   return -1;
 }
 
-Bool JsonDecodeUtf8(CJsonDecoder *decoder)
-{
-  U8 *data = decoder->data;
-  I64 i = decoder->offset;
-  I64 length = decoder->length;
-  U8 first;
-  U8 second;
-
-  if (i >= length)
-    return JsonDecodeFail(decoder, JSON_DECODE_UNEXPECTED_END);
-  first = data[i];
-  if (first < 0x80) {
-    decoder->offset++;
-    return TRUE;
-  }
-  if (first >= 0xC2 && first <= 0xDF) {
-    if (i + 1 >= length || data[i + 1] < 0x80 || data[i + 1] > 0xBF)
-      return JsonDecodeFail(decoder, JSON_DECODE_INVALID_UTF8);
-    decoder->offset += 2;
-    return TRUE;
-  }
-  if (first >= 0xE0 && first <= 0xEF) {
-    if (i + 2 >= length)
-      return JsonDecodeFail(decoder, JSON_DECODE_INVALID_UTF8);
-    second = data[i + 1];
-    if (second < 0x80 || second > 0xBF ||
-      data[i + 2] < 0x80 || data[i + 2] > 0xBF)
-      return JsonDecodeFail(decoder, JSON_DECODE_INVALID_UTF8);
-    if (first == 0xE0 && second < 0xA0)
-      return JsonDecodeFail(decoder, JSON_DECODE_INVALID_UTF8);
-    if (first == 0xED && second >= 0xA0)
-      return JsonDecodeFail(decoder, JSON_DECODE_INVALID_UTF8);
-    decoder->offset += 3;
-    return TRUE;
-  }
-  if (first >= 0xF0 && first <= 0xF4) {
-    if (i + 3 >= length)
-      return JsonDecodeFail(decoder, JSON_DECODE_INVALID_UTF8);
-    second = data[i + 1];
-    if (second < 0x80 || second > 0xBF ||
-      data[i + 2] < 0x80 || data[i + 2] > 0xBF ||
-      data[i + 3] < 0x80 || data[i + 3] > 0xBF)
-      return JsonDecodeFail(decoder, JSON_DECODE_INVALID_UTF8);
-    if (first == 0xF0 && second < 0x90)
-      return JsonDecodeFail(decoder, JSON_DECODE_INVALID_UTF8);
-    if (first == 0xF4 && second > 0x8F)
-      return JsonDecodeFail(decoder, JSON_DECODE_INVALID_UTF8);
-    decoder->offset += 4;
-    return TRUE;
-  }
-  return JsonDecodeFail(decoder, JSON_DECODE_INVALID_UTF8);
-}
-
 Bool JsonDecodeScanHex4(CJsonDecoder *decoder, I64 *codepoint)
 {
   I64 i;
@@ -168,6 +117,8 @@ Bool JsonDecodeScanString(CJsonDecoder *decoder)
   U8 ch;
   I64 high;
   I64 low;
+  I64 rune;
+  I64 count;
   Bool simple_escape;
 
   if (decoder->offset >= decoder->length ||
@@ -183,8 +134,11 @@ Bool JsonDecodeScanString(CJsonDecoder *decoder)
     if (ch < 0x20)
       return JsonDecodeFail(decoder, JSON_DECODE_INVALID_STRING);
     if (ch != '\\') {
-      if (!JsonDecodeUtf8(decoder))
-        return FALSE;
+      count = Utf8DecodeRune(decoder->data + decoder->offset,
+        decoder->length - decoder->offset, &rune);
+      if (!count)
+        return JsonDecodeFail(decoder, JSON_DECODE_INVALID_UTF8);
+      decoder->offset += count;
     } else {
       decoder->offset++;
       if (decoder->offset >= decoder->length)
@@ -596,30 +550,6 @@ I64 JsonValueHex4(CJsonValue *value, I64 position)
   return result;
 }
 
-I64 JsonValueCodepointBytes(I64 codepoint, U8 *bytes)
-{
-  if (codepoint <= 0x7F) {
-    bytes[0] = codepoint;
-    return 1;
-  }
-  if (codepoint <= 0x7FF) {
-    bytes[0] = 0xC0 | codepoint >> 6;
-    bytes[1] = 0x80 | codepoint & 0x3F;
-    return 2;
-  }
-  if (codepoint <= 0xFFFF) {
-    bytes[0] = 0xE0 | codepoint >> 12;
-    bytes[1] = 0x80 | codepoint >> 6 & 0x3F;
-    bytes[2] = 0x80 | codepoint & 0x3F;
-    return 3;
-  }
-  bytes[0] = 0xF0 | codepoint >> 18;
-  bytes[1] = 0x80 | codepoint >> 12 & 0x3F;
-  bytes[2] = 0x80 | codepoint >> 6 & 0x3F;
-  bytes[3] = 0x80 | codepoint & 0x3F;
-  return 4;
-}
-
 Bool JsonValueCopyString(CJsonValue *value, U8 *output, I64 capacity,
   I64 *decoded_length = NULL)
 {
@@ -653,7 +583,7 @@ Bool JsonValueCopyString(CJsonValue *value, U8 *output, I64 capacity,
           codepoint = 0x10000 + ((codepoint - 0xD800) << 10) +
             low - 0xDC00;
         }
-        count = JsonValueCodepointBytes(codepoint, bytes);
+        count = Utf8EncodeRune(codepoint, bytes, sizeof(bytes));
         for (j = 0; j < count; j++) {
           if (output && out < capacity)
             output[out] = bytes[j];
@@ -717,7 +647,7 @@ Bool JsonValueStringEqualsN(CJsonValue *value, U8 *text, I64 text_length)
           codepoint = 0x10000 + ((codepoint - 0xD800) << 10) +
             low - 0xDC00;
         }
-        count = JsonValueCodepointBytes(codepoint, bytes);
+        count = Utf8EncodeRune(codepoint, bytes, sizeof(bytes));
         for (j = 0; j < count; j++) {
           if (text_offset >= text_length ||
             text[text_offset++] != bytes[j])
