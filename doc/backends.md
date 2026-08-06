@@ -1,7 +1,7 @@
 # aholyc backends
 
 A backend turns the parsed program into a *source artifact* (never object
-code) and knows how to build an executable from it using external tools
+code) and knows how to build native output from it using external tools
 only. That keeps aholyc dependency-free: the LLVM toolchain, the system C
 compiler, or node are used at *your* build time, never linked into aholyc.
 
@@ -13,8 +13,9 @@ load/store — LLVM's mem2reg and the usual pipeline turn this into proper
 registerized code, so aholyc stays simple and the optimizer does the heavy
 lifting (this is the TempleOS way: let one big hammer do the work).
 
-Build: `clang -Os prog.ll runtime.c -o prog`, or if clang is missing,
-`llc prog.ll -o prog.s` + `cc prog.s runtime.c`. Exceptions that cross a
+Build: `clang -Os -fPIC prog.ll runtime.c -o prog`, or if clang is missing,
+`llc -relocation-model=pic prog.ll -o prog.s` + `cc -fPIC prog.s runtime.c`.
+Exceptions that cross a
 function call use `@_setjmp` declared `returns_twice` plus a small frame stack
 in the runtime. Inferred no-throw `try` bodies omit the handler, while direct
 local throws use ordinary LLVM branches.
@@ -31,7 +32,7 @@ Emits one self-contained C translation unit: the C99 runtime source is
 prepended, then the program as "portable assembly" C — all values are
 `hc_i64`/`hc_f64`, all memory accesses are explicit width-typed derefs.
 The output of `-S -b c` compiles anywhere with
-`cc -Os -fno-strict-aliasing -w out.c -lm`.
+`cc -Os -fPIC -fno-strict-aliasing -w out.c -lm`.
 
 The `@bits` source hint uses C23 `_BitInt(N)` declarations or conversions.
 Compiling hinted output therefore requires a compiler with `_BitInt` support;

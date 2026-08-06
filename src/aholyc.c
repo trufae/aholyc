@@ -39,10 +39,11 @@ static int usage(int code) {
 		"       aholyc fmt [-w | -q] [file.HC ... | -]   format sources (doc/format.md)\n"
 		"\n"
 		"options:\n"
-		"  -o <file>     output executable (default: a.out)\n"
+		"  -o <file>     output file (default: a.out)\n"
 		"  -b <backend>  code generator to use (default: llvm, fallback: c)\n"
 		"  -c            compile into a relocatable object (.o), do not link\n"
-		"  -S            emit backend source only, do not build an executable\n"
+		"  -shared       build a shared library\n"
+		"  -S            emit backend source only, do not build native output\n"
 		"  -O<level>     optimization level passed to the toolchain (default -Os)\n"
 		"  -I <dir>      add #include search directory (also passed to cc)\n"
 		"  -L <dir>      add library search directory for the linker\n"
@@ -149,7 +150,7 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 	int nrunargs = 0;
 
 	RGetopt go;
-	r_getopt_init (&go, argc, (const char **)argv, "o:b:cSO::I:L:l:D:f:kVhv");
+	r_getopt_init (&go, argc, (const char **)argv, "o:b:cSO::I:L:l:D:f:s::kVhv");
 	go.ind = argi;
 	for (;;) {
 		int c = r_getopt_next (&go);
@@ -169,6 +170,10 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 		case 'o': outpath = go.arg; break;
 		case 'b': bname = go.arg; break;
 		case 'c': compile_obj = true; break;
+		case 's':
+			/* getopt sees -shared as -s with the attached argument "hared". */
+			cc->shared = true;
+			break;
 		case 'S': emit_only = true; break;
 		case 'O': opt = go.arg? xasprintf (cc, "-O%s", go.arg): "-O"; break;
 		case 'I':
@@ -209,8 +214,12 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 	if (inputs.n == 0) {
 		return usage (1);
 	}
-	if (run && (compile_obj || emit_only)) {
-		error (cc, "run cannot be combined with %s", compile_obj? "-c": "-S");
+	if (run && (compile_obj || emit_only || cc->shared)) {
+		error (cc, "run cannot be combined with %s",
+			compile_obj? "-c": emit_only? "-S": "-shared");
+	}
+	if (compile_obj && cc->shared) {
+		error (cc, "-c cannot be combined with -shared");
 	}
 	/* classify inputs: HolyC sources vs objects/archives for the linker */
 	Argv sources = { 0 }, objects = { 0 };
@@ -255,6 +264,9 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 	if (compile_obj && objects.n > 0) {
 		error (cc, "cannot mix object files with -c");
 	}
+	if (cc->shared && !be->build_obj && !emit_only) {
+		error (cc, "backend '%s' cannot build shared libraries", be->name);
+	}
 	if ((compile_obj || objects.n > 0) && !be->build_obj && !emit_only) {
 		error (cc, "backend '%s' cannot produce object files", be->name);
 	}
@@ -295,12 +307,16 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 
 	if (emit_only) {
 		if (outpath && !strcmp (outpath, "-")) {
-			emit_file (cc, be, prog, "-", compile_obj || objects.n > 0, compile_obj);
+			emit_file (cc, be, prog, "-",
+				compile_obj || cc->shared || objects.n > 0,
+				compile_obj || cc->shared);
 			return 0;
 		}
 		char *artifact = outpath? xstrdup (cc, outpath):
 			xasprintf (cc, "%s%s", stem, be->ext);
-		emit_file (cc, be, prog, artifact, compile_obj || objects.n > 0, compile_obj);
+		emit_file (cc, be, prog, artifact,
+			compile_obj || cc->shared || objects.n > 0,
+			compile_obj || cc->shared);
 		if (cc->verbose) {
 			fprintf (stderr, "aholyc: wrote %s\n", artifact);
 		}
@@ -327,7 +343,7 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 	}
 	int r;
 	char *tmpobj = NULL;
-	if (objects.n == 0) {
+	if (objects.n == 0 && !cc->shared) {
 		/* whole-program build (single translation unit) */
 		char *artifact = xasprintf (cc, "%s.aholyc%s", outpath, be->ext);
 		build_source (cc, be, prog, artifact, outpath, opt, false, false);
@@ -338,14 +354,16 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 		if (sources.n > 0) {
 			char *artifact = xasprintf (cc, "%s.aholyc%s", outpath, be->ext);
 			tmpobj = xasprintf (cc, "%s.aholyc.o", outpath);
-			build_source (cc, be, prog, artifact, tmpobj, opt, true, false);
+			build_source (cc, be, prog, artifact, tmpobj, opt, true, cc->shared);
 		}
 		/* write the runtime and link */
 		char *rtpath = xasprintf (cc, "%s.aholycrt.c", outpath);
 		StrBuf rt;
 		sb_init (&rt, cc);
 		sb_puts (&rt, "#define HC_OBJECT_RUNTIME 1\n");
-		if (sources.n > 0) {
+		if (cc->shared) {
+			sb_puts (&rt, "#define HC_SHARED_RUNTIME 1\n");
+		} else if (sources.n > 0) {
 			sb_puts (&rt, "#define HC_EXTERNAL_START 1\n");
 		}
 		sb_puts (&rt, aholyc_i_rt_c_src);

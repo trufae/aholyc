@@ -11,6 +11,7 @@ $ aholyc -b c program.HC            # pick a backend: llvm, c, js
 $ aholyc -S -b llvm program.HC      # emit program.ll only, don't build
 $ aholyc -S -b js -o out.js program.HC
 $ aholyc -c module.HC               # compile to module.o, like gcc -c
+$ aholyc -shared api.HC -o libapi.so # build a native shared library
 $ aholyc main.HC module.o -o prog   # .o/.a inputs are linked in
 $ aholyc run - < program.HC         # '-' reads source from stdin
 $ echo '"hi\n";' | aholyc run -     # compile and run a one-liner
@@ -22,9 +23,10 @@ $ aholyc fmt -w src.HC              # format sources in place (doc/format.md)
 
 | option | meaning |
 |--------|---------|
-| `-o file` | output executable (default `a.out`); with `-S`, `-o -` writes to stdout |
+| `-o file` | output file (default `a.out`); with `-S`, `-o -` writes to stdout |
 | `-b name` | backend: `llvm` (default), `c`, `js` |
 | `-c` | compile to a relocatable object (`.o`), do not link |
+| `-shared` | build a native shared library (C and LLVM backends) |
 | `-S` | stop after emitting the backend source artifact |
 | `-O0..-O3, -Os, -Oz` | optimization for the native toolchain (default `-Os`) |
 | `-I dir` | add an `#include` search directory (also forwarded to the C toolchain) |
@@ -37,6 +39,10 @@ $ aholyc fmt -w src.HC              # format sources in place (doc/format.md)
 | `-k` | keep intermediate files (`.ll`, `.c`, runtime copies, `#exe` block libraries) |
 | `-V` | print the toolchain commands being executed (including `#exe` builds) |
 | `-h`, `-v` | help / version |
+
+Native compilation uses position-independent code by default, including with
+`-c`. Pass `-fno-pic` to select the native static relocation model instead;
+when linking an executable, it also disables PIE output.
 
 Multiple `.HC` input files are concatenated and compiled as one
 translation unit, in order.
@@ -130,6 +136,26 @@ The rules, HolyC-style:
   group (HolyC sources are always one translation unit); the default
   output name comes from the first file.
 
+## Shared libraries (-shared)
+
+`-shared` accepts HolyC sources, existing `.o`/`.a` inputs, or both, and links
+a native shared library with the HolyC runtime. `public` functions and globals
+are exported with their HolyC names. Module constructors run top-level code
+and global initializers when the library is loaded; because there is no process
+entry point, shared-library startup receives `argc == 0`.
+
+Build shared libraries with either native backend and load or link them as you
+would a C library:
+
+```console
+$ aholyc -shared -b llvm api.HC -o libapi.so
+$ aholyc -c api.HC -o api.o
+$ aholyc -shared api.o -o libapi.so
+```
+
+On macOS, conventionally use a `.dylib` output name. `-shared` cannot be
+combined with `run` or `-c`, and the JavaScript backend does not support it.
+
 ## What happens under the hood
 
 1. The embedded prelude (`runtime/prelude.hc`) is compiled first: it
@@ -138,7 +164,7 @@ The rules, HolyC-style:
    Top-level statements become the startup function.
 3. The selected backend emits a source artifact next to the output
    (`out.aholyc.ll`, `out.aholyc.c`, or `out.aholyc.js`; removed unless `-k`).
-4. The backend builds the executable:
+4. The backend builds the native output:
    * **llvm** — `clang prog.ll runtime.c -Os -o prog` (or `llc` + `cc`
      when clang is absent). aholyc never links LLVM libraries; it only
      drives the external tools.

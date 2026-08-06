@@ -271,7 +271,7 @@ struct Aholyc {
 	char error[1024];
 	int ncleanups, pp_depth, pp_brace_depth, pp_paren_depth, pp_bracket_depth;
 	int exe_serial;
-	bool verbose, keep, use_hints, use_asm, use_pic, error_active;
+	bool verbose, keep, shared, use_hints, use_asm, use_pic, error_active;
 };
 
 /* ---------------------------------------------------------------- lexer */

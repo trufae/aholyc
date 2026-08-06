@@ -576,14 +576,20 @@ HC_API void Exit(hc_i64 code) {
 	exit ((int)code);
 }
 
-/* -c modules register their synthetic startup functions from ordinary
- * no-argument constructors.  The hosted main can then invoke them portably
- * with process arguments, in the constructors' (link) order. */
+/* Module objects submit their synthetic startup functions from ordinary
+ * no-argument constructors. Executables queue them for main to invoke with
+ * process arguments; shared libraries run them immediately with no args. */
 typedef hc_i64 (*HcStart)(hc_i64 argc, hc_i64 argv);
+#if !defined(HC_SHARED_RUNTIME)
 static HcStart *hc_module_starts;
 static size_t hc_nmodule_starts, hc_cmodule_starts;
+#endif
 
 HC_API void __hc_register_start(HcStart start) {
+#if defined(HC_SHARED_RUNTIME)
+	char *empty_argv[] = { NULL };
+	start (0, (hc_i64)(intptr_t)empty_argv);
+#else
 	if (hc_nmodule_starts >= hc_cmodule_starts) {
 		size_t cap = hc_cmodule_starts? hc_cmodule_starts * 2: 16;
 		HcStart *starts = realloc (hc_module_starts, cap * sizeof(HcStart));
@@ -595,7 +601,10 @@ HC_API void __hc_register_start(HcStart start) {
 		hc_cmodule_starts = cap;
 	}
 	hc_module_starts[hc_nmodule_starts++] = start;
+#endif
 }
+
+#if !defined(HC_SHARED_RUNTIME)
 
 /* Whole programs receive only their user-supplied arguments: argv[0] is the
  * first argument after the executable name.  A runtime linked with source and
@@ -630,3 +639,4 @@ int main(int sys_argc, char **sys_argv) {
 #endif
 	return (int)status;
 }
+#endif

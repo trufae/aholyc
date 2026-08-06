@@ -263,6 +263,49 @@ else
 	fail=1
 fi
 
+# -shared uses the native object path, exports public symbols, and runs the
+# HolyC top-level initializer when the library is loaded.
+sharedok=1
+./aholyc -h | grep -q -- '-shared' || sharedok=0
+case $(uname -s) in
+Darwin) sharedext=dylib ;;
+*) sharedext=so ;;
+esac
+if ! cc tests/shared_client.c -o tests/out/shared-client -ldl 2>/dev/null; then
+	sharedok=0
+fi
+for b in $backends; do
+	[ "$b" = js ] && continue
+	lib="tests/out/libshared-$b.$sharedext"
+	obj="tests/out/shared-$b.o"
+	objlib="tests/out/libshared-obj-$b.$sharedext"
+	if ! ./aholyc -V -shared -b "$b" tests/shared.HC -o "$lib" \
+		2>"tests/out/shared-$b.err" ||
+	   ! grep -q -- ' -shared' "tests/out/shared-$b.err" ||
+	   ! grep -q -- ' -fPIC' "tests/out/shared-$b.err" ||
+	   [ "$(tests/out/shared-client "$(pwd)/$lib" 2>&1)" != \
+		'SharedAdd(2)=42' ]; then
+		sharedok=0
+	fi
+	if ! ./aholyc -b "$b" -c tests/shared.HC -o "$obj" ||
+	   ! ./aholyc -shared -b "$b" "$obj" -o "$objlib" ||
+	   [ "$(tests/out/shared-client "$(pwd)/$objlib" 2>&1)" != \
+		'SharedAdd(2)=42' ]; then
+		sharedok=0
+	fi
+done
+./aholyc -shared -b js tests/shared.HC -o tests/out/shared.js \
+	>/dev/null 2>&1 && sharedok=0
+./aholyc -shared -c tests/shared.HC -o tests/out/shared.o \
+	>/dev/null 2>&1 && sharedok=0
+./aholyc run -shared tests/shared.HC >/dev/null 2>&1 && sharedok=0
+if [ "$sharedok" = 1 ]; then
+	echo "ok   native shared libraries"
+else
+	echo "FAIL native shared libraries"
+	fail=1
+fi
+
 # The portable thread library targets native OS threads.  Exercise both
 # native code generators; JS intentionally has no FFI/thread backend.
 for b in $backends; do

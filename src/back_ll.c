@@ -1167,6 +1167,8 @@ static int ll_build_obj(Aholyc *cc, const char *artifact,
 #else
 			arg_push (cc, &a, "-relocation-model=static");
 #endif
+		} else {
+			arg_push (cc, &a, "-relocation-model=pic");
 		}
 		arg_push (cc, &a, artifact);
 		arg_push (cc, &a, "-o");
@@ -1199,6 +1201,8 @@ static int ll_build(Aholyc *cc, const char *artifact,
 #else
 			arg_push (cc, &a, "-relocation-model=static");
 #endif
+		} else {
+			arg_push (cc, &a, "-relocation-model=pic");
 		}
 		arg_push (cc, &a, artifact);
 		arg_push (cc, &a, "-o");
