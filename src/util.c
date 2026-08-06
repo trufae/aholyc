@@ -286,14 +286,17 @@ int run_cc(Aholyc *cc, const char *tool, const char *opt, const char *out,
 	arg_push (cc, &a, "-w"); arg_push (cc, &a, "-fno-strict-aliasing");
 	if (object) {
 		arg_push (cc, &a, "-c");
-	} else if (gc) {
+	}
+	if (gc) {
 		arg_push (cc, &a, "-ffunction-sections");
 		arg_push (cc, &a, "-fdata-sections");
+		if (!object) {
 #ifdef __APPLE__
-		arg_push (cc, &a, "-Wl,-dead_strip");
+			arg_push (cc, &a, "-Wl,-dead_strip");
 #else
-		arg_push (cc, &a, "-Wl,--gc-sections");
+			arg_push (cc, &a, "-Wl,--gc-sections");
 #endif
+		}
 	}
 	arg_push_env (cc, &a, "CFLAGS");
 	arg_push (cc, &a, "-o"); arg_push (cc, &a, out);

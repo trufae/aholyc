@@ -144,6 +144,12 @@ are exported with their HolyC names. Module constructors run top-level code
 and global initializers when the library is loaded; because there is no process
 entry point, shared-library startup receives `argc == 0`.
 
+Runtime support inside a shared library has hidden visibility and is emitted in
+individually discardable sections. The native linker therefore keeps only the
+helpers actually referenced by that library, without exporting or interposing
+runtime symbols from another HolyC library. A module with no top-level code or
+global initializers emits no startup constructor at all.
+
 Build shared libraries with either native backend and load or link them as you
 would a C library:
 

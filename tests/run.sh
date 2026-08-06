@@ -268,8 +268,8 @@ fi
 sharedok=1
 ./aholyc -h | grep -q -- '-shared' || sharedok=0
 case $(uname -s) in
-Darwin) sharedext=dylib ;;
-*) sharedext=so ;;
+Darwin) sharedext=dylib; sharedgc=' -Wl,-dead_strip' ;;
+*) sharedext=so; sharedgc=' -Wl,--gc-sections' ;;
 esac
 if ! cc tests/shared_client.c -o tests/out/shared-client -ldl 2>/dev/null; then
 	sharedok=0
@@ -277,14 +277,23 @@ fi
 for b in $backends; do
 	[ "$b" = js ] && continue
 	lib="tests/out/libshared-$b.$sharedext"
+	secondlib="tests/out/libshared-second-$b.$sharedext"
 	obj="tests/out/shared-$b.o"
 	objlib="tests/out/libshared-obj-$b.$sharedext"
 	if ! ./aholyc -V -shared -b "$b" tests/shared.HC -o "$lib" \
 		2>"tests/out/shared-$b.err" ||
 	   ! grep -q -- ' -shared' "tests/out/shared-$b.err" ||
 	   ! grep -q -- ' -fPIC' "tests/out/shared-$b.err" ||
+	   ! grep -q -- ' -ffunction-sections' "tests/out/shared-$b.err" ||
+	   ! grep -q -- "$sharedgc" "tests/out/shared-$b.err" ||
 	   [ "$(tests/out/shared-client "$(pwd)/$lib" 2>&1)" != \
 		'SharedAdd(2)=42' ]; then
+		sharedok=0
+	fi
+	if ! ./aholyc -shared -b "$b" tests/shared_second.HC -o "$secondlib" ||
+	   [ "$(tests/out/shared-client "$(pwd)/$lib" \
+		"$(pwd)/$secondlib" 2>&1)" != \
+		"$(printf 'SharedAdd(2)=42\nSharedDouble()=42')" ]; then
 		sharedok=0
 	fi
 	if ! ./aholyc -b "$b" -c tests/shared.HC -o "$obj" ||
@@ -294,6 +303,16 @@ for b in $backends; do
 		sharedok=0
 	fi
 done
+# A function-only module has no top-level startup and needs no constructor or
+# registration helper in its emitted object.
+./aholyc -S -shared -b c tests/shared_plain.HC \
+	-o tests/out/shared-plain.c || sharedok=0
+grep -q '__attribute__((constructor))' tests/out/shared-plain.c && sharedok=0
+if echo "$backends" | grep -q llvm; then
+	./aholyc -S -shared -b llvm tests/shared_plain.HC \
+		-o tests/out/shared-plain.ll || sharedok=0
+	grep -q '@llvm.global_ctors' tests/out/shared-plain.ll && sharedok=0
+fi
 ./aholyc -shared -b js tests/shared.HC -o tests/out/shared.js \
 	>/dev/null 2>&1 && sharedok=0
 ./aholyc -shared -c tests/shared.HC -o tests/out/shared.o \

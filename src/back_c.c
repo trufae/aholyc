@@ -972,8 +972,11 @@ static void c_emit(Aholyc *cc, Program *prog, StrBuf *out,
 		emit_func (cg, f);
 	}
 	/* A -c module constructor registers the hidden-pair startup function. */
-	emit_func (cg, prog->startup);
-	if (cg->ctor_mode) {
+	bool have_start = prog->startup->body->body != NULL;
+	if (!cg->ctor_mode || have_start) {
+		emit_func (cg, prog->startup);
+	}
+	if (cg->ctor_mode && have_start) {
 		sb_printf (cg->out, "__attribute__((constructor)) static void __hc_ctor(void) {\n"
 			"\t__hc_register_start(__hc_ctor_body);\n"
 			"}\n");
@@ -983,7 +986,8 @@ static void c_emit(Aholyc *cc, Program *prog, StrBuf *out,
 static int c_compile(Aholyc *cc, const char *artifact,
 		const char *outpath, const char *opt, bool object) {
 	const char *inputs[] = { artifact };
-	return run_cc (cc, NULL, opt, outpath, inputs, 1, object, !object);
+	return run_cc (cc, NULL, opt, outpath, inputs, 1, object,
+		!object || cc->shared);
 }
 
 static int c_build_obj(Aholyc *cc, const char *artifact,

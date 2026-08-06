@@ -18,7 +18,11 @@ typedef double hc_f64;
  * C compiler discards every runtime function the program never calls.
  * Compiled standalone (LLVM backend, object linking) it stays extern. */
 #ifndef HC_API
+#if defined(HC_SHARED_RUNTIME) && (defined(__GNUC__) || defined(__clang__))
+#define HC_API __attribute__((visibility("hidden")))
+#else
 #define HC_API
+#endif
 #endif
 
 /* Use native Windows TLS even under MinGW; its C11 TLS may be emulated

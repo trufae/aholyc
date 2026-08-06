@@ -373,7 +373,7 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 		for (int i = 0; i < objects.n; i++) arg_push (cc, &li, objects.v[i]);
 		arg_push (cc, &li, rtpath);
 		r = run_cc (cc, NULL, opt, outpath,
-			(const char *const *)li.v, li.n, false, false);
+			(const char *const *)li.v, li.n, false, cc->shared);
 		if (!cc->keep) {
 			unlink (rtpath);
 			if (tmpobj) {

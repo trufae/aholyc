@@ -1125,7 +1125,8 @@ static void ll_emit(Aholyc *cc, Program *prog, StrBuf *out,
 	sb_printf (lg->out, "declare i64 @llvm.ctlz.i64(i64, i1)\n");
 	sb_printf (lg->out, "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n");
 	sb_printf (lg->out, "declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)\n");
-	if (lg->ctor_mode) {
+	bool have_start = prog->startup->body->body != NULL;
+	if (lg->ctor_mode && have_start) {
 		sb_printf (lg->out, "declare void @__hc_register_start(ptr)\n");
 	}
 	sb_printf (lg->out, "\n");
@@ -1136,8 +1137,10 @@ static void ll_emit(Aholyc *cc, Program *prog, StrBuf *out,
 		}
 		emit_func (lg, f);
 	}
-	emit_func (lg, prog->startup);
-	if (lg->ctor_mode) {
+	if (!lg->ctor_mode || have_start) {
+		emit_func (lg, prog->startup);
+	}
+	if (lg->ctor_mode && have_start) {
 		sb_printf (lg->out, "define internal void @__hc_ctor() {\n"
 			"entry:\n"
 			"  call void @__hc_register_start(ptr @__hc_ctor_body)\n"
@@ -1154,13 +1157,17 @@ static int ll_build_obj(Aholyc *cc, const char *artifact,
 		const char *outpath, const char *opt) {
 	if (have_cmd (cc, "clang")) {
 		const char *inputs[] = { artifact };
-		return run_cc (cc, "clang", opt, outpath, inputs, 1, true, false);
+		return run_cc (cc, "clang", opt, outpath, inputs, 1, true, cc->shared);
 	}
 	if (have_cmd (cc, "llc")) {
 		Argv a = { 0 };
 		arg_push (cc, &a, "llc");
 		arg_push (cc, &a, "-O2");
 		arg_push (cc, &a, "-filetype=obj");
+		if (cc->shared) {
+			arg_push (cc, &a, "-function-sections");
+			arg_push (cc, &a, "-data-sections");
+		}
 		if (!cc->use_pic) {
 #ifdef __APPLE__
 			arg_push (cc, &a, "-relocation-model=dynamic-no-pic");
