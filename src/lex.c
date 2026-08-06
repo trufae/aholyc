@@ -216,6 +216,14 @@ Token *tokenize(Aholyc *cc, const char *src, const char *fname) {
 	bool bol = true, space = false;
 	LexHints pending = {0};
 
+	/* A kernel hashbang is metadata, not a HolyC preprocessor directive.
+	 * Recognize it only at byte zero; a later #! remains an error. */
+	if (p[0] == '#' && p[1] == '!') {
+		while (*p && *p != '\n') {
+			p++;
+		}
+	}
+
 	while (*p) {
 		if (*p == '\n') { tz.line++; bol = true; space = false; p++; continue; }
 		if (*p == ' ' || *p == '\t' || *p == '\r') { space = true; p++; continue; }

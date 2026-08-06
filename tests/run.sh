@@ -640,6 +640,27 @@ else
 	fail=1
 fi
 
+# A #! on the physical first line is interpreter metadata, not a directive;
+# the same token sequence later in the source must still be diagnosed.
+hashbangok=1
+printf '%s\n' '#!/usr/bin/env aholyc run' '"hashbang\n";' \
+	>tests/out/hashbang.HC
+[ "$(./aholyc run -b c tests/out/hashbang.HC 2>/dev/null)" = hashbang ] || \
+	hashbangok=0
+printf '%s\n' '"before\n";' '#!/usr/bin/env aholyc run' \
+	>tests/out/hashbang-late.HC
+if ./aholyc run -b c tests/out/hashbang-late.HC \
+	>tests/out/hashbang-late.out 2>tests/out/hashbang-late.err ||
+   ! grep -q 'invalid preprocessor directive' tests/out/hashbang-late.err; then
+	hashbangok=0
+fi
+if [ "$hashbangok" = 1 ]; then
+	echo "ok   hashbang"
+else
+	echo "FAIL hashbang"
+	fail=1
+fi
+
 # #if constant expressions: comparisons, defined(), boolean/bitwise ops,
 # macro expansion, HolyC precedence (shifts bind tighter than *), nesting,
 # undefined name is 0, #else, and malformed expressions are errors
