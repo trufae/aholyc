@@ -42,8 +42,8 @@ translation unit, in order.
 
 The host platform macros (`IS_MACOS`, `IS_LINUX`, `IS_NETBSD`, `IS_OPENBSD`,
 `IS_FREEBSD`, `IS_WINDOWS`, and `IS_UNIX`) and architecture macros
-(`IS_X86_64`, `IS_ARM_64`, `IS_ARM_32`, `IS_POWERPC`, `IS_RISCV`, or
-`IS_MIPS`) are predefined, so sources can `#ifdef` on them to pick platform
+(`IS_X86_64`, `IS_ARM_64`, `IS_ARM_32`, `IS_POWERPC`, `IS_RISCV`, `IS_MIPS`,
+or `IS_S390`) are predefined, so sources can `#ifdef` on them to pick platform
 defaults. `HAS_ASM` is predefined when the selected backend supports assembly
 and `-fno-asm` is not active; use it to select a portable alternative to an
 `asm {}` block.

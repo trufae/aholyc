@@ -42,10 +42,11 @@ typedef struct {
 	bool align_fill, ignore;
 } AsmMnemonic;
 
-#include "asm_x64.inc.c"
-#include "asm_arm64.inc.c"
-#include "asm_riscv.inc.c"
-#include "asm_mips.inc.c"
+#include "asm/x64.inc.c"
+#include "asm/arm64.inc.c"
+#include "asm/riscv.inc.c"
+#include "asm/mips.inc.c"
+#include "asm/s390.inc.c"
 
 static const AsmTarget generic_target = {
 #ifdef __APPLE__
@@ -59,7 +60,9 @@ static const AsmTarget generic_target = {
 
 static const AsmTarget *asm_target(void) {
 	const AsmTarget *target = &generic_target;
-#if defined(__x86_64__) || defined(_M_X64)
+#if defined(__s390__) || defined(__s390x__)
+	target = &target_s390;
+#elif defined(__x86_64__) || defined(_M_X64)
 	target = &target_x64;
 #elif defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)
 	target = &target_arm64;
@@ -743,7 +746,7 @@ static void c_literal(StrBuf *out, const AsmTarget *target, AholyAsm *a,
 				sb_puts (out, op->name);
 			}
 		} else if (template_escapes && c == '%') {
-			sb_puts (out, "%%%%");
+			sb_puts (out, "%%");
 		} else if (template_escapes && (c == '{' || c == '}' || c == '|')) {
 			sb_putc (out, '%');
 			sb_putc (out, c);

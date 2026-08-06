@@ -35,7 +35,9 @@ void lex_reset(Aholyc *cc) {
 	if (cwd) cleanup_pop (cc);
 	free (cwd);
 	/* expose HolyC platform names, rather than the compiler's C macros */
-#if defined(__x86_64__) || defined(_M_X64)
+#if defined(__s390__) || defined(__s390x__)
+	lex_define (cc, "IS_S390", "1");
+#elif defined(__x86_64__) || defined(_M_X64)
 	lex_define (cc, "IS_X86_64", "1");
 #elif defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)
 	lex_define (cc, "IS_ARM_64", "1");

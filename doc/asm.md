@@ -45,7 +45,7 @@ source-located unsupported-backend error.
 aholyc is an assembly adapter, not an assembler. It rewrites the parts of the
 TempleOS dialect that differ from native toolchains, then leaves instruction
 validation and encoding to GCC or Clang. x86-64 blocks use Intel operand order;
-ARM64, RISC-V, and MIPS blocks use the target assembler's normal syntax.
+ARM64, RISC-V, MIPS, and S390 blocks use the target assembler's normal syntax.
 
 ## File and function scope
 
@@ -105,6 +105,7 @@ MOVQ RAX, [&value]    // x86-64
 ldr  x0,  [&value]    // ARM64
 ld   a0,  0(&value)   // RISC-V
 ld   $2,  0(&value)   // MIPS
+lg   %r2, 0(&value)   // S390
 ```
 
 If the name is not a visible local or parameter, TempleOS's `&symbol` spelling

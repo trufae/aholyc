@@ -86,6 +86,29 @@ I64 ExerciseInlineAsm(I64 input)
 }
 #endif
 
+#ifdef IS_S390
+asm {
+_ASM_RETURN::
+  lghi %r2, ASM_RETURN_VALUE
+  br %r14
+};
+
+/* @inline */
+I64 ExerciseInlineAsm(I64 input)
+{
+  I64 noreg value = input;
+  asm {
+    lghi %r0, 2
+  @@again:
+    brctg %r0, @@again
+    lg %r0, 0(&value)
+    aghi %r0, 1
+    stg %r0, 0(&value)
+  };
+  return value;
+}
+#endif
+
 public _extern _ASM_RETURN I64 AsmReturn();
 
 "asm=%d inline=%d\n", AsmReturn, ExerciseInlineAsm(41);

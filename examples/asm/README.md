@@ -1,13 +1,14 @@
 # Native assembly examples
 
 These examples issue `write(2)` directly on Linux x86-64, ARM64, RISC-V 64,
-and MIPS64 N64, plus ARM64 Darwin. Build the file matching the host:
+MIPS64 N64, and S390x, plus ARM64 Darwin. Build the file matching the host:
 
 ```sh
 ./aholyc run -b c examples/asm/x86_64_linux.HC
 ./aholyc run -b llvm examples/asm/inline_x86_64.HC
 ./aholyc run -b llvm examples/asm/arm64_linux.HC
 ./aholyc run -b llvm examples/asm/arm64_darwin.HC
+./aholyc run -b c examples/asm/s390x_linux.HC
 ./aholyc run -b c examples/asm/data_directives.HC
 ```
 
@@ -32,6 +33,10 @@ they were generated for.
 The x86-64 example intentionally uses HolyC's Intel-order, size-suffixed
 mnemonics. The other examples use the normal spelling accepted by the target
 assembler.
+
+The S390x example also translates an ASCII buffer to EBCDIC CP037 with `TR`.
+The instruction's length operand covers the complete 12-byte sample, so the
+whole table replacement happens in one `TR` instruction.
 
 `inline_x86_64.HC` follows TempleOS's `Demo/Asm/AsmAndC1.HC` convention for
 accessing a function local as `&name[RBP]`. aholyc turns that spelling into a

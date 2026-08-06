@@ -41,7 +41,7 @@ done
 # @inline function exercises local operands and block-local @@ labels.
 asmok=1
 case $(uname -m) in
-	x86_64|amd64|arm64|aarch64|riscv64*|mips64*) haveasm=1 ;;
+	x86_64|amd64|arm64|aarch64|riscv64*|mips64*|s390x*) haveasm=1 ;;
 	*) haveasm=0 ;;
 esac
 if [ "$haveasm" = 1 ]; then
@@ -96,6 +96,14 @@ if [ "$haveasm" = 1 ]; then
 		tests/out/asm-directives.c ||
 	   grep -Eq '(^|[^A-Z])(LIST|NOLIST)([^A-Z]|$)' tests/out/asm-directives.c; then
 		echo "FAIL asm-directive lowering"
+		asmok=0
+	fi
+	printf '%s\n' 'U0 F() { asm { op %r0 } }' \
+		>tests/out/asm-percent.HC
+	if ! ./aholyc -S -b c tests/out/asm-percent.HC \
+		-o tests/out/asm-percent.c ||
+	   ! grep -Fq '"op %%r0\n"' tests/out/asm-percent.c; then
+		echo "FAIL asm percent-register escaping"
 		asmok=0
 	fi
 	printf '%s\n' '/* @inline */ asm { NOP }' \
@@ -187,7 +195,7 @@ done
 # Force each example's platform guards while HAS_ASM is absent. No target
 # assembler is involved, so all portable branches can run on every backend.
 for n in arm64_darwin arm64_linux data_directives inline_x86_64 \
-	mips64_linux riscv64_linux x86_64_linux; do
+	mips64_linux riscv64_linux s390x_linux x86_64_linux; do
 	case "$n" in
 	arm64_darwin) asmout='arm64 darwin syscall' ;;
 	arm64_linux) asmout='arm64 syscall' ;;
@@ -195,11 +203,13 @@ for n in arm64_darwin arm64_linux data_directives inline_x86_64 \
 	inline_x86_64) asmout='AddOneInAsm(41)=42' ;;
 	mips64_linux) asmout='mips64 syscall' ;;
 	riscv64_linux) asmout='riscv syscall' ;;
+	s390x_linux) asmout='s390x syscall' ;;
 	x86_64_linux) asmout='x86-64 syscall' ;;
 	esac
 	for b in $backends; do
 		if ! ./aholyc -b "$b" -fno-asm \
 			-D IS_X86_64 -D IS_ARM_64 -D IS_RISCV -D IS_MIPS \
+			-D IS_S390 \
 			-D IS_LINUX -D IS_MACOS "examples/asm/$n.HC" \
 			-o "tests/out/asm-fallback-$n-$b" \
 			2>"tests/out/asm-fallback-$n-$b.err" ||

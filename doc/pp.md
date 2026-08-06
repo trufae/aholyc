@@ -71,7 +71,7 @@ names (TempleOS style) rather than the host C compiler's macros. Backend
 capabilities are added by the driver after it selects the backend:
 
 - Architecture (one of): `IS_X86_64`, `IS_ARM_64`, `IS_ARM_32`,
-  `IS_POWERPC`, `IS_RISCV`, `IS_MIPS`.
+  `IS_POWERPC`, `IS_RISCV`, `IS_MIPS`, `IS_S390`.
 - OS (one of): `IS_MACOS`, `IS_LINUX`, `IS_NETBSD`, `IS_OPENBSD`,
   `IS_FREEBSD`, `IS_WINDOWS`; plus `IS_UNIX` on any Unix.
 - Capability: `HAS_ASM=1` when the selected backend supports `asm {}` and

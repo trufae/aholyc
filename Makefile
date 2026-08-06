@@ -40,7 +40,8 @@ libaholyc.a: $(LIBOBJ)
 	$(AR) rcs $@ $(LIBOBJ)
 
 $(OBJ): src/aholyc.h src/config.h
-src/asm.o: src/asm_x64.inc.c src/asm_arm64.inc.c src/asm_riscv.inc.c src/asm_mips.inc.c
+src/asm.o: src/asm/x64.inc.c src/asm/arm64.inc.c src/asm/riscv.inc.c \
+	src/asm/mips.inc.c src/asm/s390.inc.c
 src/main.o src/getopt.o: src/getopt.h
 
 src/config.h: FORCE
