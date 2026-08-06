@@ -107,6 +107,9 @@ catch when possible or rethrows to the next dynamic frame. This preserves
 TempleOS's handler-search semantics while avoiding `setjmp`/`longjmp` in the
 common local case. Unknown extern and indirect calls are conservatively
 throwing. The JS backend maps exceptions onto native JS exceptions instead.
+With `-fno-exceptions`, the analysis is skipped, `try` lowers directly to its
+body, and reachable `throw` calls target only the cold controlled-abort path;
+no frame stack or setjmp/longjmp code is linked.
 
 ## Testing
 

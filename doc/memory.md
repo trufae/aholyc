@@ -132,7 +132,8 @@ precision. See [backends.md](backends.md).
 TempleOS kept per-task state behind `Fs` — a segment register pointing
 at the current `CTask`. aholyc's portable equivalent is C thread-local
 storage: on native backends, `Fs` and the whole exception machinery are
-**per host thread**.
+**per host thread**. With `-fno-exceptions`, the complete `jmp_buf` stack is
+not compiled; only the small `Fs` compatibility state remains.
 
 What is thread-local in the runtime (`runtime/rt.c`):
 

@@ -52,6 +52,7 @@ static int usage(int code) {
 		"  -fno-hints    ignore all source hints\n"
 		"  -fno-asm      reject asm blocks and omit HAS_ASM\n"
 		"  -fno-pic      disable position-independent native code\n"
+		"  -fno-exceptions  disable exception handling and catch blocks\n"
 		"  -fno-stack-protector  disable native stack protection\n"
 		"  -k            keep intermediate files\n"
 		"  -V            verbose: show toolchain commands\n"
@@ -195,6 +196,8 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 				cc->use_asm = false;
 			} else if (!strcmp (go.arg, "no-pic")) {
 				cc->use_pic = false;
+			} else if (!strcmp (go.arg, "no-exceptions")) {
+				cc->use_exceptions = false;
 			} else if (!strcmp (go.arg, "no-stack-protector")) {
 				cc->use_stack_protector = false;
 			} else {
@@ -250,6 +253,9 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 	}
 	if (cc->use_asm && be->supports_asm) {
 		lex_define (cc, "HAS_ASM", "1");
+	}
+	if (cc->use_exceptions) {
+		lex_define (cc, "HAS_EXCEPTIONS", "1");
 	}
 	/* Command-line definitions follow compiler definitions, so -D retains
 	 * its normal ability to override a predefined macro. Last -D wins. */
@@ -364,6 +370,9 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 		StrBuf rt;
 		sb_init (&rt, cc);
 		sb_puts (&rt, "#define HC_OBJECT_RUNTIME 1\n");
+		if (!cc->use_exceptions) {
+			sb_puts (&rt, "#define HC_NO_EXCEPTIONS 1\n");
+		}
 		if (cc->shared) {
 			sb_puts (&rt, "#define HC_SHARED_RUNTIME 1\n");
 		} else if (sources.n > 0) {

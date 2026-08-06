@@ -6,7 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#if !defined(HC_NO_EXCEPTIONS)
 #include <setjmp.h>
+#endif
 #include <math.h>
 
 typedef int64_t hc_i64;
@@ -54,6 +56,27 @@ HC_API HcTask *__hc_fs(void) {
 }
 
 /* ------------------------------------------------------------ exceptions */
+
+#if defined(HC_NO_EXCEPTIONS)
+
+/* Disabled exceptions use SIGABRT rather than SIGSEGV. On Unix this gives
+ * status 134 instead of 139, while the stable hex line preserves the exact
+ * HolyC exception value in stderr, service logs, and crash collectors. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((cold, noreturn))
+#endif
+HC_API void throw(hc_i64 ch) {
+	fprintf (stderr, "AHOLYC_EXCEPTION=0x%016llX\n",
+		(unsigned long long)(hc_u64)ch);
+	fflush (stderr);
+	abort ();
+}
+
+HC_API void PutExcept(hc_i64 catch_it) {
+	(void)catch_it;
+}
+
+#else
 
 #define HC_TRY_MAX 256
 static HC_TLS jmp_buf hc_frames[HC_TRY_MAX];
@@ -121,6 +144,8 @@ HC_API void PutExcept(hc_i64 catch_it) {
 	printf ("Except:%s\n", hc_except_str (task->except_ch, buf));
 	task->catch_except = catch_it;
 }
+
+#endif
 
 /* '$$' outside a class body: the address in the generated code at the
  * point of use, taken as the return address of this call.  noinline so

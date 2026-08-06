@@ -716,6 +716,81 @@ else
 	fail=1
 fi
 
+# -fno-exceptions removes catch/unwind lowering and exposes a capability macro
+# for source fallbacks. A surviving throw has a stable diagnostic and abort
+# status, distinct from an ordinary SIGSEGV.
+noexceptok=1
+./aholyc -h | grep -q -- '-fno-exceptions' || noexceptok=0
+printf '%s\n' '#ifdef HAS_EXCEPTIONS' 'try {' "  throw('NoExc');" \
+	'} catch {' '  "exceptions=enabled\n";' \
+	'  Fs->catch_except = TRUE;' '}' '#else' \
+	'"exceptions=disabled fallback\n";' '#endif' \
+	>tests/out/no-exceptions-cap.HC
+printf '%s\n' 'try {' '  "body-only\n";' '} catch {' \
+	'  throw(0xBAD);' '}' >tests/out/no-exceptions-try.HC
+printf '%s\n' 'throw(0x1234ABCD);' >tests/out/no-exceptions-crash.HC
+for b in $backends; do
+	if ! ./aholyc run -b "$b" tests/out/no-exceptions-cap.HC \
+		>"tests/out/exceptions-cap-$b.txt" 2>"tests/out/exceptions-cap-$b.err" ||
+	   [ "$(cat "tests/out/exceptions-cap-$b.txt")" != \
+		'exceptions=enabled' ]; then
+		noexceptok=0
+	fi
+	if ! ./aholyc run -fno-exceptions -b "$b" tests/out/no-exceptions-cap.HC \
+		>"tests/out/no-exceptions-cap-$b.txt" \
+		2>"tests/out/no-exceptions-cap-$b.err" ||
+	   [ "$(cat "tests/out/no-exceptions-cap-$b.txt")" != \
+		'exceptions=disabled fallback' ]; then
+		noexceptok=0
+	fi
+	if ! ./aholyc run -fno-exceptions -b "$b" \
+		tests/out/no-exceptions-try.HC \
+		>"tests/out/no-exceptions-try-$b.txt" \
+		2>"tests/out/no-exceptions-try-$b.err" ||
+	   [ "$(cat "tests/out/no-exceptions-try-$b.txt")" != body-only ]; then
+		noexceptok=0
+	fi
+	crash="tests/out/no-exceptions-crash-$b"
+	if ! ./aholyc -fno-exceptions -b "$b" \
+		tests/out/no-exceptions-crash.HC -o "$crash" \
+		2>"tests/out/no-exceptions-crash-$b.build"; then
+		noexceptok=0
+		continue
+	fi
+	"$crash" >"tests/out/no-exceptions-crash-$b.txt" \
+		2>"tests/out/no-exceptions-crash-$b.err"
+	[ "$?" = 134 ] || noexceptok=0
+	grep -q '^AHOLYC_EXCEPTION=0x000000001234ABCD$' \
+		"tests/out/no-exceptions-crash-$b.err" || noexceptok=0
+	if [ "$b" = js ]; then
+		grep -q 'process.abort' "$crash" || noexceptok=0
+		grep -Eq 'HCEXC|hcThrowFn|finally|catch[[:space:]]*\(' \
+			"$crash" && noexceptok=0
+		if ! ./aholyc -S -fno-exceptions -b js examples/classes.HC \
+			-o tests/out/no-exceptions-runtime.js 2>/dev/null ||
+		   grep -Eq 'HCEXC|hcThrowFn|finally|catch[[:space:]]*\(' \
+			tests/out/no-exceptions-runtime.js; then
+			noexceptok=0
+		fi
+	elif command -v nm >/dev/null 2>&1; then
+		nm "$crash" 2>/dev/null | grep -q '__hc_try_push\|hc_frames' && \
+			noexceptok=0
+	fi
+done
+./aholyc -S -shared -fno-exceptions -b c tests/exceptions_lowering.HC \
+	-o tests/out/exceptions-disabled.c 2>/dev/null || noexceptok=0
+grep -q '_setjmp\|__hc_try_push' tests/out/exceptions-disabled.c && noexceptok=0
+./aholyc -S -fno-exceptions -b llvm tests/exceptions_lowering.HC \
+	-o tests/out/exceptions-disabled.ll 2>/dev/null || noexceptok=0
+grep -q 'call i32 @_setjmp\|call ptr @__hc_try_push' \
+	tests/out/exceptions-disabled.ll && noexceptok=0
+if [ "$noexceptok" = 1 ]; then
+	echo "ok   exceptions(disabled/capability/crash)"
+else
+	echo "FAIL exceptions(disabled/capability/crash)"
+	fail=1
+fi
+
 # Native exception lowering: no-throw tries need no handler, local throws use
 # branches, and only the six call-crossing handlers in this fixture setjmp.
 exceptlowerok=1

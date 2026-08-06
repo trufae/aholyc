@@ -36,6 +36,7 @@ $ aholyc fmt -w src.HC              # format sources in place (doc/format.md)
 | `-fno-hints` | ignore all source hints, treating their annotations as ordinary comments |
 | `-fno-asm` | reject every asm block left after preprocessing and omit `HAS_ASM` |
 | `-fno-pic` | disable position-independent native code and PIE executable linking |
+| `-fno-exceptions` | omit exception handlers and catch blocks; surviving throws abort |
 | `-fno-stack-protector` | disable native stack-protector instrumentation |
 | `-k` | keep intermediate files (`.ll`, `.c`, runtime copies, `#exe` block libraries) |
 | `-V` | print the toolchain commands being executed (including `#exe` builds) |
@@ -44,6 +45,15 @@ $ aholyc fmt -w src.HC              # format sources in place (doc/format.md)
 Native compilation uses position-independent code by default, including with
 `-c`. Pass `-fno-pic` to select the native static relocation model instead;
 when linking an executable, it also disables PIE output.
+
+Exceptions are enabled by default and define `HAS_EXCEPTIONS=1` for source
+selection. With `-fno-exceptions`, that macro is absent, `try` bodies run
+without handlers, and their `catch` blocks are omitted. A surviving
+`throw(code)` prints `AHOLYC_EXCEPTION=0x` followed by all 16 hex digits and
+terminates as a controlled abort. On Unix the resulting shell status is 134,
+distinct from a segmentation fault's 139. Use `#ifdef HAS_EXCEPTIONS` to
+provide a non-throwing fallback; all objects in one native link should be
+compiled with the same exception setting.
 
 Multiple `.HC` input files are concatenated and compiled as one
 translation unit, in order.
@@ -54,7 +64,8 @@ The host platform macros (`IS_MACOS`, `IS_LINUX`, `IS_NETBSD`, `IS_OPENBSD`,
 or `IS_S390`) are predefined, so sources can `#ifdef` on them to pick platform
 defaults. `HAS_ASM` is predefined when the selected backend supports assembly
 and `-fno-asm` is not active; use it to select a portable alternative to an
-`asm {}` block.
+`asm {}` block. `HAS_EXCEPTIONS` is predefined unless `-fno-exceptions` is
+active.
 
 ## Program arguments
 

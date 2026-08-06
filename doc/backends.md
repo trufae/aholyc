@@ -18,7 +18,8 @@ Build: `clang -Os -fPIC prog.ll runtime.c -o prog`, or if clang is missing,
 Exceptions that cross a
 function call use `@_setjmp` declared `returns_twice` plus a small frame stack
 in the runtime. Inferred no-throw `try` bodies omit the handler, while direct
-local throws use ordinary LLVM branches.
+local throws use ordinary LLVM branches. `-fno-exceptions` skips this analysis
+and emits unprotected try bodies plus a cold abort for reachable throws.
 
 Top-level `asm {}` becomes LLVM `module asm`; statement assembly becomes a
 `sideeffect` inline-asm call. LLVM can store both forms in `.ll` or bitcode,
@@ -68,6 +69,9 @@ for (;;) switch (pc) {
 ```
 
 HolyC exceptions map onto JS exceptions with a per-invocation try stack.
+Under `-fno-exceptions`, catch generation and the top-level exception wrapper
+are omitted; a surviving throw prints its numeric code and calls
+`process.abort()`.
 `asm {}` is rejected with a source-located diagnostic because JavaScript has
 no native assembler.
 Caveat: `I64` is a JS number — exact to 53 bits only. The address-space

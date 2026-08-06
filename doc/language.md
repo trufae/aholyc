@@ -283,6 +283,21 @@ try {
 }
 ```
 
+The compiler defines `HAS_EXCEPTIONS=1` while this machinery is enabled.
+`-fno-exceptions` removes that definition and lowers each surviving `try` to
+its unprotected body; the `catch` is not executed. A surviving `throw(ch)`
+prints the exact value as `AHOLYC_EXCEPTION=0x0123456789ABCDEF` and performs a
+controlled abort instead of unwinding. On Unix this reports status 134 rather
+than the 139 used by `SIGSEGV`. Portable sources should select an alternative:
+
+```holyc
+#ifdef HAS_EXCEPTIONS
+try { Risky(); } catch { Recover(); Fs->catch_except = TRUE; }
+#else
+SafeFallback();
+#endif
+```
+
 ## Preprocessor
 
 `#include "file"` (no `<>` form), object-like `#define NAME tokens`,

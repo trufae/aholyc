@@ -32,6 +32,7 @@ typedef struct {
 	long umap[65536];
 	long str_addr[65536];
 	int nblocks, cur_blk, nlmap, nchunks;
+	bool restore_fp;
 	const char *core_src;
 	size_t core_len;
 } JsGen;
@@ -117,6 +118,9 @@ static void parse_rt_chunks(JsGen *g) {
 }
 
 static void mark_chunk(JsGen *g, const char *name) {
+	if (!g->cc->use_exceptions && !strcmp (name, "hcThrow")) {
+		name = "hcCrashFn";
+	}
 	for (int i = 0; i < g->nchunks; i++) {
 		if (!strcmp (g->chunks[i].name, name)) {
 			if (!g->chunks[i].inc) {
@@ -130,7 +134,13 @@ static void mark_chunk(JsGen *g, const char *name) {
 	}
 }
 
-static const char *rt(JsGen *g, const char *name) { mark_chunk (g, name); return name; }
+static const char *rt(JsGen *g, const char *name) {
+	if (!g->cc->use_exceptions && !strcmp (name, "hcVCall")) {
+		name = "hcNoExceptVCall";
+	}
+	mark_chunk (g, name);
+	return name;
+}
 #define RT(name) rt (g, name)
 static bool is_agg(Type *ty) { return ty && (ty->kind == TY_CLASS || ty->kind == TY_ARRAY); }
 static bool native_var(Obj *v) { return !v->is_extern && !is_agg (v->ty) && !v->address_taken; }
@@ -141,15 +151,21 @@ static int store_size(Obj *v) { return v->is_param? 8: (v->ty->size? v->ty->size
 static int elem_size(Type *ptrty) {
 	return ptrty->base && ptrty->base->size? ptrty->base->size: 1;
 }
-static const char *extname(Obj *fn) {
-	return !strcmp (fn->name, "throw")? "hcThrowFn": fn->name;
+static const char *extname(JsGen *g, Obj *fn) {
+	if (!strcmp (fn->name, "throw")) {
+		return g->cc->use_exceptions? "hcThrowFn": "hcCrashFn";
+	}
+	if (!g->cc->use_exceptions && !strcmp (fn->name, "PutExcept")) {
+		return "hcNoPutExcept";
+	}
+	return fn->name;
 }
 static char *fname(JsGen *g, Obj *fn) {
 	if (fn == g->prog->startup) {
 		return xstrdup (g->cc, "__hc_start");
 	}
 	if (fn->is_extern) {
-		return xstrdup (g->cc, RT (extname (fn)));
+		return xstrdup (g->cc, RT (extname (g, fn)));
 	}
 	return xasprintf (g->cc, "hc_%s", fn->name);
 }
@@ -425,7 +441,7 @@ static bool loop_label(Node *n) {
 		!strncmp (s, "dend", 4);
 }
 
-static bool native_stmt(Node *n) {
+static bool native_stmt(JsGen *g, Node *n) {
 	switch (n->kind) {
 	case ND_NOP:
 	case ND_EXPR_STMT:
@@ -433,21 +449,24 @@ static bool native_stmt(Node *n) {
 		return true;
 	case ND_BLOCK:
 		for (Node *s = n->body; s; s = s->next) {
-			if (!native_stmt (s)) {
+			if (!native_stmt (g, s)) {
 				return false;
 			}
 		}
 		return true;
 	case ND_IF:
-		return native_stmt (n->then) && (!n->els || native_stmt (n->els));
+		return native_stmt (g, n->then) &&
+			(!n->els || native_stmt (g, n->els));
 	case ND_WHILE:
 	case ND_DOWHILE:
-		return native_stmt (n->then);
+		return native_stmt (g, n->then);
 	case ND_FOR:
-		return (!n->init || native_stmt (n->init)) &&
-			(!n->inc || native_stmt (n->inc)) && native_stmt (n->then);
+		return (!n->init || native_stmt (g, n->init)) &&
+			(!n->inc || native_stmt (g, n->inc)) &&
+			native_stmt (g, n->then);
 	case ND_TRY:
-		return native_stmt (n->then) && native_stmt (n->els);
+		return native_stmt (g, n->then) &&
+			(!g->cc->use_exceptions || native_stmt (g, n->els));
 	case ND_LABEL:
 		return loop_label (n);
 	default:
@@ -526,10 +545,17 @@ static void emit_native_stmt(JsGen *g, Node *n, int ind) {
 		break;
 	case ND_RETURN:
 		indent (g, ind);
+		if (g->restore_fp) {
+			sb_printf (g->out, "FP=fp;");
+		}
 		sb_printf (g->out, n->lhs? "return %s;\n": "return 0;\n",
 			n->lhs? emit_val (g, n->lhs): "");
 		break;
 	case ND_TRY:
+		if (!g->cc->use_exceptions) {
+			emit_native_stmt (g, n->then, ind);
+			break;
+		}
 		indent (g, ind);
 		sb_printf (g->out, "try {\n");
 		emit_native_stmt (g, n->then, ind + 1);
@@ -619,6 +645,9 @@ static void emit_stmt(JsGen *g, Node *n) {
 		break;
 	}
 	case ND_RETURN:
+		if (g->restore_fp) {
+			EMIT ("FP=fp;");
+		}
 		if (n->lhs) {
 			char *v = emit_val (g, n->lhs);
 			EMIT ("return (%s);\n", v);
@@ -626,6 +655,12 @@ static void emit_stmt(JsGen *g, Node *n) {
 			EMIT ("return 0;\n");
 		}
 		g->blocks[g->cur_blk].term = true;
+		break;
+	case ND_TRY:
+		if (g->cc->use_exceptions) {
+			error (g->cc, "js backend: try with non-structured control flow");
+		}
+		emit_stmt (g, n->then);
 		break;
 	case ND_GOTO:
 		jump_to (g, label_block (g, n->label));
@@ -664,8 +699,9 @@ static void emit_func(JsGen *g, Obj *fn) {
 		}
 	}
 	long framesz = off;
+	g->restore_fp = framesz && !g->cc->use_exceptions;
 
-	bool native = native_stmt (fn->body);
+	bool native = native_stmt (g, fn->body);
 	int entry = 0;
 	if (!native) {
 		g->nblocks = 0;
@@ -673,6 +709,9 @@ static void emit_func(JsGen *g, Obj *fn) {
 		g->cur_blk = entry;
 		emit_stmt (g, fn->body);
 		if (!g->blocks[g->cur_blk].term) {
+			if (g->restore_fp) {
+				EMIT ("FP=fp;");
+			}
 			EMIT ("return 0;\n");
 		}
 	}
@@ -700,31 +739,38 @@ static void emit_func(JsGen *g, Obj *fn) {
 		}
 	}
 	if (native) {
-		if (framesz) {
+		if (framesz && g->cc->use_exceptions) {
 			sb_printf (g->out, " try {\n");
 		}
-		emit_native_stmt (g, fn->body, framesz? 2: 1);
+		emit_native_stmt (g, fn->body,
+			framesz && g->cc->use_exceptions? 2: 1);
 		Node *last = fn->body->kind == ND_BLOCK? fn->body->body: fn->body;
 		while (last && last->next) last = last->next;
 		if (!last || last->kind != ND_RETURN) {
-			sb_printf (g->out, "%sreturn 0;\n", framesz? "  ": " ");
+			if (g->restore_fp) {
+				sb_printf (g->out, " FP=fp;");
+			}
+			sb_printf (g->out, "%sreturn 0;\n",
+				framesz && g->cc->use_exceptions? "  ": " ");
 		}
-		if (framesz) {
+		if (framesz && g->cc->use_exceptions) {
 			sb_printf (g->out, " } finally { FP=fp; }\n");
 		}
 		sb_printf (g->out, "}\n");
 		return;
 	}
 	sb_printf (g->out, " let pc=%d;\n", entry);
-	if (framesz) {
+	if (framesz && g->cc->use_exceptions) {
 		sb_printf (g->out, " try {\n");
 	}
 	sb_printf (g->out, " for (;;) switch (pc) {\n");
 	for (int i = 0; i < g->nblocks; i++) {
 		sb_printf (g->out, " case %d:{\n%s }\n", i, g->blocks[i].out.data);
 	}
-	sb_printf (g->out, " default:return 0;\n }\n");
-	if (framesz) {
+	sb_printf (g->out, g->restore_fp?
+		" default:FP=fp;return 0;\n }\n":
+		" default:return 0;\n }\n");
+	if (framesz && g->cc->use_exceptions) {
 		sb_printf (g->out, " } finally { FP=fp; }\n");
 	}
 	sb_printf (g->out, "}\n");
@@ -776,7 +822,10 @@ static void js_emit(Aholyc *cc, Program *prog, StrBuf *out,
 	}
 	emit_func (g, prog->startup);
 
-	RT ("chstr");
+	if (cc->use_exceptions) {
+		RT ("hcExcState");
+		RT ("chstr");
+	}
 
 	g->out = out;
 	sb_printf (out, "#!/usr/bin/env node\n");
@@ -813,7 +862,8 @@ static void js_emit(Aholyc *cc, Program *prog, StrBuf *out,
 
 	/* Node has [node, script, ...user] while HolyC startup sees only user
 	 * arguments.  Copy strings and their pointer vector into linear memory. */
-	sb_printf (out, "try{const __hc_args=process.argv.slice(2);"
+	if (cc->use_exceptions) {
+		sb_printf (out, "try{const __hc_args=process.argv.slice(2);"
 		"const __hc_argv=HP;HP+=(__hc_args.length+1)*8;"
 		"if(HP>HEAP_END)throw new Error('argument vector exceeds memory');"
 		"for(let i=0;i<__hc_args.length;i++){"
@@ -826,6 +876,18 @@ static void js_emit(Aholyc *cc, Program *prog, StrBuf *out,
 		"}catch(e){if(e===HCEXC){"
 		"process.stderr.write(\"Unhandled Exception '\"+chstr(ld8(TASK))+\"'\\n\");"
 		"process.exit(1);}throw e;}\n");
+	} else {
+		sb_printf (out, "const __hc_args=process.argv.slice(2);"
+			"const __hc_argv=HP;HP+=(__hc_args.length+1)*8;"
+			"if(HP>HEAP_END)throw new Error('argument vector exceeds memory');"
+			"for(let i=0;i<__hc_args.length;i++){"
+			"const b=Buffer.from(__hc_args[i],'utf8');"
+			"if(HP+b.length+1>HEAP_END)throw new Error('argument data exceeds memory');"
+			"st8(__hc_argv+i*8,HP);U8A.set(b,HP);HP+=b.length;U8A[HP++]=0;}"
+			"st8(__hc_argv+__hc_args.length*8,0);"
+			"const __hc_status=__hc_start(__hc_args.length,__hc_argv);"
+			"process.exitCode=((Math.trunc(__hc_status)%%256)+256)%%256;\n");
+	}
 }
 
 static int js_build(Aholyc *cc, const char *artifact,

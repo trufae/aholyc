@@ -12,7 +12,6 @@ const U8A = new Uint8Array(MEM);
 const TASK = 16;          // CTask { except_ch, catch_except }
 const EXT = { Fs: 32 };   // extern globals: address of the cell
 let FP = 0, ASP = 0, HP = 0, HEAP_END = MEM.byteLength;
-const HCEXC = { holyc: true };
 
 function setLayout(dataEnd) {
 	let a = (dataEnd + 4095) & ~4095;
@@ -169,8 +168,26 @@ function hcVCall(fn, fixed, extras, ff) {
 	}
 }
 
-//@ hcThrow st8
+//@ hcNoExceptVCall stf st8
+function hcNoExceptVCall(fn, fixed, extras, ff) {
+	const base = ASP;
+	for (let i = 0; i < extras.length; i++) {
+		if (ff[i]) {
+			stf (base + 8 * i, extras[i]);
+		} else {
+			st8 (base + 8 * i, extras[i]);
+		}
+	}
+	ASP += extras.length * 8;
+	const result = fn (...fixed, extras.length, base);
+	ASP = base;
+	return result;
+}
+
 // ------------------------------------------------------------- exceptions
+//@ hcExcState
+const HCEXC = { holyc: true };
+//@ hcThrow st8 hcExcState
 function hcThrow(ch) {
 	st8 (TASK, ch);
 	st8 (TASK + 8, 0);
@@ -178,6 +195,16 @@ function hcThrow(ch) {
 }
 //@ hcThrowFn hcThrow
 function hcThrowFn(ch) { hcThrow (ch); } // 'throw' is reserved in JS
+//@ hcCrashFn
+function hcCrashFn(ch) {
+	const code = BigInt.asUintN (64, BigInt (Math.trunc (ch)))
+		.toString (16).toUpperCase ().padStart (16, "0");
+	process.stderr.write ("AHOLYC_EXCEPTION=0x" + code + "\n");
+	process.abort ();
+}
+function hcThrow(ch) { hcCrashFn (ch); }
+//@ hcNoPutExcept
+function hcNoPutExcept(catch_it) { void catch_it; }
 //@ PutExcept W chstr st8
 function PutExcept(catch_it) {
 	W ("Except:" + chstr (ld8 (TASK)) + "\n");

@@ -890,8 +890,11 @@ static void emit_extern_decls(CGen *cg, bool only_user) {
 static void emit_obj_preamble(CGen *cg) {
 	sb_printf (cg->out,
 		"#include <stdint.h>\n"
-		"#include <string.h>\n"
-		"#include <setjmp.h>\n"
+		"#include <string.h>\n");
+	if (cg->cc->use_exceptions) {
+		sb_printf (cg->out, "#include <setjmp.h>\n");
+	}
+	sb_printf (cg->out,
 		"#if defined(_WIN32)\n"
 		"#define HC_TLS __declspec(thread)\n"
 		"#elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L\n"
@@ -906,9 +909,13 @@ static void emit_obj_preamble(CGen *cg) {
 		"typedef double hc_f64;\n"
 		"typedef struct { hc_i64 except_ch, catch_except; } HcTask;\n"
 		"extern HC_TLS HcTask *Fs;\n"
-		"extern HcTask *__hc_fs(void);\n"
-		"extern void *__hc_try_push(void);\n"
-		"extern void __hc_try_pop(void);\n"
+		"extern HcTask *__hc_fs(void);\n");
+	if (cg->cc->use_exceptions) {
+		sb_printf (cg->out,
+			"extern void *__hc_try_push(void);\n"
+			"extern void __hc_try_pop(void);\n");
+	}
+	sb_printf (cg->out,
 		"extern hc_f64 __hc_pow(hc_f64, hc_f64);\n"
 		"extern void __hc_register_start(hc_i64 (*)(hc_i64, hc_i64));\n");
 	emit_extern_decls (cg, false);
@@ -916,7 +923,9 @@ static void emit_obj_preamble(CGen *cg) {
 
 static void c_emit(Aholyc *cc, Program *prog, StrBuf *out,
 		bool object_mode, bool ctor_mode) {
-	analyze_exceptions (prog);
+	if (cc->use_exceptions) {
+		analyze_exceptions (prog);
+	}
 	CGen gen = {
 		.cc = cc, .prog = prog, .out = out,
 		.ctor_mode = ctor_mode,
@@ -926,6 +935,9 @@ static void c_emit(Aholyc *cc, Program *prog, StrBuf *out,
 	if (object_mode) {
 		emit_obj_preamble (cg);
 	} else {
+		if (!cc->use_exceptions) {
+			sb_printf (cg->out, "#define HC_NO_EXCEPTIONS 1\n");
+		}
 		sb_printf (cg->out, "#define HC_API static\n");
 		sb_puts (cg->out, aholyc_i_rt_c_src);
 		emit_extern_decls (cg, true);

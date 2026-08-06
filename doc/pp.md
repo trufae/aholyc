@@ -77,6 +77,7 @@ capabilities are added by the driver after it selects the backend:
 - Capability: `HAS_ASM=1` when the selected backend supports `asm {}` and
   `-fno-asm` was not requested. It is absent for the JS backend and under
   `-fno-asm`.
+- Capability: `HAS_EXCEPTIONS=1` unless `-fno-exceptions` was requested.
 
 Inside `#exe {…}` blocks, `__FILE__` and `__DIR__` are defined to the
 current file/dir (TempleOS style).
