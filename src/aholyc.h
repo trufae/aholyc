@@ -46,6 +46,7 @@ typedef enum {
 typedef struct Token Token;
 #define HINT_INLINE 1
 #define HINT_NOINLINE 2
+#define HINT_NONNULL 4
 typedef struct {
 	int bits;
 	int align;
@@ -101,6 +102,7 @@ struct Type {
 	int align;
 	bool is_unsigned;
 	int bits;          /* requested integer value width; 0 if unhinted */
+	bool nonnull;      /* TY_PTR contract: value is never the null address */
 	Type *base;        /* TY_PTR/TY_ARRAY element, TY_FUNC return type */
 	int array_len;
 	/* TY_CLASS */

@@ -137,6 +137,33 @@ file-scope `_extern ASM_SYMBOL` binding cannot be inlined because its assembler
 body is opaque; use an `@inline` HolyC function with a statement-level block
 when the instructions must appear in the caller. See [asm.md](asm.md).
 
+## Non-null pointers
+
+`@nonnull` makes the outer pointer in a declaration a non-null contract. An
+ordinary HolyC pointer remains nullable. The hint can annotate variables,
+class members, parameters, and pointer return values:
+
+```holyc
+/* @nonnull */ U8 *MAlloc(I64 size);
+U0 Copy(/* @nonnull */ U8 *dst, /* @nonnull */ U8 *src, I64 n);
+```
+
+aholyc rejects `NULL` and nullable pointer values assigned, returned, or
+passed to a non-null pointer. It also warns for redundant null tests such as
+`if (p)`, `!p`, `p == NULL`, and `p != 0` when `p` is declared `@nonnull`.
+Addresses, arrays after decay, string literals, and function addresses are
+known non-null.
+
+The contract means only that the address is not zero. It does not prove that
+the pointer is live, in bounds, initialized, or otherwise dereferenceable.
+
+The LLVM backend represents HolyC pointer values as `i64` at its function ABI,
+so LLVM's pointer-only `nonnull` signature attribute cannot be emitted without
+an ABI change. It emits `llvm.assume` for non-null parameters and explicit
+non-null returns instead, preserving the contract for LLVM optimization inside
+the generated module. The C and JavaScript backends preserve the compile-time
+checking but do not add runtime checks.
+
 ## Exception and effect hints
 
 The compiler may infer whether a function can throw.  Optional annotations

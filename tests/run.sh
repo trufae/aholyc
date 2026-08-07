@@ -976,6 +976,17 @@ printf '%s\n' 'DECL' > tests/out/hints-define.HC
 	tests/out/hints-define.HC -o tests/out/hints-define-bad.c >/dev/null 2>&1 && hintsok=0
 ./aholyc -h | grep -q -- '-fno-hints' || hintsok=0
 
+./aholyc -S -b llvm tests/nonnull.HC -o tests/out/nonnull.ll \
+	2>tests/out/nonnull.err || hintsok=0
+grep -q 'comparison with null on @nonnull pointer is always false' tests/out/nonnull.err || hintsok=0
+grep -q 'call void @llvm.assume(i1 ' tests/out/nonnull.ll || hintsok=0
+printf '%s\n' 'U0 F(/* @nonnull */ U8 *p) {}' 'F(NULL);' > tests/out/nonnull-invalid.HC
+if ./aholyc -S -b c tests/out/nonnull-invalid.HC -o tests/out/nonnull-invalid.c \
+	2>tests/out/nonnull-invalid.err ||
+	! grep -q 'null passed to @nonnull parameter' tests/out/nonnull-invalid.err; then
+	hintsok=0
+fi
+
 if [ "$hintsok" = 1 ]; then
 	echo "ok   source hints"
 else

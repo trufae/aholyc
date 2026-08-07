@@ -44,6 +44,12 @@ static Type *ptr_to(Aholyc *cc, Type *base) {
 	return t;
 }
 
+static Type *nonnull_ptr_to(Aholyc *cc, Type *base) {
+	Type *t = ptr_to (cc, base);
+	t->nonnull = true;
+	return t;
+}
+
 static Type *array_of(Aholyc *cc, Type *base, int len) {
 	Type *t = new_type (cc, TY_ARRAY, base->size * len, base->align);
 	t->base = base;
@@ -269,7 +275,8 @@ static void expect(Parser *ps, const char *s) {
 	}
 }
 
-static void collect_hints(Parser *ps, Token *t, Token **bits, Token **func, Token **align) {
+static void collect_hints(Parser *ps, Token *t, Token **bits, Token **func,
+		Token **align, Token **nonnull) {
 	if (t && t->hint_bits) {
 		if (*bits) {
 			error_tok (ps->cc, t, "duplicate @bits hint on declaration");
@@ -287,6 +294,12 @@ static void collect_hints(Parser *ps, Token *t, Token **bits, Token **func, Toke
 			error_tok (ps->cc, t, "duplicate @align hint on declaration");
 		}
 		*align = t;
+	}
+	if (t && (t->hints & HINT_NONNULL)) {
+		if (*nonnull) {
+			error_tok (ps->cc, t, "duplicate @nonnull hint on declaration");
+		}
+		*nonnull = t;
 	}
 }
 
@@ -316,14 +329,17 @@ static void require_asm_enabled(Parser *ps, Token *t) {
 	}
 }
 
-static void collect_bits_hint(Parser *ps, Token *t, Token **bits) {
-	Token *func = NULL;
-	Token *align = NULL;
-	collect_hints (ps, t, bits, &func, &align);
-	reject_func_hint (ps, func);
-	if (align) {
-		error_tok (ps->cc, align, "@align applies only to classes, fields, and local variables");
+static Type *hinted_nonnull_type(Parser *ps, Type *ty, Token *hint) {
+	if (!hint) {
+		return ty;
 	}
+	if (ty->kind != TY_PTR) {
+		error_tok (ps->cc, hint, "@nonnull requires a pointer declaration");
+	}
+	Type *t = xmalloc (ps->cc, sizeof(*t));
+	*t = *ty;
+	t->nonnull = true;
+	return t;
 }
 
 static int align_up(int n, int a) {
@@ -394,6 +410,30 @@ static Node *new_cast(Node *expr, Type *ty) {
 	return n;
 }
 
+static bool is_null_constant(Node *n) {
+	while (n && n->kind == ND_CAST) {
+		n = n->lhs;
+	}
+	return n && n->kind == ND_NUM && n->ival == 0;
+}
+
+static bool is_nullable_pointer(Node *n) {
+	return n && n->ty && n->ty->kind == TY_PTR && !n->ty->nonnull;
+}
+
+static void require_nonnull(Parser *ps, Type *dst, Node *src, Token *tok,
+		const char *what) {
+	if (!dst || dst->kind != TY_PTR || !dst->nonnull) {
+		return;
+	}
+	if (is_null_constant (src)) {
+		error_tok (ps->cc, tok, "null passed to @nonnull %s", what);
+	}
+	if (is_nullable_pointer (src)) {
+		error_tok (ps->cc, tok, "nullable pointer passed to @nonnull %s", what);
+	}
+}
+
 /* value type after loading: everything widens to 64-bit */
 static Type *value_type(Aholyc *cc, Type *ty) {
 	if (ty->kind == TY_INT) {
@@ -410,7 +450,7 @@ static Node *rvalize(Node *n) {
 	if (n->ty && n->ty->kind == TY_ARRAY) {
 		Node *a = new_node (ND_ADDR, n->tok);
 		a->lhs = n;
-		a->ty = ptr_to (n->tok->cc, n->ty->base);
+		a->ty = nonnull_ptr_to (n->tok->cc, n->ty->base);
 		return a;
 	}
 	return n;
@@ -420,6 +460,9 @@ static Node *new_binary(Parser *ps, NodeKind kind, Node *lhs, Node *rhs, Token *
 
 /* convert to boolean context i64 */
 static Node *to_bool(Parser *ps, Node *n) {
+	if (n->ty->kind == TY_PTR && n->ty->nonnull) {
+		warn_tok (ps->cc, n->tok, "null check on @nonnull pointer is always true");
+	}
 	if (n->ty->kind == TY_F64) {
 		return new_binary (ps, ND_NE, n, new_fnum (0.0, n->tok), n->tok);
 	}
@@ -490,6 +533,12 @@ static Node *new_binary(Parser *ps, NodeKind kind, Node *lhs, Node *rhs, Token *
 		break;
 	case ND_EQ:
 	case ND_NE:
+		if ((lhs->ty->kind == TY_PTR && lhs->ty->nonnull && is_null_constant (rhs)) ||
+			(rhs->ty->kind == TY_PTR && rhs->ty->nonnull && is_null_constant (lhs))) {
+			warn_tok (ps->cc, tok, "comparison with null on @nonnull pointer is always %s",
+				kind == ND_EQ? "false": "true");
+		}
+		/* FALLTHRU */
 	case ND_LT:
 	case ND_LE:
 		if (lhs->ty->kind == TY_F64 || rhs->ty->kind == TY_F64) {
@@ -554,6 +603,7 @@ static Node *new_assign(Parser *ps, Node *lhs, Node *rhs, Token *tok) {
 		error_tok (ps->cc, tok, "cannot assign to an array");
 	}
 	rhs = rvalize (rhs);
+	require_nonnull (ps, lhs->ty, rhs, tok, "assignment");
 	/* implicit conversion to stored type */
 	if (lhs->ty->kind == TY_F64 && rhs->ty->kind != TY_F64) {
 		rhs = new_cast (rhs, ty_f64);
@@ -670,7 +720,7 @@ static Node *new_str_node(Parser *ps, char *data, int len, Token *tok) {
 	n->str = data;
 	n->str_len = len;
 	n->str_id = s->id;
-	n->ty = ptr_to (ps->cc, ty_u8);
+	n->ty = nonnull_ptr_to (ps->cc, ty_u8);
 	return n;
 }
 
@@ -751,6 +801,7 @@ static Node *make_call(Parser *ps, Obj *fn, Node *args, int nargs, Token *tok) {
 			}
 		}
 		a = rvalize (a);
+		require_nonnull (ps, p->ty, a, tok, "parameter");
 		prev_ty = a->ty; /* lastclass sees the arg's own type, pre-conversion */
 		/* convert to param type */
 		if (p->ty->kind == TY_F64 && a->ty->kind != TY_F64) {
@@ -1147,7 +1198,7 @@ static Node *unary(Parser *ps) {
 			if (fn) {
 				Node *n = new_node (ND_FUNCNAME, t);
 				n->func = fn;
-				n->ty = ptr_to (ps->cc, fn->ty);
+				n->ty = nonnull_ptr_to (ps->cc, fn->ty);
 				ps->tk = ps->tk->next;
 				return n;
 			}
@@ -1157,7 +1208,7 @@ static Node *unary(Parser *ps) {
 			error_tok (ps->cc, t, "'&' needs an lvalue");
 		}
 		Node *a = new_unary (ps, ND_ADDR, n, t);
-		a->ty = ptr_to (ps->cc, n->ty);
+		a->ty = nonnull_ptr_to (ps->cc, n->ty);
 		return a;
 	}
 	if (is_punct (ps, "++") || is_punct (ps, "--")) {
@@ -1450,8 +1501,8 @@ static Node *print_stmt(Parser *ps) {
 /* variable declaration (local) starting at a type token */
 static Node *local_decl(Parser *ps) {
 	Token *t = ps->tk;
-	Token *hint = NULL, *func_hint = NULL, *align_hint = NULL;
-	collect_hints (ps, t, &hint, &func_hint, &align_hint);
+	Token *hint = NULL, *func_hint = NULL, *align_hint = NULL, *nonnull_hint = NULL;
+	collect_hints (ps, t, &hint, &func_hint, &align_hint, &nonnull_hint);
 	reject_func_hint (ps, func_hint);
 	Type *base = builtin_type (ps->tk->str);
 	if (!base) {
@@ -1470,6 +1521,7 @@ static Node *local_decl(Parser *ps) {
 		while (eat (ps, "*")) {
 			ty = ptr_to (ps->cc, ty);
 		}
+		ty = hinted_nonnull_type (ps, ty, nonnull_hint);
 		/* reg/noreg/no_warn qualifiers: skip */
 		while (is_kw (ps, "reg") || is_kw (ps, "noreg")) {
 			bool was_reg = is_kw (ps, "reg");
@@ -1938,6 +1990,7 @@ static Node *stmt(Parser *ps) {
 			} else if (rt && rt->kind != TY_VOID && e->ty->kind == TY_F64) {
 				e = to_int (e);
 			}
+			require_nonnull (ps, rt, e, t, "return value");
 			if (rt && rt->kind == TY_VOID) {
 				/* U0 fn: evaluate for side effects, discard */
 				n->lhs = NULL;
@@ -2095,8 +2148,12 @@ static void parse_params(Parser *ps, Obj *fn) {
 		if (!is_type_start (ps, ps->tk)) {
 			error_tok (ps->cc, ps->tk, "expected parameter type");
 		}
-		Token *hint = NULL;
-		collect_bits_hint (ps, ps->tk, &hint);
+		Token *hint = NULL, *func_hint = NULL, *align_hint = NULL, *nonnull_hint = NULL;
+		collect_hints (ps, ps->tk, &hint, &func_hint, &align_hint, &nonnull_hint);
+		reject_func_hint (ps, func_hint);
+		if (align_hint) {
+			error_tok (ps->cc, align_hint, "@align applies only to classes, fields, and local variables");
+		}
 		Type *ty = parse_typespec (ps);
 		/* (U0) means no params */
 		if (ty == ty_u0 && is_punct (ps, ")") && n == 0) {
@@ -2117,6 +2174,7 @@ static void parse_params(Parser *ps, Obj *fn) {
 			expect (ps, "]");
 			ty = ptr_to (ps->cc, ty);
 		}
+		ty = hinted_nonnull_type (ps, ty, nonnull_hint);
 		if (ty->kind == TY_CLASS) {
 			error_tok (ps->cc, ps->tk, "class values cannot be parameters; pass a pointer");
 		}
@@ -2237,8 +2295,8 @@ static void parse_class(Parser *ps, bool is_union, int align_all) {
 		if (!is_type_start (ps, ps->tk)) {
 			error_tok (ps->cc, ps->tk, "expected member type");
 		}
-		Token *hint = NULL, *func_hint = NULL, *align_hint = NULL;
-		collect_hints (ps, ps->tk, &hint, &func_hint, &align_hint);
+		Token *hint = NULL, *func_hint = NULL, *align_hint = NULL, *nonnull_hint = NULL;
+		collect_hints (ps, ps->tk, &hint, &func_hint, &align_hint, &nonnull_hint);
 		reject_func_hint (ps, func_hint);
 		aligned_layout |= ps->align_hints && align_hint != NULL;
 		Type *base = parse_typespec (ps);
@@ -2254,6 +2312,7 @@ static void parse_class(Parser *ps, bool is_union, int align_all) {
 					mty = ptr_to (ps->cc, mty);
 				}
 			}
+			mty = hinted_nonnull_type (ps, mty, nonnull_hint);
 			first = false;
 			char *mname = take_name (ps, "member name", true);
 			while (eat (ps, "[")) {
@@ -2378,7 +2437,7 @@ static void parse_func(Parser *ps, Type *ret, char *name, bool is_extern,
 
 /* global variable declaration(s); initializers become startup stmts */
 static Node *global_decl(Parser *ps, Type *base, bool is_extern, bool is_public,
-                         Token *hint) {
+                         Token *hint, Token *nonnull_hint) {
 	Node head = {0};
 	Node *cur = &head;
 	bool first = true;
@@ -2395,6 +2454,7 @@ static Node *global_decl(Parser *ps, Type *base, bool is_extern, bool is_public,
 		while (eat (ps, "*")) {
 			ty = ptr_to (ps->cc, ty);
 		}
+		ty = hinted_nonnull_type (ps, ty, nonnull_hint);
 		if (is_punct (ps, "(")) {
 			/* global function pointer */
 			ps->tk = ps->tk->next;
@@ -2513,7 +2573,8 @@ Program *parse(Aholyc *cc, Token *tok, bool align_hints) {
 		Token *hint = NULL;
 		Token *inline_tok = NULL;
 		Token *align_tok = NULL;
-		collect_hints (ps, ps->tk, &hint, &inline_tok, &align_tok);
+		Token *nonnull_tok = NULL;
+		collect_hints (ps, ps->tk, &hint, &inline_tok, &align_tok, &nonnull_tok);
 		/* function attribute keywords; 'public' exports the symbol */
 		bool is_public = false;
 		while (is_kw (ps, "public") || is_kw (ps, "interrupt") || is_kw (ps, "haserrcode") ||
@@ -2522,7 +2583,7 @@ Program *parse(Aholyc *cc, Token *tok, bool align_hints) {
 				is_public = true;
 			}
 			ps->tk = ps->tk->next;
-			collect_hints (ps, ps->tk, &hint, &inline_tok, &align_tok);
+			collect_hints (ps, ps->tk, &hint, &inline_tok, &align_tok, &nonnull_tok);
 		}
 		bool is_extern = false;
 		char *link_name = NULL;
@@ -2530,14 +2591,14 @@ Program *parse(Aholyc *cc, Token *tok, bool align_hints) {
 			bool asm_alias = is_kw (ps, "_extern") || is_kw (ps, "_import");
 			is_extern = true;
 			ps->tk = ps->tk->next;
-			collect_hints (ps, ps->tk, &hint, &inline_tok, &align_tok);
+			collect_hints (ps, ps->tk, &hint, &inline_tok, &align_tok, &nonnull_tok);
 			/* `_extern ASM_SYMBOL Type HolyCName(...)` binds a source name
 			 * to a label supplied by a file-scope asm block. */
 			if (asm_alias && ps->tk->kind == TK_ID && ps->tk->next &&
 			    is_type_start (ps, ps->tk->next)) {
 				link_name = ps->tk->str;
 				ps->tk = ps->tk->next;
-				collect_hints (ps, ps->tk, &hint, &inline_tok, &align_tok);
+				collect_hints (ps, ps->tk, &hint, &inline_tok, &align_tok, &nonnull_tok);
 			}
 		}
 		if (is_kw (ps, "class")) {
@@ -2545,6 +2606,9 @@ Program *parse(Aholyc *cc, Token *tok, bool align_hints) {
 				error_tok (ps->cc, hint, "@bits applies only to integer object declarations");
 			}
 			reject_func_hint (ps, inline_tok);
+			if (nonnull_tok) {
+				error_tok (ps->cc, nonnull_tok, "@nonnull requires a pointer declaration");
+			}
 			parse_class (ps, false, align_tok && ps->align_hints? align_tok->hint_align: 0);
 			continue;
 		}
@@ -2553,6 +2617,9 @@ Program *parse(Aholyc *cc, Token *tok, bool align_hints) {
 				error_tok (ps->cc, hint, "@bits applies only to integer object declarations");
 			}
 			reject_func_hint (ps, inline_tok);
+			if (nonnull_tok) {
+				error_tok (ps->cc, nonnull_tok, "@nonnull requires a pointer declaration");
+			}
 			parse_class (ps, true, align_tok && ps->align_hints? align_tok->hint_align: 0);
 			continue;
 		}
@@ -2568,6 +2635,7 @@ Program *parse(Aholyc *cc, Token *tok, bool align_hints) {
 			while (eat (ps, "*")) {
 				ret = ptr_to (ps->cc, ret);
 			}
+			ret = hinted_nonnull_type (ps, ret, nonnull_tok);
 			if ((ps->tk->kind == TK_KEYWORD || ps->tk->kind == TK_TYPE) &&
 			    ps->tk->next && ps->tk->next->kind == TK_PUNCT &&
 			    !strcmp (ps->tk->next->str, "(")) {
@@ -2602,7 +2670,7 @@ Program *parse(Aholyc *cc, Token *tok, bool align_hints) {
 			Obj *save_locals = ps->fn_locals;
 			ps->cur_fn = startup;
 			ps->fn_locals = startup->locals;
-			Node *init = global_decl (ps, base, is_extern, is_public, hint);
+			Node *init = global_decl (ps, base, is_extern, is_public, hint, nonnull_tok);
 			startup->locals = ps->fn_locals;
 			ps->fn_locals = save_locals;
 			ps->cur_fn = save_fn;

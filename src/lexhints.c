@@ -66,10 +66,13 @@ void lex_hints_scan_comment(Aholyc *cc, LexHints *pending,
 			continue;
 		}
 		unsigned hint = hint_is (p + 1, n, "inline")? HINT_INLINE:
-			hint_is (p + 1, n, "noinline")? HINT_NOINLINE: 0;
+			hint_is (p + 1, n, "noinline")? HINT_NOINLINE:
+			hint_is (p + 1, n, "nonnull")? HINT_NONNULL: 0;
 		if (hint) {
-			if (pending->attrs) {
-				error (cc, "%s:%d: duplicate hint before declaration", fname, line);
+			if (pending->attrs & hint ||
+				((hint & (HINT_INLINE | HINT_NOINLINE)) &&
+				 (pending->attrs & (HINT_INLINE | HINT_NOINLINE)))) {
+				error (cc, "%s:%d: duplicate or conflicting hint before declaration", fname, line);
 			}
 			pending->attrs |= hint;
 			p = q - 1;

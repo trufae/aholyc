@@ -19,7 +19,7 @@ typedef struct {
 	StrBuf *out;
 	int ntmp, nlab, try_depth, nhandlers;
 	LlHandler handlers[256];
-	bool block_open, ret_f, ret_void, ctor_mode;
+	bool block_open, ret_f, ret_void, ret_nonnull, ctor_mode;
 } LlGen;
 
 static char *tmp_(LlGen *lg) {
@@ -914,6 +914,11 @@ static void emit_stmt(LlGen *lg, Node *n) {
 		} else if (n->lhs) {
 			char *v = emit_val (lg, n->lhs);
 			ensure_block (lg);
+			if (lg->ret_nonnull) {
+				char *ok = tmp_ (lg);
+				sb_printf (lg->out, "  %s = icmp ne i64 %s, 0\n", ok, v);
+				sb_printf (lg->out, "  call void @llvm.assume(i1 %s)\n", ok);
+			}
 			sb_printf (lg->out, "  ret %s %s\n", lg->ret_f? "double": "i64", v);
 		} else {
 			sb_printf (lg->out, "  ret %s %s\n", lg->ret_f? "double": "i64",
@@ -1000,6 +1005,7 @@ static void emit_func(LlGen *lg, Obj *fn) {
 	Type *ret = fn->ty->base;
 	lg->ret_f = ret->kind == TY_F64;
 	lg->ret_void = ret->kind == TY_VOID;
+	lg->ret_nonnull = ret->kind == TY_PTR && ret->nonnull;
 	lg->ntmp = 0;
 	lg->nlab = 0;
 	lg->try_depth = 0;
@@ -1020,6 +1026,11 @@ static void emit_func(LlGen *lg, Obj *fn) {
 	/* param slots */
 	np = 0;
 	for (Obj *p = fn->params; p; p = p->next, np++) {
+		if (p->ty->kind == TY_PTR && p->ty->nonnull) {
+			char *ok = tmp_ (lg);
+			sb_printf (lg->out, "  %s = icmp ne i64 %%a%d, 0\n", ok, np);
+			sb_printf (lg->out, "  call void @llvm.assume(i1 %s)\n", ok);
+		}
 		if (p->ty->kind == TY_F64) {
 			sb_printf (lg->out, "  %s = alloca double, align 8\n", objref (lg, p));
 			sb_printf (lg->out, "  store double %%a%d, ptr %s\n", np, objref (lg, p));
@@ -1125,6 +1136,7 @@ static void ll_emit(Aholyc *cc, Program *prog, StrBuf *out,
 	sb_printf (lg->out, "declare ptr @__hc_fs()\n");
 	sb_printf (lg->out, "declare double @__hc_pow(double, double)\n");
 	sb_printf (lg->out, "declare i64 @llvm.ctpop.i64(i64)\n");
+	sb_printf (lg->out, "declare void @llvm.assume(i1)\n");
 	sb_printf (lg->out, "declare i64 @llvm.cttz.i64(i64, i1)\n");
 	sb_printf (lg->out, "declare i64 @llvm.ctlz.i64(i64, i1)\n");
 	sb_printf (lg->out, "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n");
