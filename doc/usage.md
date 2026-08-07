@@ -12,6 +12,7 @@ $ aholyc -S -b llvm program.HC      # emit program.ll only, don't build
 $ aholyc -S -b js -o out.js program.HC
 $ aholyc -c module.HC               # compile to module.o, like gcc -c
 $ aholyc -shared api.HC -o libapi.so # build a native shared library
+$ aholyc -sarchive api.HC -o libapi.a # build a native static library
 $ aholyc main.HC module.o -o prog   # .o/.a inputs are linked in
 $ aholyc run - < program.HC         # '-' reads source from stdin
 $ echo '"hi\n";' | aholyc run -     # compile and run a one-liner
@@ -27,6 +28,7 @@ $ aholyc fmt -w src.HC              # format sources in place (doc/format.md)
 | `-b name` | backend: `llvm` (default), `c`, `js` |
 | `-c` | compile to a relocatable object (`.o`), do not link |
 | `-shared` | build a native shared library (C and LLVM backends) |
+| `-sarchive` | build a native static archive (`.a`, or `.lib` on Windows) |
 | `-S` | stop after emitting the backend source artifact |
 | `-O0..-O3, -Os, -Oz` | optimization for the native toolchain (default `-Os`) |
 | `-I dir` | add an `#include` search directory (also forwarded to the C toolchain) |
@@ -173,6 +175,22 @@ $ aholyc -shared api.o -o libapi.so
 
 On macOS, conventionally use a `.dylib` output name. `-shared` cannot be
 combined with `run` or `-c`, and the JavaScript backend does not support it.
+
+## Static archives (-sarchive)
+
+`-sarchive` compiles HolyC source to a relocatable object and packs it with
+any supplied `.o` inputs into a static archive. It is supported by the C and
+LLVM backends; the JavaScript backend has no object format. The default output
+name is `a.a` (`a.lib` on Windows).
+
+```console
+$ aholyc -sarchive api.HC -o libapi.a
+$ aholyc main.HC libapi.a -o prog
+```
+
+Like `-c`, archives rely on the final aholyc link to add the HolyC runtime.
+They cannot contain another `.a`/`.lib` archive, and `-sarchive` cannot be
+combined with `run`, `-c`, or `-shared`.
 
 ## What happens under the hood
 

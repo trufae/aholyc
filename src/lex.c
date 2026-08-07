@@ -23,7 +23,7 @@ static void clear_config(Aholyc *cc) {
 
 void lex_reset(Aholyc *cc) {
 	clear_config (cc);
-	cc->verbose = cc->keep = cc->shared = false;
+	cc->verbose = cc->keep = cc->shared = cc->archive = false;
 	cc->use_hints = true;
 	cc->use_asm = true;
 	cc->use_pic = true;

@@ -43,6 +43,7 @@ static int usage(int code) {
 		"  -b <backend>  code generator to use (default: llvm, fallback: c)\n"
 		"  -c            compile into a relocatable object (.o), do not link\n"
 		"  -shared       build a shared library\n"
+		"  -sarchive     build a static archive (.a or .lib)\n"
 		"  -S            emit backend source only, do not build native output\n"
 		"  -O<level>     optimization level passed to the toolchain (default -Os)\n"
 		"  -I <dir>      add #include search directory (also passed to cc)\n"
@@ -174,7 +175,13 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 		case 'c': compile_obj = true; break;
 		case 's':
 			/* getopt sees -shared as -s with the attached argument "hared". */
-			cc->shared = true;
+			if (go.arg && !strcmp (go.arg, "hared")) {
+				cc->shared = true;
+			} else if (go.arg && !strcmp (go.arg, "archive")) {
+				cc->archive = true;
+			} else {
+				error (cc, "unknown option '-s%s' (try -h)", go.arg);
+			}
 			break;
 		case 'S': emit_only = true; break;
 		case 'O': opt = go.arg? xasprintf (cc, "-O%s", go.arg): "-O"; break;
@@ -220,19 +227,23 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 	if (inputs.n == 0) {
 		return usage (1);
 	}
-	if (run && (compile_obj || emit_only || cc->shared)) {
+	if (run && (compile_obj || emit_only || cc->shared || cc->archive)) {
 		error (cc, "run cannot be combined with %s",
-			compile_obj? "-c": emit_only? "-S": "-shared");
+			compile_obj? "-c": emit_only? "-S": cc->shared? "-shared": "-sarchive");
 	}
-	if (compile_obj && cc->shared) {
-		error (cc, "-c cannot be combined with -shared");
+	if (compile_obj && (cc->shared || cc->archive)) {
+		error (cc, "-c cannot be combined with %s", cc->shared? "-shared": "-sarchive");
+	}
+	if (cc->shared && cc->archive) {
+		error (cc, "-shared cannot be combined with -sarchive");
 	}
 	/* classify inputs: HolyC sources vs objects/archives for the linker */
 	Argv sources = { 0 }, objects = { 0 };
 	for (int i = 0; i < inputs.n; i++) {
 		const char *in = inputs.v[i];
 		size_t l = strlen (in);
-		if (l > 2 && (!strcmp (in + l - 2, ".o") || !strcmp (in + l - 2, ".a"))) {
+		if (l > 2 && (!strcmp (in + l - 2, ".o") || !strcmp (in + l - 2, ".a") ||
+			(l > 4 && !strcmp (in + l - 4, ".lib")))) {
 			arg_push (cc, &objects, in);
 		} else {
 			arg_push (cc, &sources, in);
@@ -276,7 +287,7 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 	if (cc->shared && !be->build_obj && !emit_only) {
 		error (cc, "backend '%s' cannot build shared libraries", be->name);
 	}
-	if ((compile_obj || objects.n > 0) && !be->build_obj && !emit_only) {
+	if ((compile_obj || cc->archive || objects.n > 0) && !be->build_obj && !emit_only) {
 		error (cc, "backend '%s' cannot produce object files", be->name);
 	}
 	if (sources.n == 0 && (compile_obj || emit_only)) {
@@ -317,17 +328,65 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 	if (emit_only) {
 		if (outpath && !strcmp (outpath, "-")) {
 			emit_file (cc, be, prog, "-",
-				compile_obj || cc->shared || objects.n > 0,
-				compile_obj || cc->shared);
+				compile_obj || cc->shared || cc->archive || objects.n > 0,
+				compile_obj || cc->shared || cc->archive);
 			return 0;
 		}
 		char *artifact = outpath? xstrdup (cc, outpath):
 			xasprintf (cc, "%s%s", stem, be->ext);
 		emit_file (cc, be, prog, artifact,
-			compile_obj || cc->shared || objects.n > 0,
-			compile_obj || cc->shared);
+			compile_obj || cc->shared || cc->archive || objects.n > 0,
+			compile_obj || cc->shared || cc->archive);
 		if (cc->verbose) {
 			fprintf (stderr, "aholyc: wrote %s\n", artifact);
+		}
+		return 0;
+	}
+
+	if (cc->archive) {
+		if (!outpath) {
+#ifdef _WIN32
+			outpath = "a.lib";
+#else
+			outpath = "a.a";
+#endif
+		}
+		for (int i = 0; i < objects.n; i++) {
+			size_t l = strlen (objects.v[i]);
+			if ((l > 2 && !strcmp (objects.v[i] + l - 2, ".a")) ||
+				(l > 4 && !strcmp (objects.v[i] + l - 4, ".lib"))) {
+				error (cc, "-sarchive cannot include archive '%s'", objects.v[i]);
+			}
+		}
+		Argv members = { 0 };
+		char *tmpobj = NULL;
+		if (sources.n > 0) {
+			char *artifact = xasprintf (cc, "%s.aholyc%s", outpath, be->ext);
+			tmpobj = xasprintf (cc, "%s.aholyc.o", outpath);
+			build_source (cc, be, prog, artifact, tmpobj, opt, true, true);
+			arg_push (cc, &members, tmpobj);
+		}
+		for (int i = 0; i < objects.n; i++) {
+			arg_push (cc, &members, objects.v[i]);
+		}
+		if (members.n == 0) {
+			error (cc, "-sarchive needs a source or object file");
+		}
+		/* ar replaces named members but retains old ones, unlike a compiler
+		 * link. Remove an existing output first so the archive is exact. */
+		unlink (outpath);
+		Argv ar = { 0 };
+		const char *tool = getenv ("AR");
+		arg_push (cc, &ar, tool && *tool? tool: "ar");
+		arg_push (cc, &ar, "rcs");
+		arg_push (cc, &ar, outpath);
+		for (int i = 0; i < members.n; i++) arg_push (cc, &ar, members.v[i]);
+		arg_push (cc, &ar, NULL);
+		if (run_cmd (cc, ar.v)) {
+			error (cc, "failed to build %s", outpath);
+		}
+		if (!cc->keep && tmpobj) {
+			unlink (tmpobj);
 		}
 		return 0;
 	}

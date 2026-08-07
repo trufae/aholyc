@@ -347,6 +347,34 @@ else
 	fail=1
 fi
 
+# -sarchive packages the native object path for a later static link.
+archiveok=1
+./aholyc -h | grep -q -- '-sarchive' || archiveok=0
+for b in $backends; do
+	[ "$b" = js ] && continue
+	lib="tests/out/libarchive-$b.a"
+	if ! ./aholyc -V -sarchive -b "$b" tests/shared.HC -o "$lib" \
+		2>"tests/out/archive-$b.err" ||
+	   ! grep -q -- ' ar rcs ' "tests/out/archive-$b.err" ||
+	   ! ar t "$lib" | grep -q '\.aholyc\.o$' ||
+	   ! ./aholyc -b "$b" tests/archive_use.HC "$lib" \
+		-o "tests/out/archive-use-$b" ||
+	   [ "$(tests/out/archive-use-$b 2>&1)" != '42' ]; then
+		archiveok=0
+	fi
+done
+./aholyc -sarchive -b js tests/shared.HC -o tests/out/archive.js \
+	>/dev/null 2>&1 && archiveok=0
+./aholyc -sarchive -c tests/shared.HC -o tests/out/archive.o \
+	>/dev/null 2>&1 && archiveok=0
+./aholyc run -sarchive tests/shared.HC >/dev/null 2>&1 && archiveok=0
+if [ "$archiveok" = 1 ]; then
+	echo "ok   native static archives"
+else
+	echo "FAIL native static archives"
+	fail=1
+fi
+
 # The portable thread library targets native OS threads.  Exercise both
 # native code generators; JS intentionally has no FFI/thread backend.
 for b in $backends; do
