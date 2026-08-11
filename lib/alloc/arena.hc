@@ -154,20 +154,14 @@ U0 ArenaAllocatorFree(U8 *context, U8 *memory, I64 size, I64 alignment)
     ArenaFree(memory, manager);
 }
 
-U0 ArenaInit(CAllocationManager *manager)
+CAllocator *ArenaInit(CAllocationManager *manager)
 {
   if (!manager)
-    return;
+    return NULL;
   MemSet(manager, 0, sizeof(CAllocationManager));
   manager->allocator.realloc_fn = &ArenaAllocatorRealloc;
   manager->allocator.free_fn = &ArenaAllocatorFree;
   manager->allocator.context = manager(U8 *);
-}
-
-CAllocator *ArenaAllocatorGet(CAllocationManager *manager)
-{
-  if (!manager)
-    return NULL;
   return &manager->allocator;
 }
 

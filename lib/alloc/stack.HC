@@ -94,34 +94,27 @@ U0 StackAllocatorFree(U8 *context, U8 *memory, I64 size, I64 alignment)
     stack->used = position;
 }
 
-Bool StackAllocatorInit(CStackAllocator *stack, U8 *memory, I64 capacity)
+CAllocator *StackAllocatorInit(CStackAllocator *stack, U8 *memory, I64 capacity)
 {
   if (!stack || capacity < 0 || (!memory && capacity))
-    return FALSE;
+    return NULL;
   MemSet(stack, 0, sizeof(CStackAllocator));
   stack->allocator.realloc_fn = &StackAllocatorRealloc;
   stack->allocator.free_fn = &StackAllocatorFree;
   stack->allocator.context = stack(U8 *);
   stack->memory = memory;
   stack->capacity = capacity;
-  return TRUE;
-}
-
-CAllocator *StackAllocatorGet(CStackAllocator *stack)
-{
-  if (!stack)
-    return NULL;
   return &stack->allocator;
 }
 
-I64 StackAllocatorMark(CStackAllocator *stack)
+/* @inline */ I64 StackAllocatorMark(CStackAllocator *stack)
 {
   if (!stack)
     return -1;
   return stack->used;
 }
 
-Bool StackAllocatorRewind(CStackAllocator *stack, I64 mark)
+/* @inline */ Bool StackAllocatorRewind(CStackAllocator *stack, I64 mark)
 {
   if (!stack || stack->used < 0 || stack->used > stack->capacity ||
     mark < 0 || mark > stack->used)
@@ -130,13 +123,13 @@ Bool StackAllocatorRewind(CStackAllocator *stack, I64 mark)
   return TRUE;
 }
 
-U0 StackAllocatorReset(CStackAllocator *stack)
+/* @inline */ U0 StackAllocatorReset(CStackAllocator *stack)
 {
   if (stack)
     stack->used = 0;
 }
 
-I64 StackAllocatorAvailable(CStackAllocator *stack)
+/* @inline */ I64 StackAllocatorAvailable(CStackAllocator *stack)
 {
   if (!stack || stack->used < 0 || stack->capacity < stack->used)
     return 0;

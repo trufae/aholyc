@@ -210,6 +210,10 @@ source files; the two spellings state intent. With `-fno-hints` they are
 ordinary comments, so a program relying on `@ldflags` fails to link; pass
 the flags explicitly in that case.
 
+## Likely
+
+Conditions likely or unlikely to happen @likely @unlikely
+
 ## Compatibility
 
 Hints must remain inside comments and must not be required to parse ordinary

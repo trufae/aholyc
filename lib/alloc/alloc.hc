@@ -15,7 +15,7 @@ class CAllocator
   U8 *context;
 };
 
-Bool AllocAlignmentValid(I64 alignment)
+/* @inline */ Bool AllocAlignmentValid(I64 alignment)
 {
   return alignment > 0 && !(alignment & (alignment - 1));
 }
@@ -47,11 +47,6 @@ U8 *AllocDefaultRealloc(U8 *context, U8 *memory, I64 old_size,
   return result;
 }
 
-U0 AllocDefaultFree(U8 *context, U8 *memory, I64 size, I64 alignment)
-{
-  Free(memory);
-}
-
 U8 *AllocatorRealloc(CAllocator *allocator, U8 *memory, I64 old_size,
   I64 new_size, I64 alignment=8)
 {
@@ -63,11 +58,21 @@ U8 *AllocatorRealloc(CAllocator *allocator, U8 *memory, I64 old_size,
     alignment);
 }
 
-U0 AllocatorFree(CAllocator *allocator, U8 *memory, I64 size,
+/* @inline */ U8 *AllocatorAlloc(CAllocator *allocator, I64 size,
+  I64 alignment=8)
+{
+  if (size < 0 || !AllocAlignmentValid(alignment))
+    return NULL;
+  if (!allocator || !allocator->realloc_fn)
+    return AllocDefaultRealloc(NULL, NULL, 0, size, alignment);
+  return allocator->realloc_fn(allocator->context, NULL, 0, size, alignment);
+}
+
+/* @inline */ U0 AllocatorFree(CAllocator *allocator, U8 *memory, I64 size,
   I64 alignment=8)
 {
   if (!allocator || !allocator->realloc_fn) {
-    AllocDefaultFree(NULL, memory, size, alignment);
+    Free(memory);
   } else if (allocator->free_fn) {
     allocator->free_fn(allocator->context, memory, size, alignment);
   }

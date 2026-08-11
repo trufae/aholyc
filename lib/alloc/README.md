@@ -18,16 +18,21 @@ Allocation is the subset `realloc(context, NULL, 0, size, alignment)`.
 The callback preserves the old allocation when it cannot resize. `free` may
 be `NULL` for a monotonic arena.
 
+`AllocatorAlloc(allocator, size, alignment)` is the allocation shorthand;
+the alignment defaults to 8. `AllocatorRealloc` and `AllocatorFree` retain
+the explicit old/current size so headerless allocators can validate requests.
+
 Library APIs accept `CAllocator *`; `NULL` selects `MAlloc`/`Free` through a
 portable allocate-copy-free implementation. The default supports alignments
 up to `ALLOC_DEFAULT_ALIGNMENT` (16). Custom allocators may support larger
 alignments.
 
-`stack.HC` implements this interface as a fixed-buffer LIFO allocator. Its
-backing buffer may itself live on the stack, in static storage, or inside a
-larger arena.
+`stack.HC` implements this interface as a fixed-buffer LIFO allocator.
+`StackAllocatorInit` returns its `CAllocator *` on success, so initialization
+and passing the allocator takes one expression. The backing buffer may itself
+live on the stack, in static storage, or inside a larger arena.
 
 `arena.hc` tracks heap-backed allocations and releases them individually or
-as a group. Initialize a `CAllocationManager` with `ArenaInit`, then pass
-`ArenaAllocatorGet(&arena)` to APIs accepting `CAllocator *`. The adapter
-supports allocation, resize, and free with alignments up to 16 bytes.
+as a group. `ArenaInit(&arena)` initializes a `CAllocationManager` and returns
+the `CAllocator *` accepted by allocator-aware APIs. The adapter supports
+allocation, resize, and free with alignments up to 16 bytes.

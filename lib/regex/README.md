@@ -40,8 +40,8 @@ may be temporary; its context and returned memory must outlive the regex.
 for arena planning.
 
 For example, `lib/alloc/stack.HC` can supply storage without changing the
-regex API: initialize a `CStackAllocator` over a suitably lived buffer and
-pass `StackAllocatorGet(&stack)` to `RegexInit`.
+regex API: `StackAllocatorInit` initializes a `CStackAllocator` over a
+suitably lived buffer and returns the pointer to pass to `RegexInit`.
 
 Compile once and reuse the `CRegex`. `RegexFind` searches for the first
 leftmost match; among matches beginning at the same byte it returns the
