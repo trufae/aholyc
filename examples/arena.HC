@@ -1,7 +1,7 @@
 // This is deliberately a learning example, not a fast or hardened allocator:
 // every managed allocation has a header and ArenaFree performs a linear scan.
 
-#include "../lib/data/arena.HC"
+#include "../lib/alloc/arena.hc"
 
 // Example: all three live values are released by one ArenaFreeAll call.
 CAllocationManager arena;
