@@ -27,6 +27,11 @@ portable allocate-copy-free implementation. The default supports alignments
 up to `ALLOC_DEFAULT_ALIGNMENT` (16). Custom allocators may support larger
 alignments.
 
+`linear.hc` is a fixed-buffer bump allocator for scratch data and grouped
+lifetimes. Individual frees are no-ops. The newest allocation can resize in
+place; growing an older allocation moves it to the end and leaves the old
+storage occupied. Marks, rewind, and reset release allocations in bulk.
+
 `stack.HC` implements this interface as a fixed-buffer LIFO allocator.
 `StackAllocatorInit` returns its `CAllocator *` on success, so initialization
 and passing the allocator takes one expression. The backing buffer may itself
