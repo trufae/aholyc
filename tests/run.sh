@@ -1308,12 +1308,17 @@ if [ "$haveasm" = 1 ]; then
 		fmtok=0
 	fi
 fi
+rm -rf tests/out/fmtroot
+mkdir -p tests/out/fmtroot/examples
+ln -s ../../../lib tests/out/fmtroot/lib 2>/dev/null ||
+	cp -R lib tests/out/fmtroot/lib
 for f in examples/*.HC; do
 	n=$(basename "$f" .HC)
-	./aholyc fmt "$f" > "tests/out/fmt-$n.HC" || { fmtok=0; continue; }
-	./aholyc fmt - < "tests/out/fmt-$n.HC" | cmp -s - "tests/out/fmt-$n.HC" || fmtok=0
+	fmtf="tests/out/fmtroot/examples/$n.HC"
+	./aholyc fmt "$f" > "$fmtf" || { fmtok=0; continue; }
+	./aholyc fmt - < "$fmtf" | cmp -s - "$fmtf" || fmtok=0
 	[ -f "tests/expected/$n.out" ] || continue
-	if ./aholyc -b c "tests/out/fmt-$n.HC" -o "tests/out/fmt-$n" 2>/dev/null; then
+	if ./aholyc -b c "$fmtf" -o "tests/out/fmt-$n" 2>/dev/null; then
 		"./tests/out/fmt-$n" >"tests/out/fmt-$n.txt" 2>&1
 		cmp -s "tests/expected/$n.out" "tests/out/fmt-$n.txt" || fmtok=0
 	else
