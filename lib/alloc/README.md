@@ -26,3 +26,8 @@ alignments.
 `stack.HC` implements this interface as a fixed-buffer LIFO allocator. Its
 backing buffer may itself live on the stack, in static storage, or inside a
 larger arena.
+
+`arena.hc` tracks heap-backed allocations and releases them individually or
+as a group. Initialize a `CAllocationManager` with `ArenaInit`, then pass
+`ArenaAllocatorGet(&arena)` to APIs accepting `CAllocator *`. The adapter
+supports allocation, resize, and free with alignments up to 16 bytes.

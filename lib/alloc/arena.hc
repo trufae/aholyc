@@ -1,3 +1,8 @@
+#ifndef AHOLYC_LIB_ALLOC_ARENA_HC
+#define AHOLYC_LIB_ALLOC_ARENA_HC
+
+#include "alloc.hc"
+
 // A tiny allocation manager inspired by the linked allocations in src/util.c.
 //
 // This is deliberately a learning example, not a fast or hardened allocator:
@@ -11,17 +16,11 @@ class CArenaBlock
 
 class CAllocationManager
 {
+  CAllocator allocator;
   CArenaBlock *blocks;
   I64 count;
   I64 bytes;
 };
-
-U0 ArenaInit(CAllocationManager *manager)
-{
-  manager->blocks = NULL;
-  manager->count = 0;
-  manager->bytes = 0;
-}
 
 // With no manager these helpers behave like the normal heap routines.
 U8 *ArenaAlloc(I64 size, CAllocationManager *manager=NULL)
@@ -98,6 +97,80 @@ Bool ArenaFree(U8 *p, CAllocationManager *manager=NULL)
   return TRUE;
 }
 
+// CAllocator adapter. The descriptor's size arguments are checked against
+// the arena header so a bad resize cannot copy beyond the owned allocation.
+U8 *ArenaAllocatorRealloc(U8 *context, U8 *memory, I64 old_size,
+  I64 new_size, I64 alignment)
+{
+  CAllocationManager *manager = context(CAllocationManager *);
+  CArenaBlock *block;
+  U8 *result;
+  I64 copy_size;
+
+  if (!manager || old_size < 0 || new_size < 0 ||
+    !AllocAlignmentValid(alignment) || alignment > ALLOC_DEFAULT_ALIGNMENT)
+    return NULL;
+  if (!memory) {
+    if (old_size || !new_size)
+      return NULL;
+    return ArenaAlloc(new_size, manager);
+  }
+  if (memory(U64) & (alignment - 1))
+    return NULL;
+  block = manager->blocks;
+  while (block && block + 1 != memory)
+    block = block->next;
+  if (!block || block->size != old_size)
+    return NULL;
+  if (!new_size) {
+    ArenaFree(memory, manager);
+    return NULL;
+  }
+  if (new_size == old_size)
+    return memory;
+  result = ArenaAlloc(new_size, manager);
+  copy_size = old_size;
+  if (copy_size > new_size)
+    copy_size = new_size;
+  if (copy_size)
+    MemCpy(result, memory, copy_size);
+  ArenaFree(memory, manager);
+  return result;
+}
+
+U0 ArenaAllocatorFree(U8 *context, U8 *memory, I64 size, I64 alignment)
+{
+  CAllocationManager *manager = context(CAllocationManager *);
+  CArenaBlock *block;
+
+  if (!manager || !memory || size < 0 ||
+    !AllocAlignmentValid(alignment) || alignment > ALLOC_DEFAULT_ALIGNMENT ||
+    (memory(U64) & (alignment - 1)))
+    return;
+  block = manager->blocks;
+  while (block && block + 1 != memory)
+    block = block->next;
+  if (block && block->size == size)
+    ArenaFree(memory, manager);
+}
+
+U0 ArenaInit(CAllocationManager *manager)
+{
+  if (!manager)
+    return;
+  MemSet(manager, 0, sizeof(CAllocationManager));
+  manager->allocator.realloc_fn = &ArenaAllocatorRealloc;
+  manager->allocator.free_fn = &ArenaAllocatorFree;
+  manager->allocator.context = manager(U8 *);
+}
+
+CAllocator *ArenaAllocatorGet(CAllocationManager *manager)
+{
+  if (!manager)
+    return NULL;
+  return &manager->allocator;
+}
+
 U0 ArenaFreeAll(CAllocationManager *manager)
 {
   CArenaBlock *block = manager->blocks;
@@ -110,3 +183,5 @@ U0 ArenaFreeAll(CAllocationManager *manager)
   }
   ArenaInit(manager);
 }
+
+#endif
