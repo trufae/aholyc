@@ -2314,7 +2314,28 @@ static void parse_class(Parser *ps, bool is_union, int align_all) {
 			}
 			mty = hinted_nonnull_type (ps, mty, nonnull_hint);
 			first = false;
-			char *mname = take_name (ps, "member name", true);
+			char *mname;
+			if (is_punct (ps, "(")) {
+				/* Function-pointer member: Ret (*name)(params). Parameter
+				 * types are parsed lexically, as for local/global function
+				 * pointers; TY_FUNC currently records the return type. */
+				ps->tk = ps->tk->next;
+				expect (ps, "*");
+				mname = take_name (ps, "function pointer member name", true);
+				expect (ps, ")");
+				expect (ps, "(");
+				int depth = 1;
+				while (depth > 0 && ps->tk->kind != TK_EOF) {
+					if (is_punct (ps, "(")) depth++;
+					if (is_punct (ps, ")")) depth--;
+					ps->tk = ps->tk->next;
+				}
+				Type *fnty = new_type (ps->cc, TY_FUNC, 8, 8);
+				fnty->base = mty;
+				mty = ptr_to (ps->cc, fnty);
+			} else {
+				mname = take_name (ps, "member name", true);
+			}
 			while (eat (ps, "[")) {
 				Node *len = comma_expr (ps);
 				expect (ps, "]");
