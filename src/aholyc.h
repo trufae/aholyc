@@ -105,6 +105,11 @@ struct Type {
 	bool nonnull;      /* TY_PTR contract: value is never the null address */
 	Type *base;        /* TY_PTR/TY_ARRAY element, TY_FUNC return type */
 	int array_len;
+	/* TY_FUNC */
+	Type **params;
+	int nparams;
+	bool is_variadic;
+	bool is_holyc_variadic; /* extras use the hidden argc/argv pair */
 	/* TY_CLASS */
 	char *name;
 	Member *members;

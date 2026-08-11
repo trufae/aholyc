@@ -77,6 +77,8 @@ their slot; `%f` in `Print` reads the slot as a double, and user code
 re-blesses a slot with the postfix cast (`argv[i](F64)` reinterprets the
 bits; `ToF64`/`ToI64` convert the value). This sidesteps C vararg ABI
 headaches and gives HolyC's `argc`/`argv` for free.
+Typed variadic function pointers carry this ABI marker, so indirect calls
+package the same hidden pair instead of flattening extras into native varargs.
 
 The exception is a bodiless non-prelude `extern` declared with `...`
 (e.g. `extern I64 printf(U8 *fmt, ...);`): that is a C import, so no

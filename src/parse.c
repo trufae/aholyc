@@ -595,6 +595,41 @@ static bool is_lvalue(Node *n) {
 	return n->kind == ND_VAR || n->kind == ND_DEREF || n->kind == ND_MEMBER;
 }
 
+static bool same_type(Type *a, Type *b) {
+	if (a == b) {
+		return true;
+	}
+	if (!a || !b || a->kind != b->kind || a->nonnull != b->nonnull) {
+		return false;
+	}
+	switch (a->kind) {
+	case TY_VOID:
+	case TY_F64:
+		return true;
+	case TY_INT:
+		return a->size == b->size && a->is_unsigned == b->is_unsigned;
+	case TY_PTR:
+		return same_type (a->base, b->base);
+	case TY_ARRAY:
+		return a->array_len == b->array_len && same_type (a->base, b->base);
+	case TY_CLASS:
+		return a == b;
+	case TY_FUNC:
+		if (!same_type (a->base, b->base) || a->nparams != b->nparams ||
+				a->is_variadic != b->is_variadic ||
+				a->is_holyc_variadic != b->is_holyc_variadic) {
+			return false;
+		}
+		for (int i = 0; i < a->nparams; i++) {
+			if (!same_type (a->params[i], b->params[i])) {
+				return false;
+			}
+		}
+		return true;
+	}
+	return false;
+}
+
 static Node *new_assign(Parser *ps, Node *lhs, Node *rhs, Token *tok) {
 	if (!is_lvalue (lhs)) {
 		error_tok (ps->cc, tok, "not an assignable expression");
@@ -604,6 +639,12 @@ static Node *new_assign(Parser *ps, Node *lhs, Node *rhs, Token *tok) {
 	}
 	rhs = rvalize (rhs);
 	require_nonnull (ps, lhs->ty, rhs, tok, "assignment");
+	if (lhs->ty->kind == TY_PTR && lhs->ty->base &&
+			lhs->ty->base->kind == TY_FUNC && rhs->ty->kind == TY_PTR &&
+			rhs->ty->base && rhs->ty->base->kind == TY_FUNC &&
+			!same_type (lhs->ty->base, rhs->ty->base)) {
+		error_tok (ps->cc, tok, "incompatible function-pointer signature");
+	}
 	/* implicit conversion to stored type */
 	if (lhs->ty->kind == TY_F64 && rhs->ty->kind != TY_F64) {
 		rhs = new_cast (rhs, ty_f64);
@@ -655,6 +696,108 @@ static Type *parse_typespec(Parser *ps) {
 		ty = ptr_to (ps->cc, ty);
 	}
 	return ty;
+}
+
+static int64_t eval_const(Parser *ps, Node *n);
+static Node *expr(Parser *ps);
+
+/* Parse the parameter portion of a function-pointer type.  Unlike Obj's
+ * parameter list for a function definition, this only retains ABI-relevant
+ * type information: names are optional and defaults are not meaningful. */
+static Type *parse_funcptr_declarator(Parser *ps, Type *ret, char **name,
+		bool require_name, const char *what);
+
+static void parse_funcptr_params(Parser *ps, Type *fnty) {
+	Type *params[256];
+	int n = 0;
+	bool first = true;
+	while (!is_punct (ps, ")")) {
+		if (!first) {
+			expect (ps, ",");
+		}
+		first = false;
+		if (eat (ps, "...")) {
+			fnty->is_variadic = true;
+			fnty->is_holyc_variadic = true;
+			if (!is_punct (ps, ")")) {
+				error_tok (ps->cc, ps->tk, "'...' must be the last parameter");
+			}
+			break;
+		}
+		if (!is_type_start (ps, ps->tk)) {
+			error_tok (ps->cc, ps->tk, "expected function-pointer parameter type");
+		}
+		Token *hint = NULL, *func_hint = NULL, *align_hint = NULL, *nonnull_hint = NULL;
+		collect_hints (ps, ps->tk, &hint, &func_hint, &align_hint, &nonnull_hint);
+		reject_func_hint (ps, func_hint);
+		if (align_hint) {
+			error_tok (ps->cc, align_hint,
+				"@align applies only to classes, fields, and local variables");
+		}
+		Type *ty = parse_typespec (ps);
+		/* As with ordinary declarations, (U0) is the explicit no-args form. */
+		if (ty == ty_u0 && is_punct (ps, ")") && n == 0) {
+			hinted_type (ps, ty, hint);
+			break;
+		}
+		char *pname = NULL;
+		if (is_punct (ps, "(")) {
+			ty = parse_funcptr_declarator (ps, ty, &pname, false,
+				"function-pointer parameter name");
+		} else if (ps->tk->kind == TK_ID) {
+			pname = take_name (ps, "function-pointer parameter name", true);
+		} else if (ps->tk->kind == TK_KEYWORD || ps->tk->kind == TK_TYPE) {
+			reject_reserved_name (ps, ps->tk,
+				"function-pointer parameter name", true);
+		}
+		(void)pname;
+		while (eat (ps, "[")) {
+			/* Array parameters decay to pointers; the bound is documentary. */
+			if (!is_punct (ps, "]")) {
+				eval_const (ps, expr (ps));
+			}
+			expect (ps, "]");
+			ty = ptr_to (ps->cc, ty);
+		}
+		ty = hinted_nonnull_type (ps, ty, nonnull_hint);
+		if (ty->kind == TY_VOID) {
+			error_tok (ps->cc, ps->tk,
+				"U0 must be the only function-pointer parameter");
+		}
+		if (ty->kind == TY_CLASS) {
+			error_tok (ps->cc, ps->tk,
+				"class values cannot be parameters; pass a pointer");
+		}
+		if (n >= 250) {
+			error_tok (ps->cc, ps->tk, "too many function-pointer parameters");
+		}
+		params[n++] = hinted_type (ps, ty, hint);
+	}
+	expect (ps, ")");
+	fnty->nparams = n;
+	if (n) {
+		fnty->params = xmalloc (ps->cc, sizeof(Type *) * n);
+		memcpy (fnty->params, params, sizeof(Type *) * n);
+	}
+}
+
+static Type *parse_funcptr_declarator(Parser *ps, Type *ret, char **name,
+		bool require_name, const char *what) {
+	expect (ps, "(");
+	expect (ps, "*");
+	if (ps->tk->kind == TK_ID) {
+		*name = take_name (ps, what, true);
+	} else if (require_name) {
+		*name = take_name (ps, what, true);
+	} else {
+		*name = NULL;
+	}
+	expect (ps, ")");
+	expect (ps, "(");
+	Type *fnty = new_type (ps->cc, TY_FUNC, 8, 8);
+	fnty->base = ret;
+	parse_funcptr_params (ps, fnty);
+	return ptr_to (ps->cc, fnty);
 }
 
 /* --------------------------------------------------------- const eval */
@@ -848,15 +991,58 @@ static Node *make_indirect_call(Parser *ps, Node *callee, Node *args, Token *tok
 		fnty = callee->ty->base;
 	}
 	n->ty = fnty && fnty->base? value_type (ps->cc, fnty->base): ty_i64;
+	Node *argv[256];
+	int argc = 0;
 	for (Node *a = args; a; a = a->next) {
+		if (argc >= 256) {
+			error_tok (ps->cc, tok, "too many arguments");
+		}
 		if (a->kind == ND_NOP) {
 			error_tok (ps->cc, tok, "default arguments require a direct call");
 		}
+		argv[argc++] = a;
 	}
-	n->args = args;
-	int cnt = 0;
-	for (Node *a = args; a; a = a->next) cnt++;
-	n->nfixed = cnt;
+	if (!fnty) {
+		/* Raw addresses remain callable for low-level HolyC code. There is no
+		 * signature to check or use for conversions in that case. */
+		n->args = args;
+		n->nfixed = argc;
+		return n;
+	}
+	if (!fnty->is_variadic && argc > fnty->nparams) {
+		error_tok (ps->cc, tok,
+			"too many arguments to function pointer (takes %d)", fnty->nparams);
+	}
+	if (argc < fnty->nparams) {
+		error_tok (ps->cc, tok,
+			"too few arguments to function pointer (takes %d)", fnty->nparams);
+	}
+	for (int i = 0; i < fnty->nparams; i++) {
+		Node *a = rvalize (argv[i]);
+		Type *pty = fnty->params[i];
+		require_nonnull (ps, pty, a, tok, "parameter");
+		if (pty->kind == TY_F64 && a->ty->kind != TY_F64) {
+			a = new_cast (a, ty_f64);
+		} else if (pty->kind != TY_F64 && pty->kind != TY_CLASS &&
+				a->ty->kind == TY_F64) {
+			a = new_cast (a, ty_i64);
+		}
+		argv[i] = a;
+	}
+	for (int i = fnty->nparams; i < argc; i++) {
+		argv[i] = rvalize (argv[i]);
+	}
+	Node head = {0};
+	Node *cur = &head;
+	for (int i = 0; i < argc; i++) {
+		Node *copy = xmalloc (ps->cc, sizeof(Node));
+		*copy = *argv[i];
+		copy->next = NULL;
+		cur->next = copy;
+		cur = copy;
+	}
+	n->args = head.next;
+	n->nfixed = fnty->nparams;
 	return n;
 }
 
@@ -1533,22 +1719,11 @@ static Node *local_decl(Parser *ps) {
 		}
 		/* function pointer declarator: (*name)(params) */
 		if (is_punct (ps, "(")) {
-			ps->tk = ps->tk->next;
-			expect (ps, "*");
-			char *name = take_name (ps, "function pointer name", true);
-			expect (ps, ")");
-			expect (ps, "(");
-			/* skip param list: types only matter for docs */
-			int depth = 1;
-			while (depth > 0 && ps->tk->kind != TK_EOF) {
-				if (is_punct (ps, "(")) depth++;
-				if (is_punct (ps, ")")) depth--;
-				ps->tk = ps->tk->next;
-			}
-			Type *fnty = new_type (ps->cc, TY_FUNC, 8, 8);
-			fnty->base = ty;
+			char *name = NULL;
+			Type *fpty = parse_funcptr_declarator (ps, ty, &name, true,
+				"function pointer name");
 			Obj *var = new_local (ps, name,
-				hinted_type (ps, ptr_to (ps->cc, fnty), hint));
+				hinted_type (ps, fpty, hint));
 			var->align = hint_alignment (ps, var->ty, align_hint);
 			if (eat (ps, "=")) {
 				Node *rhs = expr (ps);
@@ -2161,7 +2336,10 @@ static void parse_params(Parser *ps, Obj *fn) {
 			break;
 		}
 		char *name = NULL;
-		if (ps->tk->kind == TK_ID) {
+		if (is_punct (ps, "(")) {
+			ty = parse_funcptr_declarator (ps, ty, &name, false,
+				"function-pointer parameter name");
+		} else if (ps->tk->kind == TK_ID) {
 			name = take_name (ps, "parameter name", true);
 		} else if (ps->tk->kind == TK_KEYWORD || ps->tk->kind == TK_TYPE) {
 			reject_reserved_name (ps, ps->tk, "parameter name", true);
@@ -2316,23 +2494,9 @@ static void parse_class(Parser *ps, bool is_union, int align_all) {
 			first = false;
 			char *mname;
 			if (is_punct (ps, "(")) {
-				/* Function-pointer member: Ret (*name)(params). Parameter
-				 * types are parsed lexically, as for local/global function
-				 * pointers; TY_FUNC currently records the return type. */
-				ps->tk = ps->tk->next;
-				expect (ps, "*");
-				mname = take_name (ps, "function pointer member name", true);
-				expect (ps, ")");
-				expect (ps, "(");
-				int depth = 1;
-				while (depth > 0 && ps->tk->kind != TK_EOF) {
-					if (is_punct (ps, "(")) depth++;
-					if (is_punct (ps, ")")) depth--;
-					ps->tk = ps->tk->next;
-				}
-				Type *fnty = new_type (ps->cc, TY_FUNC, 8, 8);
-				fnty->base = mty;
-				mty = ptr_to (ps->cc, fnty);
+				mname = NULL;
+				mty = parse_funcptr_declarator (ps, mty, &mname, true,
+					"function pointer member name");
 			} else {
 				mname = take_name (ps, "member name", true);
 			}
@@ -2392,6 +2556,7 @@ static void parse_func(Parser *ps, Type *ret, char *name, bool is_extern,
 		bool is_public, Token *inline_tok, char *link_name) {
 	Obj *fn = find_func (ps, name);
 	bool fresh = !fn;
+	Type *prior_ty = fresh? NULL: fn->ty;
 	if (fresh) {
 		fn = new_obj (ps, name, NULL);
 		fn->is_func = true;
@@ -2429,7 +2594,24 @@ static void parse_func(Parser *ps, Type *ret, char *name, bool is_extern,
 	ps->fn_locals = NULL;
 	ps->fn_labels = NULL;
 	ps->cur_fn = fn;
+	fn->is_variadic = false;
 	parse_params (ps, fn);
+	/* Function designators use fn->ty, so retain the same signature there
+	 * as in Obj. This makes (&Function)(...) type checked as well. */
+	fnty->nparams = fn->nparams;
+	fnty->is_variadic = fn->is_variadic;
+	fnty->is_holyc_variadic = fn->is_variadic &&
+		(!fn->is_extern || fn->from_prelude);
+	if (fn->nparams) {
+		fnty->params = xmalloc (ps->cc, sizeof(Type *) * fn->nparams);
+		Obj *p = fn->params;
+		for (int i = 0; i < fn->nparams; i++, p = p->next) {
+			fnty->params[i] = p->ty;
+		}
+	}
+	if (prior_ty && !same_type (prior_ty, fnty)) {
+		error_tok (ps->cc, ps->tk, "conflicting declaration of function %s", name);
+	}
 	if (fresh) {
 		add_func (ps, fn);
 	}
@@ -2478,21 +2660,14 @@ static Node *global_decl(Parser *ps, Type *base, bool is_extern, bool is_public,
 		ty = hinted_nonnull_type (ps, ty, nonnull_hint);
 		if (is_punct (ps, "(")) {
 			/* global function pointer */
-			ps->tk = ps->tk->next;
-			expect (ps, "*");
-			char *name = take_name (ps, "function pointer name", true);
-			expect (ps, ")");
-			expect (ps, "(");
-			int depth = 1;
-			while (depth > 0 && ps->tk->kind != TK_EOF) {
-				if (is_punct (ps, "(")) depth++;
-				if (is_punct (ps, ")")) depth--;
-				ps->tk = ps->tk->next;
+			char *name = NULL;
+			Type *fpty = parse_funcptr_declarator (ps, ty, &name, true,
+				"function pointer name");
+			if (is_extern && fpty->base->is_variadic) {
+				fpty->base->is_holyc_variadic = false;
 			}
-			Type *fnty = new_type (ps->cc, TY_FUNC, 8, 8);
-			fnty->base = ty;
 			Obj *var = new_global (ps, name,
-				hinted_type (ps, ptr_to (ps->cc, fnty), hint));
+				hinted_type (ps, fpty, hint));
 			var->is_extern = is_extern;
 			var->is_public = is_public;
 			if (eat (ps, "=")) {

@@ -441,13 +441,46 @@ static char *emit_call(LlGen *lg, Node *n) {
  * so they get their own routine */
 static char *emit_indirect_call(LlGen *lg, Node *n) {
 	char *callee = emit_val (lg, n->lhs);
+	Type *fnty = n->lhs->ty->kind == TY_PTR? n->lhs->ty->base: NULL;
+	bool holyva = fnty && fnty->kind == TY_FUNC &&
+		fnty->is_holyc_variadic;
 	char *args[300];
 	bool argf[300];
 	int nargs = 0;
-	for (Node *a = n->args; a; a = a->next) {
+	Node *a = n->args;
+	int fixed = 0;
+	for (; a && (!holyva || fixed < n->nfixed); a = a->next, fixed++) {
 		args[nargs] = emit_val (lg, a);
 		argf[nargs] = is_f (a);
 		nargs++;
+	}
+	char *extras_ptr = NULL;
+	int nextras = 0;
+	if (holyva) {
+		char *slots[256];
+		for (Node *e = a; e; e = e->next) {
+			char *v = emit_val (lg, e);
+			if (is_f (e)) {
+				ensure_block (lg);
+				char *bits = tmp_ (lg);
+				sb_printf (lg->out, "  %s = bitcast double %s to i64\n", bits, v);
+				v = bits;
+			}
+			slots[nextras++] = v;
+		}
+		ensure_block (lg);
+		char *arr = tmp_ (lg);
+		sb_printf (lg->out, "  %s = alloca [%d x i64], align 8\n", arr,
+			nextras? nextras: 1);
+		for (int i = 0; i < nextras; i++) {
+			char *gep = tmp_ (lg);
+			sb_printf (lg->out,
+				"  %s = getelementptr [%d x i64], ptr %s, i64 0, i64 %d\n",
+				gep, nextras? nextras: 1, arr, i);
+			sb_printf (lg->out, "  store i64 %s, ptr %s\n", slots[i], gep);
+		}
+		extras_ptr = tmp_ (lg);
+		sb_printf (lg->out, "  %s = ptrtoint ptr %s to i64\n", extras_ptr, arr);
 	}
 	ensure_block (lg);
 	char *fp = tmp_ (lg);
@@ -463,6 +496,10 @@ static char *emit_indirect_call(LlGen *lg, Node *n) {
 	sb_printf (lg->out, "call %s %s(", retf? "double": retv? "void": "i64", fp);
 	for (int k = 0; k < nargs; k++) {
 		sb_printf (lg->out, "%s%s %s", k? ", ": "", argf[k]? "double": "i64", args[k]);
+	}
+	if (holyva) {
+		sb_printf (lg->out, "%si64 %d, i64 %s", nargs? ", ": "", nextras,
+			extras_ptr? extras_ptr: "0");
 	}
 	sb_printf (lg->out, ")\n");
 	return res? res: xstrdup (lg->cc, "0");

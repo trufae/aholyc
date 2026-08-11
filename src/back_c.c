@@ -223,13 +223,23 @@ static void emit_call(CGen *cg, Node *n, bool value) {
 		}
 		sb_printf (cg->out, ")");
 	} else {
+		Type *fnty = n->lhs->ty->kind == TY_PTR? n->lhs->ty->base: NULL;
+		bool holyva = fnty && fnty->kind == TY_FUNC &&
+			fnty->is_holyc_variadic;
 		bool retf = n->ty && n->ty->kind == TY_F64;
 		sb_printf (cg->out, "((%s(*)(", retf? "hc_f64": "hc_i64");
 		bool first = true;
-		for (Node *e = n->args; e; e = e->next) {
+		Node *extra = n->args;
+		int fixed = 0;
+		for (; extra && (!holyva || fixed < n->nfixed);
+				extra = extra->next, fixed++) {
 			sb_printf (cg->out, "%s", first? "": ", ");
 			first = false;
-			sb_printf (cg->out, "%s", value_ctype (e->ty));
+			sb_printf (cg->out, "%s", value_ctype (extra->ty));
+		}
+		if (holyva) {
+			sb_printf (cg->out, "%shc_i64, hc_i64", first? "": ", ");
+			first = false;
 		}
 		if (first) {
 			sb_printf (cg->out, "void");
@@ -238,10 +248,37 @@ static void emit_call(CGen *cg, Node *n, bool value) {
 		emit_val (cg, n->lhs);
 		sb_printf (cg->out, ")(");
 		first = true;
-		for (Node *e = n->args; e; e = e->next) {
+		Node *e = n->args;
+		for (fixed = 0; e && (!holyva || fixed < n->nfixed);
+				e = e->next, fixed++) {
 			sb_printf (cg->out, "%s", first? "": ", ");
 			first = false;
 			emit_val (cg, e);
+		}
+		if (holyva) {
+			int extras = 0;
+			for (Node *x = e; x; x = x->next) {
+				extras++;
+			}
+			sb_printf (cg->out, "%s%d, ", first? "": ", ", extras);
+			if (!extras) {
+				sb_printf (cg->out, "0");
+			} else {
+				sb_printf (cg->out, "(hc_i64)(intptr_t)(hc_i64[]){");
+				for (Node *x = e; x; x = x->next) {
+					if (x != e) {
+						sb_printf (cg->out, ", ");
+					}
+					if (x->ty && x->ty->kind == TY_F64) {
+						sb_printf (cg->out, "hc_f2b(");
+						emit_val (cg, x);
+						sb_printf (cg->out, ")");
+					} else {
+						emit_val (cg, x);
+					}
+				}
+				sb_printf (cg->out, "}");
+			}
 		}
 		sb_printf (cg->out, ")");
 	}

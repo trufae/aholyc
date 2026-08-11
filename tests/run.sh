@@ -539,6 +539,64 @@ else
 	fail=1
 fi
 
+# A typed function pointer carries its full signature through globals, class
+# members, nested callback parameters, and direct function designators.
+fnptrsigok=1
+if printf '%s\n' \
+	'class Ops { I64 (*call)(I64 left, I64 right); };' \
+	'Ops ops; ops.call(1);' |
+	./aholyc -S -b c -o tests/out/fnptr-too-few.c - \
+		>/dev/null 2>tests/out/fnptr-too-few.err; then
+	fnptrsigok=0
+elif ! grep -Fq 'too few arguments to function pointer (takes 2)' \
+	tests/out/fnptr-too-few.err; then
+	fnptrsigok=0
+fi
+if printf '%s\n' \
+	'I64 One(I64 value) { return value; }' \
+	'(&One)(1, 2);' |
+	./aholyc -S -b c -o tests/out/fnptr-too-many.c - \
+		>/dev/null 2>tests/out/fnptr-too-many.err; then
+	fnptrsigok=0
+elif ! grep -Fq 'too many arguments to function pointer (takes 1)' \
+	tests/out/fnptr-too-many.err; then
+	fnptrsigok=0
+fi
+if ! printf '%s\n' \
+	'I64 (*call)(I64 fixed, ...);' \
+	'call(1, 2, 3);' |
+	./aholyc -S -b c -o tests/out/fnptr-variadic.c - >/dev/null 2>&1; then
+	fnptrsigok=0
+fi
+if printf '%s\n' \
+	'F64 Wrong(F64 value) { return value; }' \
+	'I64 (*call)(I64 value) = &Wrong;' |
+	./aholyc -S -b c -o tests/out/fnptr-incompatible.c - \
+		>/dev/null 2>tests/out/fnptr-incompatible.err; then
+	fnptrsigok=0
+elif ! grep -Fq 'incompatible function-pointer signature' \
+	tests/out/fnptr-incompatible.err; then
+	fnptrsigok=0
+fi
+if printf '%s\n' \
+	'I64 Conflict(I64 value);' \
+	'I64 Conflict(F64 value) { return value; }' |
+	./aholyc -S -b c -o tests/out/fnptr-conflict.c - \
+		>/dev/null 2>tests/out/fnptr-conflict.err; then
+	fnptrsigok=0
+elif ! grep -Fq 'conflicting declaration of function Conflict' \
+	tests/out/fnptr-conflict.err; then
+	fnptrsigok=0
+fi
+if [ "$fnptrsigok" = 1 ]; then
+	echo "ok   function-pointer signatures"
+else
+	echo "FAIL function-pointer signatures"
+	head -1 tests/out/fnptr-too-few.err 2>/dev/null
+	head -1 tests/out/fnptr-too-many.err 2>/dev/null
+	fail=1
+fi
+
 # Primitive types, class types, and hard keywords are not legal symbol names.
 # Keep the cases separate so every declaration path reaches the same early
 # reserved-name validation instead of leaking a bad name into a backend.

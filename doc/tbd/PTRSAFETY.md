@@ -315,17 +315,18 @@ extern /* @returns_owned @nonnull */ U8 *LibraryAlloc(I64 n);
 extern U0 LibraryUse(/* @nonnull @noescape */ U8 *data);
 ```
 
-Function-pointer declarations need their own contract syntax eventually,
-because the pointer to the function and its parameters have different
-nullability:
+Function-pointer declarations retain their full call signature, including
+parameter-level `@nonnull`, so indirect calls can enforce parameter contracts.
+The pointer to the function and its parameters still need unambiguous,
+separate nullability syntax:
 
 ```holyc
-// Future grammar, deliberately not parsed today:
+// Future outer-pointer contract syntax:
 // /* @nonnull */ U0 (*callback)(/* @nonnull */ U8 *data);
 ```
 
-Until full function-pointer signatures are represented in aholyc's `Type`, a
-call through one must conservatively erase most parameter and return facts.
+Until the outer-pointer syntax is settled, the function pointer itself remains
+nullable by default even when its parameter contracts are known.
 
 ## Backend mapping
 

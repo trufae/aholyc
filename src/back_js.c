@@ -242,7 +242,21 @@ static char *emit_call(JsGen *g, Node *n) {
 	sb_init (&out, g->cc);
 	Obj *fn = n->func;
 	char *name = fn? fname (g, fn): emit_val (g, n->lhs);
-	if (!fn) {
+	Type *fnty = !fn && n->lhs->ty->kind == TY_PTR? n->lhs->ty->base: NULL;
+	if (!fn && fnty && fnty->kind == TY_FUNC && fnty->is_holyc_variadic) {
+		sb_printf (&out, "%s(FT[(%s)-1],[", RT ("hcVCall"), name);
+		Node *a = append_args (g, &out, n->args, n->nfixed);
+		sb_puts (&out, "],[");
+		append_args (g, &out, a, -1);
+		sb_puts (&out, "],[");
+		for (int i = 0; a; i++, a = a->next) {
+			if (i) {
+				sb_putc (&out, ',');
+			}
+			sb_putc (&out, is_f (a)? '1': '0');
+		}
+		sb_puts (&out, "])");
+	} else if (!fn) {
 		sb_printf (&out, "FT[(%s)-1](", name);
 		append_args (g, &out, n->args, -1);
 		sb_putc (&out, ')');

@@ -142,6 +142,20 @@ StructName(&rex);  // it is a "CDog".
 * A call with no needed parentheses can drop them: `Dir;` calls `Dir()`.
   Any use of a function name without `(` calls it — except after `&`,
   which yields the function's address for callbacks.
+* Function pointers retain their return type, parameter types, and variadic
+  marker. Parameter names are optional, and callback parameters can nest:
+
+```holyc
+I64 Apply(I64 (*callback)(I64), I64 value);
+I64 (*apply)(I64 (*callback)(I64), I64 value) = &Apply;
+```
+
+  Calls through typed function pointers check their argument count and apply
+  the same fixed-parameter conversions as direct calls, including `F64` and
+  `@nonnull`. An untyped integer address remains callable for low-level code,
+  but has no signature to check. A typed variadic callback uses HolyC's
+  `argc`/`argv` packing; taking the address of a bodiless variadic `extern`
+  retains that function's native C-varargs ABI.
 * Variadic functions declare `...` and read the extra args through the
   implicit `I64 argc` and `I64 argv[]`:
 

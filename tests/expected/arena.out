@@ -1,0 +1,6 @@
+Temple: 10 + 20 = 30
+before free-all: 3 allocations, 60 payload bytes
+after one free: 2 allocations
+custom allocator value: 42
+after free-all: 0 allocations, 0 payload bytes
+ordinary heap allocation
