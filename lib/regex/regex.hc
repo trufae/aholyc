@@ -1,18 +1,20 @@
 #ifndef AHOLYC_LIB_REGEX_REGEX_HC
 #define AHOLYC_LIB_REGEX_REGEX_HC
 
+#include "../alloc/alloc.hc"
 #include "../text/utf8.HC"
 
 // Small UTF-8 regular-expression engine. Positions and lengths are bytes;
 // pattern atoms and input characters are Unicode code points.
 //
-// Compile once with RegexCompile, reuse with RegexMatch/RegexFullMatch, then
-// release with RegexFini. Matching uses a Thompson NFA: runtime is bounded by
-// O(pattern states * input bytes) and does not catastrophically backtrack.
+// Compile once with RegexCompile and reuse with RegexFind/RegexFullMatch.
+// Matching uses a Thompson NFA: runtime is bounded by O(pattern states * input
+// bytes) and does not catastrophically backtrack.
 
 #define REGEX_OK 0
 #define REGEX_ERROR_ARGUMENT 1
 #define REGEX_ERROR_MEMORY 2
+#define REGEX_ERROR_CAPACITY REGEX_ERROR_MEMORY
 #define REGEX_ERROR_SYNTAX 3
 #define REGEX_ERROR_PAREN 4
 #define REGEX_ERROR_CLASS 5
@@ -29,7 +31,7 @@
 #define REGEX_OP_EOL 7
 #define REGEX_OP_MATCH 8
 
-class CRegexInstruction
+/* @align */ class CRegexInstruction
 {
   I64 op;
   I64 x;
@@ -60,29 +62,39 @@ class CRegexFragment
   I64 tail;
 };
 
+class CRegexMatch
+{
+  I64 start;
+  I64 end;
+  U8 *owner;
+  U8 *text;
+  I64 text_length;
+  I64 next_offset;
+  Bool done;
+};
+
 class CRegex
 {
+  CAllocator allocator;
+  U8 *memory;
+  I64 memory_size;
   CRegexInstruction *instructions;
-  I64 instruction_count;
-  I64 instruction_capacity;
-  I64 start;
-  I64 error;
-  I64 error_offset;
   CRegexRange *ranges;
-  I64 range_count;
-  I64 range_capacity;
   I64 *list_a;
   I64 *list_b;
   I64 *origin_a;
   I64 *origin_b;
   I64 *seen;
-  I64 generation;
-};
-
-class CRegexMatch
-{
+  I64 instruction_capacity;
+  I64 range_capacity;
+  I64 patch_capacity;
+  I64 instruction_count;
   I64 start;
-  I64 end;
+  I64 error;
+  I64 error_offset;
+  I64 range_count;
+  I64 generation;
+  CRegexMatch match;
 };
 
 class CRegexCompiler
@@ -96,24 +108,43 @@ class CRegexCompiler
   I64 patch_capacity;
 };
 
-U0 RegexInit(CRegex *regex)
+U0 RegexInit(CRegex *regex, CAllocator *allocator=NULL)
 {
-  if (regex)
-    MemSet(regex, 0, sizeof(CRegex));
+  if (!regex)
+    return;
+  MemSet(regex, 0, sizeof(CRegex));
+  if (allocator)
+    regex->allocator = *allocator;
+  regex->generation = 1;
+}
+
+U0 RegexReset(CRegex *regex)
+{
+  regex->instruction_count = 0;
+  regex->instructions = NULL;
+  regex->ranges = NULL;
+  regex->list_a = NULL;
+  regex->list_b = NULL;
+  regex->origin_a = NULL;
+  regex->origin_b = NULL;
+  regex->seen = NULL;
+  regex->instruction_capacity = 0;
+  regex->range_capacity = 0;
+  regex->patch_capacity = 0;
+  regex->start = 0;
+  regex->error = REGEX_OK;
+  regex->error_offset = 0;
+  regex->range_count = 0;
+  regex->generation = 1;
+  regex->match.done = TRUE;
 }
 
 U0 RegexFini(CRegex *regex)
 {
   if (!regex)
     return;
-  Free(regex->instructions);
-  Free(regex->ranges);
-  Free(regex->list_a);
-  Free(regex->list_b);
-  Free(regex->origin_a);
-  Free(regex->origin_b);
-  Free(regex->seen);
-  RegexInit(regex);
+  AllocatorFree(&regex->allocator, regex->memory, regex->memory_size, 8);
+  MemSet(regex, 0, sizeof(CRegex));
 }
 
 Bool RegexCompileFail(CRegexCompiler *compiler, I64 error, I64 position)
@@ -541,47 +572,91 @@ U0 RegexParseAlternative(CRegexCompiler *compiler,
     }
 }
 
+I64 RegexMemorySize(I64 pattern_length)
+{
+  I64 instructions;
+  I64 ranges;
+  I64 instruction_bytes;
+  I64 range_bytes;
+  I64 scratch_bytes;
+
+  if (pattern_length < 0 || pattern_length > (I64_MAX - 2) / 2)
+    return -1;
+  instructions = pattern_length * 2 + 2;
+  ranges = pattern_length * 2 + 1;
+  if (instructions > (I64_MAX - 7) / sizeof(CRegexInstruction) ||
+    instructions > I64_MAX / (2 * sizeof(CRegexPatch)) ||
+    ranges > I64_MAX / sizeof(CRegexRange))
+    return -1;
+  instruction_bytes = instructions * sizeof(CRegexInstruction);
+  instruction_bytes = (instruction_bytes + 7) & ~7;
+  range_bytes = ranges * sizeof(CRegexRange);
+  scratch_bytes = instructions * 2 * sizeof(CRegexPatch);
+  if (instruction_bytes > I64_MAX - range_bytes ||
+    instruction_bytes + range_bytes > I64_MAX - scratch_bytes)
+    return -1;
+  return instruction_bytes + range_bytes + scratch_bytes;
+}
+
 Bool RegexCompileN(CRegex *regex, U8 *pattern, I64 length)
 {
   CRegexCompiler compiler;
   CRegexFragment fragment;
+  U8 *memory;
+  U8 *scratch;
+  I64 instructions;
+  I64 ranges;
+  I64 instruction_bytes;
+  I64 range_bytes;
+  I64 needed;
   I64 match;
-  I64 capacity;
 
   if (!regex)
     return FALSE;
-  RegexFini(regex);
+  RegexReset(regex);
   if (!pattern || length < 0) {
     regex->error = REGEX_ERROR_ARGUMENT;
     return FALSE;
   }
-  if (length > (I64_MAX - 8) / 4) {
+  needed = RegexMemorySize(length);
+  if (needed < 0) {
     regex->error = REGEX_ERROR_MEMORY;
     return FALSE;
   }
-  capacity = length * 4 + 8;
-  if (capacity > I64_MAX / sizeof(CRegexInstruction) ||
-    capacity > I64_MAX / (2 * sizeof(CRegexPatch)) ||
-    capacity > I64_MAX / sizeof(CRegexRange)) {
+  memory = regex->memory;
+  if (needed > regex->memory_size) {
+    memory = AllocatorRealloc(&regex->allocator, regex->memory,
+      regex->memory_size, needed, 8);
+    if (!memory) {
       regex->error = REGEX_ERROR_MEMORY;
       return FALSE;
     }
-  regex->instructions = MAlloc(capacity * sizeof(CRegexInstruction));
-  regex->ranges = MAlloc(capacity * sizeof(CRegexRange));
-  compiler.patches = MAlloc(capacity * 2 * sizeof(CRegexPatch));
-  if (!regex->instructions || !regex->ranges || !compiler.patches) {
-    Free(compiler.patches);
-    regex->error = REGEX_ERROR_MEMORY;
-    return FALSE;
+    regex->memory = memory;
+    regex->memory_size = needed;
   }
-  regex->instruction_capacity = capacity;
-  regex->range_capacity = capacity;
+  instructions = length * 2 + 2;
+  ranges = length * 2 + 1;
+  instruction_bytes = instructions * sizeof(CRegexInstruction);
+  instruction_bytes = (instruction_bytes + 7) & ~7;
+  range_bytes = ranges * sizeof(CRegexRange);
+  regex->instructions = memory(CRegexInstruction *);
+  regex->ranges = (memory + instruction_bytes)(CRegexRange *);
+  scratch = memory + instruction_bytes + range_bytes;
+  regex->list_a = scratch(I64 *);
+  regex->list_b = regex->list_a + instructions;
+  regex->origin_a = regex->list_b + instructions;
+  regex->origin_b = regex->origin_a + instructions;
+  regex->seen = regex->origin_b + instructions;
+  regex->instruction_capacity = instructions;
+  regex->range_capacity = ranges;
+  regex->patch_capacity = instructions * 2;
   compiler.regex = regex;
   compiler.pattern = pattern;
   compiler.length = length;
   compiler.offset = 0;
+  compiler.patches = scratch(CRegexPatch *);
   compiler.patch_count = 0;
-  compiler.patch_capacity = capacity * 2;
+  compiler.patch_capacity = regex->patch_capacity;
   RegexParseAlternative(&compiler, &fragment);
   if (!regex->error && compiler.offset != length)
     RegexCompileFail(&compiler, REGEX_ERROR_PAREN, compiler.offset);
@@ -592,20 +667,9 @@ Bool RegexCompileN(CRegex *regex, U8 *pattern, I64 length)
       regex->start = fragment.start;
     }
   }
-  Free(compiler.patches);
   if (regex->error)
     return FALSE;
-  regex->list_a = MAlloc(regex->instruction_count * sizeof(I64));
-  regex->list_b = MAlloc(regex->instruction_count * sizeof(I64));
-  regex->origin_a = MAlloc(regex->instruction_count * sizeof(I64));
-  regex->origin_b = MAlloc(regex->instruction_count * sizeof(I64));
-  regex->seen = MAlloc(regex->instruction_count * sizeof(I64));
-  if (!regex->list_a || !regex->list_b || !regex->origin_a ||
-    !regex->origin_b || !regex->seen) {
-      regex->error = REGEX_ERROR_MEMORY;
-      return FALSE;
-    }
-  MemSet(regex->seen, 0, regex->instruction_count * sizeof(I64));
+  MemSet(regex->seen, 0, instructions * sizeof(I64));
   regex->generation = 1;
   return TRUE;
 }
@@ -614,7 +678,7 @@ Bool RegexCompile(CRegex *regex, U8 *pattern)
 {
   if (!pattern) {
     if (regex) {
-      RegexFini(regex);
+      RegexReset(regex);
       regex->error = REGEX_ERROR_ARGUMENT;
     }
     return FALSE;
@@ -742,7 +806,7 @@ I64 RegexRunAt(CRegex *regex, U8 *text, I64 length, I64 start)
   return accepted;
 }
 
-Bool RegexMatchFromN(CRegex *regex, U8 *text, I64 length, I64 from,
+Bool RegexSearchAtN(CRegex *regex, U8 *text, I64 length, I64 from,
   CRegexMatch *match)
 {
   CRegexInstruction *instruction;
@@ -763,7 +827,7 @@ Bool RegexMatchFromN(CRegex *regex, U8 *text, I64 length, I64 from,
   I64 i;
   Bool valid;
 
-  if (!regex || regex->error || !regex->instructions || !text ||
+  if (!regex || regex->error || !text ||
     length < 0 || from < 0 || from > length || !match)
     return FALSE;
   for (; from < length && !RegexUtf8Boundary(text, length, from);)
@@ -825,21 +889,60 @@ Bool RegexMatchFromN(CRegex *regex, U8 *text, I64 length, I64 from,
   return TRUE;
 }
 
-Bool RegexMatchN(CRegex *regex, U8 *text, I64 length, CRegexMatch *match)
+CRegexMatch *RegexNext(CRegexMatch *match)
 {
-  return RegexMatchFromN(regex, text, length, 0, match);
+  CRegex *regex;
+  I64 consumed;
+  I64 rune;
+
+  if (!match || match->done)
+    return NULL;
+  regex = match->owner(CRegex *);
+  if (!RegexSearchAtN(regex, match->text, match->text_length,
+      match->next_offset, match)) {
+        match->done = TRUE;
+        return NULL;
+      }
+  if (match->end > match->start) {
+    match->next_offset = match->end;
+  } else if (match->end >= match->text_length) {
+    match->done = TRUE;
+  } else {
+    consumed = Utf8DecodeRune(match->text + match->end,
+      match->text_length - match->end, &rune);
+    if (!consumed)
+      consumed = 1;
+    match->next_offset = match->end + consumed;
+  }
+  return match;
 }
 
-Bool RegexMatch(CRegex *regex, U8 *text, CRegexMatch *match)
+CRegexMatch *RegexFindN(CRegex *regex, U8 *text, I64 length, I64 from=0)
+{
+  CRegexMatch *match;
+
+  if (!regex || regex->error || !text || length < 0 || from < 0 ||
+    from > length)
+    return NULL;
+  match = &regex->match;
+  match->owner = regex(U8 *);
+  match->text = text;
+  match->text_length = length;
+  match->next_offset = from;
+  match->done = FALSE;
+  return RegexNext(match);
+}
+
+CRegexMatch *RegexFind(CRegex *regex, U8 *text, I64 from=0)
 {
   if (!text)
-    return FALSE;
-  return RegexMatchN(regex, text, StrLen(text), match);
+    return NULL;
+  return RegexFindN(regex, text, StrLen(text), from);
 }
 
 Bool RegexFullMatchN(CRegex *regex, U8 *text, I64 length)
 {
-  if (!regex || regex->error || !regex->instructions || !text || length < 0)
+  if (!regex || regex->error || !text || length < 0)
     return FALSE;
   return RegexRunAt(regex, text, length, 0) == length;
 }
@@ -924,7 +1027,7 @@ I64 RegexReplaceN(CRegex *regex, U8 *text, I64 text_length,
   for (; search <= text_length;) {
     if (limit >= 0 && count >= limit)
       break;
-    if (!RegexMatchFromN(regex, text, text_length, search, &match))
+    if (!RegexSearchAtN(regex, text, text_length, search, &match))
       break;
     if (!RegexReplaceAdd(&needed, match.start - copied))
       return -1;
@@ -952,7 +1055,7 @@ I64 RegexReplaceN(CRegex *regex, U8 *text, I64 text_length,
   for (; search <= text_length;) {
     if (limit >= 0 && count >= limit)
       break;
-    if (!RegexMatchFromN(regex, text, text_length, search, &match))
+    if (!RegexSearchAtN(regex, text, text_length, search, &match))
       break;
     if (match.start > copied) {
       MemCpy(output + at, text + copied, match.start - copied);

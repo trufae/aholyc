@@ -1,4 +1,5 @@
 match=4..12
 replace=x<12> y<345> (12)
+stream=2
 full=1 search=0
 emoji=1

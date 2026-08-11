@@ -9,8 +9,9 @@
 
 class CAllocator
 {
-  I64 realloc_fn;
-  I64 free_fn;
+  U8 *(*realloc_fn)(U8 *context, U8 *memory, I64 old_size, I64 new_size,
+    I64 alignment);
+  U0 (*free_fn)(U8 *context, U8 *memory, I64 size, I64 alignment);
   U8 *context;
 };
 

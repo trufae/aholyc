@@ -3,7 +3,8 @@
 `regex.hc` is a dependency-free, UTF-8 regular-expression engine for HolyC.
 It uses `lib/text/utf8.HC` and compiles patterns to a Thompson NFA, so matching
 has predictable memory use and avoids the catastrophic backtracking found in
-recursive backtracking engines.
+recursive backtracking engines. It has no built-in pattern-size limit and uses
+the common `lib/alloc/alloc.hc` allocator interface.
 
 ## API
 
@@ -11,7 +12,7 @@ recursive backtracking engines.
 #include "lib/regex/regex.hc"
 
 CRegex regex;
-CRegexMatch match;
+CRegexMatch *item;
 U8 output[128];
 
 RegexInit(&regex);
@@ -19,8 +20,9 @@ if (!RegexCompile(&regex, "[A-Za-z_][A-Za-z0-9_]*"))
   "regex error at %d: %s\n", regex.error_offset,
     RegexErrorName(regex.error);
 
-if (RegexMatch(&regex, "123 hello", &match))
-  "match bytes %d..%d\n", match.start, match.end;
+item = RegexFind(&regex, "123 hello");
+if (item)
+  "match bytes %d..%d\n", item->start, item->end;
 
 RegexCompile(&regex, "^(👋|🌍)+$");
 if (RegexFullMatch(&regex, "👋🌍"))
@@ -30,13 +32,46 @@ RegexReplace(&regex, "one two", "<$0>", output, sizeof(output));
 RegexFini(&regex);
 ```
 
-Compile once and reuse the `CRegex`. `RegexMatch` searches for the first
+`RegexInit(&regex)` uses the default `MAlloc`/`Free` adapter. Pass a
+`CAllocator *` as its optional second argument to use an arena, pool, or
+stack-backed allocator instead. The descriptor is copied into `CRegex`, so it
+may be temporary; its context and returned memory must outlive the regex.
+`RegexMemorySize(pattern_length)` reports the worst-case allocation request
+for arena planning.
+
+For example, `lib/alloc/stack.HC` can supply storage without changing the
+regex API: initialize a `CStackAllocator` over a suitably lived buffer and
+pass `StackAllocatorGet(&stack)` to `RegexInit`.
+
+Compile once and reuse the `CRegex`. `RegexFind` searches for the first
 leftmost match; among matches beginning at the same byte it returns the
-longest. `RegexFullMatch` requires the whole input to match.
-`RegexMatchFromN` additionally accepts a starting byte offset. The `N`
-variants accept explicit lengths and therefore support buffers containing NUL.
+longest. `RegexFullMatch` requires the whole input to match. `RegexFindN`
+accepts an explicit length and starting byte offset, so it supports buffers
+containing NUL.
 Positions and lengths remain byte offsets, while pattern atoms and input
 characters are decoded as Unicode code points.
+`RegexFini` releases the owned block through the configured allocator.
+
+## Streaming matches
+
+`RegexFind` returns the first non-overlapping match and starts a pull-style
+traversal. Pass that match to `RegexNext` until it returns `NULL`; stop at any
+time without a separate cursor initialization step:
+
+```c
+item = RegexFind(&regex, text);
+while (item) {
+  // item->start and item->end are byte offsets
+  if (Enough(item))
+    break;
+  item = RegexNext(item);
+}
+```
+
+`RegexFindN` accepts an explicit input length and starting offset. The returned
+pointer belongs to `CRegex` and remains valid until another match operation,
+compilation, or finalization. One expression supports one active traversal;
+use separate compiled instances for simultaneous traversals.
 
 `RegexReplace` replaces every non-overlapping match by default. Pass a
 non-negative `limit` to restrict the number of replacements. `$0` inserts the
