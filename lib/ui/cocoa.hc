@@ -83,6 +83,67 @@ U0 UiCocoaDraw(I64 self, I64 cmd, F64 x, F64 y, F64 w, F64 h)
   ui_cg = 0;
 }
 
+// NSPoint returns don't fit a HolyC function pointer (two F64s in d0/d1),
+// so struct-returning calls go through paths that write to memory instead:
+// valueForKey: boxes locationInWindow into an NSValue we getValue: out of,
+// and NSInvocation runs convertPoint:fromView: with getReturnValue:.
+U0 UiCocoaMousePos(I64 view, I64 ev, F64 *out)
+{
+  I64 box = ui_msg(ev, UiSel("valueForKey:"), UiStr("locationInWindow"), 0, 0);
+  ui_msg(box, UiSel("getValue:"), out, 0, 0);
+  I64 sel = UiSel("convertPoint:fromView:");
+  I64 sig = ui_msg(view, UiSel("methodSignatureForSelector:"), sel, 0, 0);
+  I64 inv = ui_msg(UiCls("NSInvocation"),
+    UiSel("invocationWithMethodSignature:"), sig, 0, 0);
+  I64 nilview = 0;
+  ui_msg(inv, UiSel("setSelector:"), sel, 0, 0);
+  ui_msg(inv, UiSel("setTarget:"), view, 0, 0);
+  ui_msg(inv, UiSel("setArgument:atIndex:"), out, 2, 0);
+  ui_msg(inv, UiSel("setArgument:atIndex:"), &nilview, 3, 0);
+  ui_msg(inv, UiSel("invoke"), 0, 0, 0);
+  ui_msg(inv, UiSel("getReturnValue:"), out, 0, 0);
+}
+
+U0 UiCocoaMouseEv(I64 self, I64 ev, I64 button, Bool pressed, Bool motion)
+{
+  UiCtl *c = UiCtlFind(self);
+  F64 pt[2];
+  if (!c)
+    return;
+  UiCocoaMousePos(self, ev, pt);
+  UiFireMouse(c, pt[0], pt[1], button, pressed, motion);
+}
+
+U0 UiCocoaMouseDown(I64 self, I64 cmd, I64 ev)
+{
+  UiCocoaMouseEv(self, ev, 1, TRUE, FALSE);
+}
+
+U0 UiCocoaMouseDrag(I64 self, I64 cmd, I64 ev)
+{
+  UiCocoaMouseEv(self, ev, 1, TRUE, TRUE);
+}
+
+U0 UiCocoaMouseUp(I64 self, I64 cmd, I64 ev)
+{
+  UiCocoaMouseEv(self, ev, 1, FALSE, FALSE);
+}
+
+U0 UiCocoaMouseMove(I64 self, I64 cmd, I64 ev)
+{
+  UiCocoaMouseEv(self, ev, 0, FALSE, TRUE);
+}
+
+U0 UiCocoaRMouseDown(I64 self, I64 cmd, I64 ev)
+{
+  UiCocoaMouseEv(self, ev, 2, TRUE, FALSE);
+}
+
+U0 UiCocoaRMouseUp(I64 self, I64 cmd, I64 ev)
+{
+  UiCocoaMouseEv(self, ev, 2, FALSE, FALSE);
+}
+
 // find a table/tree by its inner view (stashed in ->col; ->native is the
 // enclosing scroll view)
 UiCtl *UiByCol(I64 h)
@@ -178,7 +239,9 @@ U0 UiCocoaSelChanged(I64 self, I64 cmd, I64 notif)
 
 U0 UiInit()
 {
-  ui_msg = ui_msgf = ui_msgt = dlsym(-2, "objc_msgSend");
+  ui_msg = dlsym(-2, "objc_msgSend");
+  ui_msgf = dlsym(-2, "objc_msgSend");
+  ui_msgt = dlsym(-2, "objc_msgSend");
   ui_msg(ui_msg(UiCls("NSAutoreleasePool"), UiSel("alloc"), 0, 0, 0),
     UiSel("init"), 0, 0, 0);
   ui_app = ui_msg(UiCls("NSApplication"), UiSel("sharedApplication"), 0, 0, 0);
@@ -202,6 +265,12 @@ U0 UiInit()
   class_addMethod(ccls, UiSel("drawRect:"), &UiCocoaDraw,
     "v@:{CGRect={CGPoint=dd}{CGSize=dd}}");
   class_addMethod(ccls, UiSel("isFlipped"), &UiCocoaFlipped, "c@:");
+  class_addMethod(ccls, UiSel("mouseDown:"), &UiCocoaMouseDown, "v@:@");
+  class_addMethod(ccls, UiSel("mouseDragged:"), &UiCocoaMouseDrag, "v@:@");
+  class_addMethod(ccls, UiSel("mouseUp:"), &UiCocoaMouseUp, "v@:@");
+  class_addMethod(ccls, UiSel("mouseMoved:"), &UiCocoaMouseMove, "v@:@");
+  class_addMethod(ccls, UiSel("rightMouseDown:"), &UiCocoaRMouseDown, "v@:@");
+  class_addMethod(ccls, UiSel("rightMouseUp:"), &UiCocoaRMouseUp, "v@:@");
   objc_registerClassPair(ccls);
   // NSTableView data source + delegate (pull model)
   I64 scls = objc_allocateClassPair(UiCls("NSObject"), "UiTblSrc", 0);
@@ -391,6 +460,11 @@ UiCtl *UiCanvasNew(I64 w, I64 h, U0 *drawfn, U0 *data=NULL)
   c->w = w;
   c->h = h;
   UiOnClick(c, drawfn, data);
+  // hover motion: 0x222 = MouseMoved|ActiveInKeyWindow|InVisibleRect
+  I64 ta = ui_msgf(ui_msg(UiCls("NSTrackingArea"), UiSel("alloc"), 0, 0, 0),
+    UiSel("initWithRect:options:owner:userInfo:"), 0.0, 0.0, 0.0, 0.0,
+    0x222, v, 0);
+  ui_msg(v, UiSel("addTrackingArea:"), ta, 0, 0);
   return c;
 }
 
@@ -592,7 +666,7 @@ UiCtl *UiMultilineNew(U8 *text="")
   ui_msg(ui_msg(tv, UiSel("textStorage"), 0, 0, 0),
     UiSel("setAttributedString:"),
     ui_msg(ui_msg(UiCls("NSAttributedString"), UiSel("alloc"), 0, 0, 0),
-      UiSel("initWithString:"), UiStr(text), 0), 0, 0);
+      UiSel("initWithString:"), UiStr(text), 0, 0), 0, 0);
   UiPin(tv, "heightAnchor", 80);
   UiPin(tv, "widthAnchor", 240);
   return UiCtlNew(UI_MULTILINE, tv);
