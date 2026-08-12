@@ -2,13 +2,16 @@
 
 The library is split by cost:
 
+- Include `strbuf.hc` for an allocating, small-string-optimized string
+  builder. Its first 63 payload bytes are stored inline.
 - Include `utf8.HC` for three strict UTF-8 primitives: `Utf8DecodeRune`,
   `Utf8EncodeRune`, and `Utf8Valid`.
 - Include `encoding.HC` for `CText`, UTF-16/32, ASCII, Latin-1, EBCDIC 037,
   transcoding, and Pascal-string adapters. It includes `utf8.HC` itself.
 
-All string lengths and positions are byte counts. No function allocates, and
-an explicit-length buffer may contain NUL bytes.
+In the encoding APIs, all string lengths and positions are byte counts. No
+encoding function allocates, and an explicit-length buffer may contain NUL
+bytes.
 
 ```c
 #include "lib/text/encoding.HC"
@@ -48,3 +51,18 @@ TextConvert(&text, TEXT_ENCODING_UTF16_LE, utf16, needed);
 `TextFromPascal` and `TextWritePascal` accept a 1, 2, or 4-byte length prefix
 and an endianness flag instead of multiplying the API with format-specific
 wrappers. Pascal lengths count payload bytes.
+
+Build strings incrementally with `CStrBuf`. `StrBufPutN` preserves embedded
+NUL bytes, and `StrBufTake` returns a `Free`-able allocation and resets the
+builder for reuse.
+
+```c
+#include "lib/text/strbuf.hc"
+
+CStrBuf buffer;
+StrBufInit(&buffer);
+StrBufPutS(&buffer, "answer=");
+StrBufPrintf(&buffer, "%d", 42);
+U8 *text = StrBufTake(&buffer);
+Free(text);
+```
