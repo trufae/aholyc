@@ -44,6 +44,12 @@ extern I64 ReadConsoleInputW(U8 *handle, U8 *record, U32 count, U32 *got);
 extern U32 WaitForSingleObject(U8 *handle, U32 milliseconds);
 extern I64 SetConsoleOutputCP(U32 codepage);
 extern U32 GetConsoleOutputCP();
+extern U64 GetTickCount64();
+
+I64 TermNativeMs()
+{
+  return GetTickCount64;
+}
 
 class CTermWinInfo
 {
@@ -416,6 +422,7 @@ Bool TermWinMouseEvent(CTermEvent *event, CTermWinMouse *mouse)
   if (mouse->flags & 1) {  // motion
     event->button = TermWinButton(held);
     event->pressed = held != 0;
+    event->motion = TRUE;
     return TRUE;
   }
   changed = held ^ term_win_buttons;

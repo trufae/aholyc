@@ -16,6 +16,22 @@ extern I64 tcsetattr(I64 fd, I64 actions, U8 *state);
 extern U8 *signal(I64 number, U8 *handler);
 extern I64 poll(U8 *fds, U64 count, I64 timeout);
 extern I64 isatty(I64 fd);
+extern I64 clock_gettime(I64 clock, U8 *timespec);
+
+#ifdef IS_MACOS
+#define TERM_CLOCK_MONOTONIC 6
+#else
+#define TERM_CLOCK_MONOTONIC 1
+#endif
+
+I64 TermNativeMs()
+{
+  I64 stamp[2];
+
+  if (clock_gettime(TERM_CLOCK_MONOTONIC, stamp)(I32))
+    return 0;
+  return stamp[0] * 1000 + stamp[1] / 1000000;
+}
 
 #define TERM_SIGINT   2
 #define TERM_SIGWINCH 28
@@ -292,6 +308,7 @@ U0 TermPosixMouse(CTermEvent *event, I64 *params, I64 final)
   if (base < 3)
     event->button = base + 1;
   event->pressed = final == 'M' && base < 3;
+  event->motion = (button & 32) != 0;
 }
 
 // ESC [ params final, after the "ESC [" prefix has been consumed.

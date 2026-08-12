@@ -124,7 +124,8 @@ class CTermEvent
   I64 x;         // mouse cell, 0-based
   I64 y;
   I64 button;    // TERM_MOUSE_*
-  Bool pressed;  // mouse: button went down (or is held during motion)
+  Bool pressed;  // mouse: button is down
+  Bool motion;   // mouse: movement report, not a new press
   I64 width;     // resize: new size
   I64 height;
 };
@@ -412,6 +413,20 @@ public Bool TermGetSize(I64 *width, I64 *height)
 public U0 TermOnResize(U8 *callback)
 {
   term_resize_callback = callback;
+}
+
+// Monotonic milliseconds, for animation and timer arithmetic.
+public I64 TermMs()
+{
+  return TermNativeMs;
+}
+
+// Read a cell from the drawing grid (as last written, not as displayed).
+public U64 TermPeek(I64 x, I64 y)
+{
+  if (x < 0 || y < 0 || x >= term_width || y >= term_height || !term_back)
+    return TERM_CELL_EMPTY;
+  return term_back[y * term_width + x];
 }
 
 public Bool TermInterrupted(Bool clear=TRUE)

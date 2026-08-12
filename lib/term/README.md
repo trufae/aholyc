@@ -75,6 +75,9 @@ I64  TermReadLine(U8 *buffer, I64 capacity);  // cooked line, -1 on EOF
 Bool TermInterrupted(Bool clear=TRUE);        // did the user press ^C?
 U0   TermMouse(Bool enable=TRUE);
 U0   TermRaw(Bool enable=TRUE);
+
+I64  TermMs();                                // monotonic milliseconds
+U64  TermPeek(I64 x, I64 y);                  // read back a drawn cell
 ```
 
 Colors are the 16 ANSI colors (`TERM_BLACK` … `TERM_BRIGHT_WHITE`) plus
