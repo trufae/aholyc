@@ -32,6 +32,10 @@ extern I64 gtk_drawing_area_new();
 extern U0 gtk_drawing_area_set_content_width(I64 a, I64 px);
 extern U0 gtk_drawing_area_set_content_height(I64 a, I64 px);
 extern U0 gtk_drawing_area_set_draw_func(I64 a, I64 fn, I64 data, I64 dtor);
+extern I64 gtk_event_controller_motion_new();
+extern I64 gtk_gesture_click_new();
+extern U0 gtk_gesture_single_set_button(I64 gesture, I64 button);
+extern U0 gtk_widget_add_controller(I64 widget, I64 controller);
 extern U0 gtk_widget_queue_draw(I64 w);
 extern U0 gtk_widget_set_margin_top(I64 w, I64 px);
 extern U0 gtk_widget_set_margin_bottom(I64 w, I64 px);
@@ -170,6 +174,22 @@ U0 UiGtkDraw(I64 area, I64 cr, I64 w, I64 h, I64 data)
   ui_cr = 0;
 }
 
+U0 UiGtkMotion(I64 ctrl, F64 x, F64 y, I64 data)
+{
+  UiCtl *c = data;
+  UiFireMouse(c, x, y, c->mouse_button, c->mouse_pressed, TRUE);
+}
+
+U0 UiGtkPress(I64 gesture, I64 npress, F64 x, F64 y, I64 data)
+{
+  UiFireMouse(data, x, y, 1, TRUE, FALSE);
+}
+
+U0 UiGtkRelease(I64 gesture, I64 npress, F64 x, F64 y, I64 data)
+{
+  UiFireMouse(data, x, y, 1, FALSE, FALSE);
+}
+
 UiCtl *UiWindowNew(U8 *title, I64 w=480, I64 h=320)
 {
   ui_gtk_win = gtk_window_new;
@@ -288,6 +308,7 @@ UiCtl *UiSeparatorNew()
 UiCtl *UiCanvasNew(I64 w, I64 h, U0 *drawfn, U0 *data=NULL)
 {
   I64 a = gtk_drawing_area_new;
+  I64 motion, click;
   gtk_drawing_area_set_content_width(a, w);
   gtk_drawing_area_set_content_height(a, h);
   UiCtl *c = UiCtlNew(UI_CANVAS, a);
@@ -295,6 +316,14 @@ UiCtl *UiCanvasNew(I64 w, I64 h, U0 *drawfn, U0 *data=NULL)
   c->h = h;
   UiOnClick(c, drawfn, data);
   gtk_drawing_area_set_draw_func(a, &UiGtkDraw, c, 0);
+  motion = gtk_event_controller_motion_new;
+  g_signal_connect_data(motion, "motion", &UiGtkMotion, c, 0, 0);
+  gtk_widget_add_controller(a, motion);
+  click = gtk_gesture_click_new;
+  gtk_gesture_single_set_button(click, 1);
+  g_signal_connect_data(click, "pressed", &UiGtkPress, c, 0, 0);
+  g_signal_connect_data(click, "released", &UiGtkRelease, c, 0, 0);
+  gtk_widget_add_controller(a, click);
   return c;
 }
 

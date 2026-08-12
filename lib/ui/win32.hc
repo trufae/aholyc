@@ -42,6 +42,8 @@ extern I64 DestroyWindow(I64 hwnd);
 extern I64 EnableWindow(I64 hwnd, I64 on);
 extern I64 SetTimer(I64 hwnd, I64 id, I64 ms, I64 proc);
 extern I64 KillTimer(I64 hwnd, I64 id);
+extern I64 SetCapture(I64 hwnd);
+extern I64 ReleaseCapture();
 
 #define WM_DESTROY 2
 #define WM_PAINT 0xF
@@ -49,6 +51,9 @@ extern I64 KillTimer(I64 hwnd, I64 id);
 #define WM_HSCROLL 0x114
 #define WM_VSCROLL 0x115
 #define WM_TIMER 0x113
+#define WM_MOUSEMOVE 0x200
+#define WM_LBUTTONDOWN 0x201
+#define WM_LBUTTONUP 0x202
 #define WS_OVERLAPPEDWINDOW 0xCF0000
 #define WS_CHILD_VISIBLE 0x50000000  // WS_CHILD | WS_VISIBLE
 #define CW_USEDEFAULT 0x80000000
@@ -169,6 +174,8 @@ I64 UiDlgProc(I64 hwnd, I64 msg, I64 wp, I64 lp)
 I64 UiCanvasProc(I64 hwnd, I64 msg, I64 wp, I64 lp)
 {
   U8 ps[80];
+  UiCtl *c;
+  I64 x, y, pressed, button;
   if (msg == WM_PAINT) {
     ui_hdc = BeginPaint(hwnd, ps);
     UiFireClick(UiCtlFind(hwnd));
@@ -178,6 +185,28 @@ I64 UiCanvasProc(I64 hwnd, I64 msg, I64 wp, I64 lp)
       DeleteObject(ui_pen);
     ui_brush = ui_pen = ui_hdc = 0;
     EndPaint(hwnd, ps);
+    return 0;
+  }
+  if (msg == WM_MOUSEMOVE || msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP) {
+    c = UiCtlFind(hwnd);
+    x = lp & 0xFFFF;
+    y = lp >> 16 & 0xFFFF;
+    if (x & 0x8000)
+      x -= 0x10000;
+    if (y & 0x8000)
+      y -= 0x10000;
+    pressed = wp & 1;
+    button = 0;
+    if (pressed || msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP)
+      button = 1;
+    if (msg == WM_LBUTTONDOWN) {
+      SetCapture(hwnd);
+      pressed = TRUE;
+    } else if (msg == WM_LBUTTONUP) {
+      ReleaseCapture;
+      pressed = FALSE;
+    }
+    UiFireMouse(c, x, y, button, pressed, msg == WM_MOUSEMOVE);
     return 0;
   }
   return DefWindowProcA(hwnd, msg, wp, lp);

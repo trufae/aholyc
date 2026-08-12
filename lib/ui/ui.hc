@@ -33,6 +33,12 @@
 //   U0 UiMain();
 //   U0 UiQuit();
 //   U0 UiCanvasRedraw(UiCtl *c);
+//   U0 UiOnMouse(UiCtl *c, U0 *fn, U0 *data=NULL); // canvas pointer event
+//   I64 UiMouseX(UiCtl *c);
+//   I64 UiMouseY(UiCtl *c);
+//   I64 UiMouseButton(UiCtl *c);
+//   Bool UiMousePressed(UiCtl *c);
+//   Bool UiMouseMotion(UiCtl *c);
 //
 // Modal dialogs (parented to the most recent window):
 //   U0 UiMsgBox(U8 *title, U8 *body);
@@ -130,6 +136,9 @@ class UiCtl
   I64 w, h;          // window/canvas size
   I64 col, row;      // grid cell (table: ncols, nrows)
   I64 cellfn, celldata;  // table pull-model cell callback
+  I64 mousefn, mousedata; // canvas mouse callback + user data
+  I64 mouse_x, mouse_y, mouse_button;
+  Bool mouse_pressed, mouse_motion;
   UiCtl *reg;        // registry chain
   UiCtl *kids, *sib; // container children, for backends without containers
 };
@@ -184,6 +193,50 @@ U0 UiOnClick(UiCtl *c, U0 *fn, U0 *data=NULL)
 U0 UiOnChange(UiCtl *c, U0 *fn, U0 *data=NULL)
 {
   UiOnClick(c, fn, data);
+}
+
+U0 UiOnMouse(UiCtl *c, U0 *fn, U0 *data=NULL)
+{
+  c->mousefn = fn;
+  c->mousedata = data;
+}
+
+U0 UiFireMouse(UiCtl *c, I64 x, I64 y, I64 button, Bool pressed, Bool motion)
+{
+  if (!c)
+    return;
+  c->mouse_x = x;
+  c->mouse_y = y;
+  c->mouse_button = button;
+  c->mouse_pressed = pressed;
+  c->mouse_motion = motion;
+  if (c->mousefn)
+    c->mousefn(c, c->mousedata);
+}
+
+I64 UiMouseX(UiCtl *c)
+{
+  return c->mouse_x;
+}
+
+I64 UiMouseY(UiCtl *c)
+{
+  return c->mouse_y;
+}
+
+I64 UiMouseButton(UiCtl *c)
+{
+  return c->mouse_button;
+}
+
+Bool UiMousePressed(UiCtl *c)
+{
+  return c->mouse_pressed;
+}
+
+Bool UiMouseMotion(UiCtl *c)
+{
+  return c->mouse_motion;
 }
 
 // pull one cell's text from the table's data-source callback (through the

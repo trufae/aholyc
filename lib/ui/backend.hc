@@ -1,9 +1,16 @@
 // check for UI backend depending on
 
+// -DUI_HTK selects the terminal backend on any platform
+#ifdef UI_HTK
+#undef UI_HTK
+#define USE_HTK
+#endif
+
 // check flags
 #define UI_GTK4 1
 #define UI_WIN32 2
 #define UI_COCOA 3
+#define UI_HTK 4
 
 #undef USE_GTK4
 #undef USE_WIN32
@@ -18,13 +25,20 @@
 #if UI_BACKEND == UI_COCOA
 #define USE_COCOA
 #else
-#error invalid value for UI_BACKEND, use UI_GTK4, UI_COCOA or UI_WIN32
+#if UI_BACKEND == UI_HTK
+#define USE_HTK
+#else
+#error invalid value for UI_BACKEND, use UI_GTK4, UI_COCOA, UI_WIN32 or UI_HTK
+#endif
 #endif
 #endif
 #endif
 #endif
 
 // check preferences
+#ifdef USE_HTK
+#include "htk.hc"
+#else
 #ifdef USE_GTK4
 #include "gtk4.hc"
 #else
@@ -43,6 +57,7 @@
 #include "win32.hc"
 #else
 #include "gtk4.hc"
+#endif
 #endif
 #endif
 #endif
