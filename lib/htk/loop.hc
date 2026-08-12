@@ -1,0 +1,733 @@
+// Dispatch and the event loop: kind switches for measure/layout/draw/keys,
+// focus traversal, mouse routing, timers, and the modal helper.
+
+U0 HtkMeasureCtl(HtkCtl *c)
+{
+  if (c->hidden) {
+    c->pw = 0;
+    c->ph = 0;
+    return;
+  }
+  switch (c->kind) {
+  case HTK_BOX:
+  case HTK_TOOLBAR:
+    HtkBoxMeasure(c);
+    break;
+  case HTK_GRID:
+    HtkGridMeasure(c);
+    break;
+  case HTK_SPLIT:
+    HtkSplitMeasure(c);
+    break;
+  case HTK_SCROLL:
+    HtkScrollMeasure(c);
+    break;
+  case HTK_GROUP:
+    HtkGroupMeasure(c);
+    break;
+  case HTK_TAB:
+    HtkTabMeasure(c);
+    break;
+  case HTK_LABEL:
+    HtkLabelMeasure(c);
+    break;
+  case HTK_STATUS:
+    HtkLabelMeasure(c);
+    c->pw += 2;
+    break;
+  case HTK_BUTTON:
+  case HTK_MENUITEM:
+    HtkButtonMeasure(c);
+    break;
+  case HTK_ENTRY:
+    HtkEntryMeasure(c);
+    break;
+  case HTK_MULTILINE:
+    HtkMultilineMeasure(c);
+    break;
+  case HTK_CHECKBOX:
+    HtkCheckboxMeasure(c);
+    break;
+  case HTK_RADIO:
+    HtkRadioMeasure(c);
+    break;
+  case HTK_SLIDER:
+  case HTK_PROGRESS:
+    HtkSliderMeasure(c);
+    break;
+  case HTK_SPIN:
+    HtkSpinMeasure(c);
+    break;
+  case HTK_COMBO:
+    HtkComboMeasure(c);
+    break;
+  case HTK_TABLE:
+    HtkTableMeasure(c);
+    break;
+  case HTK_TREE:
+    HtkTreeMeasure(c);
+    break;
+  case HTK_CANVAS:
+    HtkCanvasMeasure(c);
+    break;
+  case HTK_SEP:
+    c->pw = 1;
+    c->ph = 1;
+    break;
+  default:
+    c->pw = 0;
+    c->ph = 0;
+  }
+}
+
+U0 HtkLayoutCtl(HtkCtl *c)
+{
+  if (c->hidden)
+    return;
+  switch (c->kind) {
+  case HTK_BOX:
+  case HTK_TOOLBAR:
+    HtkBoxLayout(c);
+    break;
+  case HTK_GRID:
+    HtkGridLayout(c);
+    break;
+  case HTK_SPLIT:
+    HtkSplitLayout(c);
+    break;
+  case HTK_SCROLL:
+    HtkScrollLayout(c);
+    break;
+  case HTK_GROUP:
+    HtkGroupLayout(c);
+    break;
+  case HTK_TAB:
+    HtkTabPages(c);
+    HtkTabLayout(c);
+    break;
+  }
+}
+
+U0 HtkDrawCtl(HtkCtl *c)
+{
+  HtkCtl *k;
+
+  if (c->hidden)
+    return;
+  switch (c->kind) {
+  case HTK_BOX:
+  case HTK_GRID:
+    k = c->kids;
+    while (k) {
+      HtkDrawCtl(k);
+      k = k->sib;
+    }
+    break;
+  case HTK_TOOLBAR:
+    HtkToolbarDraw(c);
+    break;
+  case HTK_SPLIT:
+    HtkSplitDraw(c);
+    k = c->kids;
+    while (k) {
+      HtkDrawCtl(k);
+      k = k->sib;
+    }
+    break;
+  case HTK_SCROLL:
+    HtkScrollDraw(c);
+    break;
+  case HTK_GROUP:
+    HtkGroupDraw(c);
+    break;
+  case HTK_TAB:
+    HtkTabDraw(c);
+    break;
+  case HTK_LABEL:
+  case HTK_STATUS:
+    HtkLabelDraw(c);
+    break;
+  case HTK_SEP:
+    HtkSepDraw(c);
+    break;
+  case HTK_BUTTON:
+    HtkButtonDraw(c);
+    break;
+  case HTK_ENTRY:
+    HtkEntryDraw(c);
+    break;
+  case HTK_MULTILINE:
+    HtkMultilineDraw(c);
+    break;
+  case HTK_CHECKBOX:
+    HtkCheckboxDraw(c);
+    break;
+  case HTK_RADIO:
+    HtkRadioDraw(c);
+    break;
+  case HTK_SLIDER:
+    HtkSliderDraw(c);
+    break;
+  case HTK_PROGRESS:
+    HtkProgressDraw(c);
+    break;
+  case HTK_SPIN:
+    HtkSpinDraw(c);
+    break;
+  case HTK_COMBO:
+    HtkComboDraw(c);
+    break;
+  case HTK_TABLE:
+    HtkTableDraw(c);
+    break;
+  case HTK_TREE:
+    HtkTreeDraw(c);
+    break;
+  case HTK_CANVAS:
+    HtkCanvasDraw(c);
+    break;
+  }
+}
+
+Bool HtkKeyCtl(HtkCtl *c, CTermEvent *e)
+{
+  if (c->disabled)
+    return FALSE;
+  switch (c->kind) {
+  case HTK_BUTTON:
+    return HtkButtonKey(c, e);
+  case HTK_ENTRY:
+    return HtkEntryKey(c, e);
+  case HTK_MULTILINE:
+    return HtkMultilineKey(c, e);
+  case HTK_CHECKBOX:
+    return HtkCheckboxKey(c, e);
+  case HTK_RADIO:
+    return HtkRadioKey(c, e);
+  case HTK_SLIDER:
+    return HtkSliderKey(c, e);
+  case HTK_SPIN:
+    return HtkSpinKey(c, e);
+  case HTK_COMBO:
+    return HtkComboKey(c, e);
+  case HTK_TABLE:
+    return HtkTableKey(c, e);
+  case HTK_TREE:
+    return HtkTreeKey(c, e);
+  case HTK_TAB:
+    return HtkTabKey(c, e);
+  case HTK_SCROLL:
+    return HtkScrollKey(c, e);
+  }
+  return FALSE;
+}
+
+// Deepest visible control containing the point; later siblings win.
+HtkCtl *HtkHit(HtkCtl *c, I64 x, I64 y)
+{
+  HtkCtl *k, *hit, *best = NULL;
+
+  if (c->hidden || x < c->x || y < c->y ||
+    x >= c->x + c->w || y >= c->y + c->h)
+    return NULL;
+  k = c->kids;
+  while (k) {
+    hit = HtkHit(k, x, y);
+    if (hit)
+      best = hit;
+    k = k->sib;
+  }
+  if (best)
+    return best;
+  return c;
+}
+
+U0 HtkSetFocus(HtkCtl *c)
+{
+  if (htk_focus == c)
+    return;
+  htk_focus = c;
+  htk_dirty = TRUE;
+}
+
+#define HTK_FOCUS_MAX 128
+
+U0 HtkCollectFocus(HtkCtl *c, HtkCtl **list, I64 *n)
+{
+  HtkCtl *k;
+
+  if (!c || c->hidden || *n >= HTK_FOCUS_MAX)
+    return;
+  if (c->focusable && !c->disabled) {
+    list[*n] = c;
+    (*n)++;
+  }
+  k = c->kids;
+  while (k) {
+    if (k->kind != HTK_MENU)
+      HtkCollectFocus(k, list, n);
+    k = k->sib;
+  }
+}
+
+U0 HtkFocusMove(I64 dir)
+{
+  HtkCtl *list[HTK_FOCUS_MAX];
+  HtkCtl *top = HtkTop;
+  I64 n = 0, i, at = -1;
+
+  if (!top)
+    return;
+  HtkCollectFocus(HtkWindowContent(top), list, &n);
+  if (!n) {
+    HtkSetFocus(NULL);
+    return;
+  }
+  for (i = 0; i < n; i++)
+    if (list[i] == htk_focus)
+      at = i;
+  at += dir;
+  if (at >= n)
+    at = 0;
+  if (at < 0)
+    at = n - 1;
+  HtkSetFocus(list[at]);
+}
+
+// Make sure focus points into the active window.
+U0 HtkEnsureFocus()
+{
+  HtkCtl *top = HtkTop;
+
+  if (!top) {
+    htk_focus = NULL;
+    return;
+  }
+  if (htk_focus && HtkOwnerWindow(htk_focus) == top && !htk_focus->hidden)
+    return;
+  htk_focus = NULL;
+  HtkFocusMove(1);
+}
+
+U0 HtkPopupOpen(HtkCtl *popup)
+{
+  Free(htk_popup);
+  htk_popup = popup;
+  htk_dirty = TRUE;
+}
+
+U0 HtkPopupClose()
+{
+  Free(htk_popup);
+  htk_popup = NULL;
+  htk_dirty = TRUE;
+}
+
+U0 HtkHookAdd(I64 delay_ms, I64 repeat_ms, I64 fn, I64 a, I64 b)
+{
+  HtkHook *h = CAlloc(sizeof(HtkHook));
+
+  h->due = TermMs + delay_ms;
+  h->ms = repeat_ms;
+  h->fn = fn;
+  h->a = a;
+  h->b = b;
+  h->next = htk_hooks;
+  htk_hooks = h;
+}
+
+U0 HtkRunHooks()
+{
+  HtkHook *h = htk_hooks;
+  HtkHook **prev = &htk_hooks;
+  I64 now = TermMs;
+  I64 call;
+
+  while (h) {
+    if (h->due <= now) {
+      call = h->fn;
+      if (call)
+        call(h->a, h->b);
+      if (h->ms) {
+        h->due = now + h->ms;
+        prev = &h->next;
+        h = h->next;
+      } else {
+        *prev = h->next;
+        Free(h);
+        h = *prev;
+      }
+    } else {
+      prev = &h->next;
+      h = h->next;
+    }
+  }
+}
+
+I64 HtkNextTimeout()
+{
+  HtkHook *h = htk_hooks;
+  I64 now = TermMs;
+  I64 best = -1;
+
+  while (h) {
+    if (best < 0 || h->due - now < best) {
+      best = h->due - now;
+      if (best < 0)
+        best = 0;
+    }
+    h = h->next;
+  }
+  return best;
+}
+
+U0 HtkRedraw()
+{
+  HtkCtl *w = htk_windows;
+
+  HtkEnsureFocus;
+  TermShowCursor(FALSE);
+  HtkClipAll;
+  HtkDesktopDraw;
+  while (w) {
+    HtkClipAll;
+    HtkWindowLayout(w);
+    HtkWindowDraw(w);
+    w = w->sib;
+  }
+  HtkClipAll;
+  if (htk_popup)
+    HtkPickDraw(htk_popup);
+  TermCommit;
+}
+
+U0 HtkCanvasMouse(HtkCtl *c, CTermEvent *e)
+{
+  if (!c)
+    return;
+  c->mouse_x = e->x - c->x;
+  c->mouse_y = e->y - c->y;
+  c->mouse_button = e->button;
+  c->mouse_pressed = e->pressed;
+  c->mouse_motion = e->motion;
+  if (c->mouse_x < 0)
+    c->mouse_x = 0;
+  if (c->mouse_y < 0)
+    c->mouse_y = 0;
+  if (c->mouse_x >= c->w)
+    c->mouse_x = c->w - 1;
+  if (c->mouse_y >= c->h)
+    c->mouse_y = c->h - 1;
+  HtkFire(c);
+}
+
+U0 HtkWindowMouse(HtkCtl *w, CTermEvent *e)
+{
+  HtkCtl *content = HtkWindowContent(w);
+  HtkCtl *hit;
+  Bool press = e->pressed && !e->motion && e->button == TERM_MOUSE_LEFT;
+
+  if (e->y == w->y) {
+    if (!press)
+      return;
+    if (e->x >= w->x + 2 && e->x <= w->x + 4) {
+      HtkWindowClose(w);
+      return;
+    }
+    htk_drag = w;
+    htk_drag_resize = FALSE;
+    htk_drag_dx = e->x - w->x;
+    htk_drag_dy = e->y - w->y;
+    return;
+  }
+  // Dragging the bottom-right corner resizes.
+  if (press && e->x >= w->x + w->w - 2 && e->y == w->y + w->h - 1) {
+    htk_drag = w;
+    htk_drag_resize = TRUE;
+    return;
+  }
+  if (HtkWindowHasMenu(w) && e->y == w->y + 1) {
+    hit = HtkMenubarHit(w, e->x);
+    if (hit && press)
+      HtkMenuOpen(hit);
+    return;
+  }
+  if (!content)
+    return;
+  hit = HtkHit(content, e->x, e->y);
+  if (!hit)
+    return;
+  if (press && hit->focusable && !hit->disabled)
+    HtkSetFocus(hit);
+  if (hit->disabled)
+    return;
+  switch (hit->kind) {
+  case HTK_BUTTON:
+    if (press)
+      HtkFire(hit);
+    break;
+  case HTK_CHECKBOX:
+    if (press) {
+      hit->value = !hit->value;
+      HtkFire(hit);
+    }
+    break;
+  case HTK_RADIO:
+    if (press && e->y - hit->y < HtkKidCount(hit)) {
+      hit->value = e->y - hit->y;
+      HtkFire(hit);
+    }
+    break;
+  case HTK_SLIDER:
+    if (press) {
+      HtkSliderMouse(hit, e->x);
+      htk_drag = hit;
+    }
+    break;
+  case HTK_CANVAS:
+    if (e->pressed || e->motion) {
+      HtkCanvasMouse(hit, e);
+      if (e->pressed && e->button == TERM_MOUSE_LEFT)
+        htk_drag = hit;
+    }
+    break;
+  case HTK_SPIN:
+    if (press) {
+      if (e->x < hit->x + hit->w / 2)
+        hit->value--;
+      else
+        hit->value++;
+      if (hit->value < hit->low)
+        hit->value = hit->low;
+      if (hit->value > hit->high)
+        hit->value = hit->high;
+      HtkFire(hit);
+    }
+    break;
+  case HTK_COMBO:
+    if (press)
+      HtkComboOpen(hit);
+    break;
+  case HTK_ENTRY:
+    if (press) {
+      // Put the cursor on the clicked column.
+      I64 want = e->x - hit->x;
+      I64 i = hit->top;
+      while (want > 0 && hit->text[i]) {
+        TermRuneNext(hit->text, &i);
+        want--;
+      }
+      hit->cursor = i;
+      htk_dirty = TRUE;
+    }
+    break;
+  case HTK_TABLE:
+    if (press && e->y > hit->y)
+      HtkTableSelect(hit, hit->top + e->y - hit->y - 1);
+    break;
+  case HTK_TREE:
+    if (press)
+      HtkTreeClick(hit, hit->top + e->y - hit->y);
+    break;
+  case HTK_TAB:
+    if (press && e->y == hit->y) {
+      HtkCtl *page = hit->kids;
+      I64 i = 0;
+      while (page) {
+        if (e->x >= page->x && e->x < page->x + page->w) {
+          hit->value = i;
+          htk_dirty = TRUE;
+        }
+        page = page->sib;
+        i++;
+      }
+    }
+    break;
+  }
+  if (e->button == TERM_MOUSE_WHEEL_UP || e->button == TERM_MOUSE_WHEEL_DOWN) {
+    HtkCtl *seek = hit;
+    I64 step = 1;
+    if (e->button == TERM_MOUSE_WHEEL_UP)
+      step = -1;
+    while (seek && seek->kind != HTK_SCROLL && seek->kind != HTK_TABLE &&
+      seek->kind != HTK_TREE)
+      seek = seek->parent;
+    if (seek) {
+      if (seek->kind == HTK_TABLE)
+        HtkTableSelect(seek, seek->value + step);
+      else if (seek->kind == HTK_TREE)
+        HtkTreeSelect(seek, HtkTreeIndexOf(seek, seek->link) + step);
+      else {
+        seek->top += step * 2;
+        if (seek->top < 0)
+          seek->top = 0;
+        htk_dirty = TRUE;
+      }
+    }
+  }
+}
+
+U0 HtkMouse(CTermEvent *e)
+{
+  HtkCtl *w;
+  HtkCtl *at = NULL;
+
+  // A release (or wheel) always ends the active drag.
+  if (!e->pressed) {
+    if (htk_drag && htk_drag->kind == HTK_CANVAS)
+      HtkCanvasMouse(htk_drag, e);
+    htk_drag = NULL;
+    htk_drag_resize = FALSE;
+  }
+  if (htk_drag && e->pressed) {
+    if (htk_drag->kind == HTK_WINDOW) {
+      if (htk_drag_resize) {
+        htk_drag->w = e->x - htk_drag->x + 1;
+        htk_drag->h = e->y - htk_drag->y + 1;
+        if (htk_drag->w < 12)
+          htk_drag->w = 12;
+        if (htk_drag->h < 4)
+          htk_drag->h = 4;
+      } else {
+        htk_drag->x = e->x - htk_drag_dx;
+        htk_drag->y = e->y - htk_drag_dy;
+      }
+      htk_dirty = TRUE;
+    } else if (htk_drag->kind == HTK_SLIDER)
+      HtkSliderMouse(htk_drag, e->x);
+    else if (htk_drag->kind == HTK_CANVAS)
+      HtkCanvasMouse(htk_drag, e);
+    return;
+  }
+  if (htk_popup) {
+    if (e->x >= htk_popup->x && e->x < htk_popup->x + htk_popup->w &&
+      e->y >= htk_popup->y && e->y < htk_popup->y + htk_popup->h) {
+      HtkPickMouse(htk_popup, e);
+      return;
+    }
+    if (e->pressed && !e->motion)
+      HtkPopupClose;
+    return;
+  }
+  w = htk_windows;
+  while (w) {
+    if (e->x >= w->x && e->x < w->x + w->w &&
+      e->y >= w->y && e->y < w->y + w->h)
+      at = w;
+    w = w->sib;
+  }
+  if (!at)
+    return;
+  if (at != HtkTop && e->pressed) {
+    HtkWindowRaise(at);
+    return;
+  }
+  HtkWindowMouse(at, e);
+}
+
+U0 HtkKey(CTermEvent *e)
+{
+  HtkCtl *top = HtkTop;
+
+  if (htk_popup) {
+    HtkPickKey(htk_popup, e);
+    return;
+  }
+  if (e->key == TERM_KEY_TAB) {
+    if (e->mods & TERM_MOD_SHIFT)
+      HtkFocusMove(-1);
+    else
+      HtkFocusMove(1);
+    return;
+  }
+  if (e->key == TERM_KEY_F10 && top) {
+    HtkCtl *m = top->kids;
+    while (m && m->kind != HTK_MENU)
+      m = m->sib;
+    if (m) {
+      HtkMenubarHit(top, -1);  // refresh menu positions
+      HtkMenuOpen(m);
+    }
+    return;
+  }
+  if (htk_focus && HtkKeyCtl(htk_focus, e))
+    return;
+  if (!top)
+    return;
+  if (e->key == TERM_KEY_ENTER && top->link) {
+    HtkFire(top->link);  // window default button
+    return;
+  }
+  if (e->key == TERM_KEY_ESCAPE && top->low)
+    HtkWindowClose(top);
+}
+
+Bool HtkStep(I64 timeout)
+{
+  CTermEvent e;
+
+  HtkRunHooks;
+  if (htk_dirty) {
+    htk_dirty = FALSE;
+    HtkRedraw;
+  }
+  if (!TermPollEvent(&e, timeout))
+    return FALSE;
+  if (e.type == TERM_EVENT_RESIZE)
+    htk_dirty = TRUE;
+  else if (e.type == TERM_EVENT_KEY)
+    HtkKey(&e);
+  else if (e.type == TERM_EVENT_MOUSE)
+    HtkMouse(&e);
+  return TRUE;
+}
+
+Bool HtkInit()
+{
+  if (htk_started)
+    return TRUE;
+  if (!TermInit)
+    return FALSE;
+  HtkThemeDefault;
+  TermMouse;
+  htk_started = TRUE;
+  htk_dirty = TRUE;
+  return TRUE;
+}
+
+U0 HtkFini()
+{
+  if (!htk_started)
+    return;
+  TermFini;
+  htk_started = FALSE;
+}
+
+U0 HtkQuit()
+{
+  htk_running = FALSE;
+}
+
+I64 HtkStepTimeout()
+{
+  I64 wait = HtkNextTimeout;
+
+  if (htk_dirty)
+    return 0;
+  return wait;
+}
+
+U0 HtkMain()
+{
+  htk_running = TRUE;
+  while (htk_running && htk_windows && !TermInterrupted(FALSE))
+    HtkStep(HtkStepTimeout);
+  htk_running = FALSE;
+}
+
+// Nested loop for dialogs: runs until the window is dismissed.
+U0 HtkModal(HtkCtl *w)
+{
+  while (!w->closed && htk_windows && !TermInterrupted(FALSE))
+    HtkStep(HtkStepTimeout);
+}
