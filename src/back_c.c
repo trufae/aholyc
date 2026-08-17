@@ -42,6 +42,13 @@ static bool is_c_varargs(Obj *fn) {
 	return fn->is_variadic && fn->is_extern && !fn->from_prelude;
 }
 
+/* user `extern` function without an explicit assembler name: declared under
+ * an HC_EX() alias bound to the real symbol so its I64-shaped prototype
+ * never clashes with libc headers the runtime already includes */
+static bool is_user_import(Obj *fn) {
+	return fn->is_func && fn->is_extern && !fn->from_prelude && !fn->link_name;
+}
+
 static const char *scalar_ctype(Type *ty) {
 	if (ty->kind == TY_F64) {
 		return "hc_f64";
@@ -95,7 +102,9 @@ static void emit_narrowed(CGen *cg, Node *n, Type *ty) {
 
 static char *objname(CGen *cg, Obj *v) {
 	char *buf = cg->name;
-	if (v->is_extern || v->is_public) {
+	if (is_user_import (v)) {
+		snprintf (buf, sizeof(cg->name), "HC_EX(%s)", v->name);
+	} else if (v->is_extern || v->is_public) {
 		snprintf (buf, sizeof(cg->name), "%s", v->name);
 	} else if (v->is_func) {
 		if (cg->prog && v == cg->prog->startup) {
@@ -164,8 +173,7 @@ static void emit_call(CGen *cg, Node *n, bool value) {
 		sb_printf (cg->out, "(hc_i64)(intptr_t)");
 	}
 	if (fn) {
-		sb_printf (cg->out, "%s%s(", is_c_varargs (fn)? "hc_cv_": "",
-			objname (cg, fn));
+		sb_printf (cg->out, "%s(", objname (cg, fn));
 		Obj *p = fn->params;
 		Node *a = n->args;
 		int i = 0;
@@ -862,25 +870,29 @@ static void emit_func(CGen *cg, Obj *fn) {
 /* only_user skips the runtime API already embedded in the translation unit. */
 static void emit_extern_decls(CGen *cg, bool only_user) {
 	Program *prog = cg->prog;
-	bool have_cva = false;
+	bool have_import = false;
 	for (Obj *f = prog->funcs; f; f = f->next) {
-		if (f->is_extern && is_c_varargs (f)) {
-			have_cva = true;
+		if (is_user_import (f)) {
+			have_import = true;
 			break;
 		}
 	}
-	if (have_cva) {
-		/* C varargs imports are declared under an hc_cv_ alias bound to
-		 * the real symbol: libc headers pulled in by the runtime may
-		 * already declare (printf) or #define (snprintf) these names,
-		 * and our I64-shaped prototype must not clash with them */
+	if (have_import) {
+		/* User imports are declared under an hc_ex_ alias bound to the
+		 * real symbol: libc headers pulled in by the runtime may already
+		 * declare (printf, getenv, fopen) or #define (snprintf) these
+		 * names, and our I64-shaped prototype must not clash with them.
+		 * Compilers without asm labels use the plain name and rely on
+		 * the headers agreeing. */
 		sb_printf (cg->out,
 			"#define HC_S_(x) #x\n"
 			"#define HC_S(x) HC_S_(x)\n"
 			"#if defined(__GNUC__) || defined(__clang__)\n"
 			"#define HC_CSYM(name) __asm__(HC_S(__USER_LABEL_PREFIX__) name)\n"
+			"#define HC_EX(name) hc_ex_##name\n"
 			"#else\n"
 			"#define HC_CSYM(name)\n"
+			"#define HC_EX(name) name\n"
 			"#endif\n");
 	}
 	for (Obj *f = prog->funcs; f; f = f->next) {
@@ -889,11 +901,11 @@ static void emit_extern_decls(CGen *cg, bool only_user) {
 		}
 		Type *ret = f->ty->base;
 		bool cva = is_c_varargs (f);
-		sb_printf (cg->out, "extern %s%s%s %s%s(",
+		sb_printf (cg->out, "extern %s%s%s %s(",
 			f->hints & HINT_INLINE? "inline ": "",
 			f->hints & HINT_NOINLINE? "__attribute__((noinline)) ": "",
 			ret->kind == TY_VOID? "void": extern_ctype (ret),
-			cva? "hc_cv_": "", f->name);
+			objname (cg, f));
 		int np = 0;
 		for (Obj *p = f->params; p; p = p->next, np++) {
 			sb_printf (cg->out, "%s%s", np? ", ": "", extern_ctype (p->ty));
@@ -905,7 +917,7 @@ static void emit_extern_decls(CGen *cg, bool only_user) {
 		}
 		if (f->link_name) {
 			sb_printf (cg->out, " __asm__(\"%s\")", f->link_name);
-		} else if (cva) {
+		} else if (is_user_import (f)) {
 			sb_printf (cg->out, " HC_CSYM(\"%s\")", f->name);
 		}
 		sb_printf (cg->out, ";\n");

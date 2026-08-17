@@ -85,10 +85,12 @@ The exception is a bodiless non-prelude `extern` declared with `...`
 implicit argc/argv pair is added and calls use the real C varargs ABI,
 with F64 extras passed as typed doubles. Prelude variadics (`Print`,
 `StrPrint`, ...) keep the argc/argv contract their C implementations
-expect. In generated C the import is declared under an `hc_cv_` alias
-bound to the real symbol with `__asm__`, so the I64-shaped prototype
-never clashes with declarations or macros from libc headers the runtime
-already includes. The reverse direction stays explicit: C code calls a
+expect. In generated C every user `extern` function (variadic or not) is
+declared under an `hc_ex_` alias (`HC_EX(name)`) bound to the real symbol
+with `__asm__`, so the I64-shaped prototype never clashes with
+declarations or macros from libc headers the runtime already includes
+(`printf`, `getenv`, `fopen`, …); an `_extern ASM_NAME` binding keeps its
+explicit name. The reverse direction stays explicit: C code calls a
 `public` HolyC variadic by passing the pair itself, e.g.
 `HcSum(3, (int64_t[]){10, 20, 12})`.
 
