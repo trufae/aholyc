@@ -128,12 +128,14 @@ class HtkCtl
   Bool mouse_pressed, mouse_motion;
   I64 user;          // adapter's UiCtl
   U0 (*changed)(HtkCtl *c);
+  U0 (*submit)(HtkCtl *c);   // entry: Enter pressed
   Bool vertical;
   Bool expand;
   Bool focusable;
   Bool disabled;
   Bool hidden;
   Bool secret;       // password entry
+  Bool readonly;     // entry/multiline: navigation only
   Bool closed;       // window dismissed
 };
 

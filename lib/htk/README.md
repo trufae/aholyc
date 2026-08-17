@@ -45,10 +45,11 @@ htk_dirty = TRUE;
 
 One `HtkCtl` class describes every widget; behavior is dispatched by
 `kind` in loop.hc.  Widgets fire their `changed` hook on activation or
-edit — that hook plus the `user` pointer is the whole adapter surface
-`lib/ui/htk.hc` needs.  The loop (`HtkMain`, or `HtkStep(timeout)` for
-custom loops) polls `lib/term` events: Tab cycles focus, F10 opens menus,
-ESC dismisses dialogs, Enter fires a window's default button (`link`),
+edit, entries fire `submit` on Enter — those hooks plus the `user` pointer
+are the whole adapter surface `lib/ui/htk.hc` needs.  The loop (`HtkMain`,
+or `HtkStep(timeout)` for custom loops) polls `lib/term` events: Tab cycles
+focus, F10 opens menus and Left/Right hop between them, ESC dismisses
+dialogs, Enter fires a window's default button (`link`),
 mouse clicks/drags/wheel route by hit test, ^C sets `TermInterrupted` and
 ends the loop.  Timers and queued calls share one hook list
 (`HtkHookAdd`), driven by `TermMs()`.

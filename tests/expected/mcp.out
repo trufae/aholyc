@@ -1,0 +1,24 @@
+init: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"core","version":"2"}}}
+call: {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"42"}]}}
+call error: {"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"a and b are required"}],"isError":true}}
+unknown prompt: {"jsonrpc":"2.0","id":"s4","error":{"code":-32602,"message":"Unknown prompt: nope"}}
+no method: {"jsonrpc":"2.0","id":5,"error":{"code":-32600,"message":"Invalid Request"}}
+parse error: {"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}}
+empty list: {"jsonrpc":"2.0","id":6,"result":{"resources":[]}}
+stdio tools: [{"name":"echo","description":"Echo a message","inputSchema":{"type":"object","properties":{"message":{"type":"string"}}}},{"name":"fail","description":"Always fails","inputSchema":{"type":"object"}},{"name":"stop","description":"Stop the server","inputSchema":{"type":"object"}}]
+stdio prompts: [{"name":"greet","arguments":[{"name":"who"}]}]
+stdio resources: [{"uri":"file:///a.txt","name":"a","mimeType":"text/plain"}]
+stdio echo: Echo: hi "there"
+stdio fail: boom
+stdio missing: Unknown tool: missing
+stdio prompt: Hello pancake
+stdio resource: contents of a
+http tools: [{"name":"echo","description":"Echo a message","inputSchema":{"type":"object","properties":{"message":{"type":"string"}}}},{"name":"fail","description":"Always fails","inputSchema":{"type":"object"}},{"name":"stop","description":"Stop the server","inputSchema":{"type":"object"}}]
+http prompts: [{"name":"greet","arguments":[{"name":"who"}]}]
+http resources: [{"uri":"file:///a.txt","name":"a","mimeType":"text/plain"}]
+http echo: Echo: hi "there"
+http fail: boom
+http missing: Unknown tool: missing
+http prompt: Hello pancake
+http resource: contents of a
+mcp ok

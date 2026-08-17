@@ -26,6 +26,11 @@ U0 UiHtkChanged(HtkCtl *h)
   UiFireClick(c);
 }
 
+U0 UiHtkSubmit(HtkCtl *h)
+{
+  UiFireSubmit(h->user);
+}
+
 UiCtl *UiHtkWrap(I64 kind, HtkCtl *h)
 {
   UiCtl *c = UiCtlNew(kind, h);
@@ -59,6 +64,11 @@ U0 UiMain()
 U0 UiShow(UiCtl *w)
 {
   htk_dirty = TRUE;
+}
+
+U0 UiWindowClose(UiCtl *w)
+{
+  HtkWindowClose(UiHtk(w));
 }
 
 UiCtl *UiWindowNew(U8 *title, I64 w=480, I64 h=320)
@@ -124,7 +134,10 @@ UiCtl *UiButtonNew(U8 *text)
 
 UiCtl *UiEntryNew(U8 *text="")
 {
-  return UiHtkWrap(UI_ENTRY, HtkEntryNew(text));
+  UiCtl *c = UiHtkWrap(UI_ENTRY, HtkEntryNew(text));
+
+  UiHtk(c)->submit = &UiHtkSubmit;
+  return c;
 }
 
 UiCtl *UiPasswordNew(U8 *text="")
@@ -267,6 +280,12 @@ I64 UiComboSelected(UiCtl *c)
   return UiHtk(c)->value;
 }
 
+U0 UiComboSetSelected(UiCtl *c, I64 index)
+{
+  UiHtk(c)->value = index;
+  htk_dirty = TRUE;
+}
+
 UiCtl *UiRadioNew()
 {
   return UiHtkWrap(UI_RADIO, HtkRadioNew);
@@ -292,9 +311,33 @@ I64 UiSpinValue(UiCtl *s)
   return UiHtk(s)->value;
 }
 
+U0 UiSpinSetValue(UiCtl *s, I64 value)
+{
+  UiHtk(s)->value = value;
+  htk_dirty = TRUE;
+}
+
 UiCtl *UiMultilineNew(U8 *text="")
 {
   return UiHtkWrap(UI_MULTILINE, HtkMultilineNew(text));
+}
+
+U0 UiMultilineSetText(UiCtl *m, U8 *text)
+{
+  HtkCtl *h = UiHtk(m);
+
+  HtkSetText(h, text);
+  h->cursor = StrLen(text);  // the draw keeps the cursor row visible
+}
+
+U8 *UiMultilineText(UiCtl *m)
+{
+  return StrNew(UiHtk(m)->text);
+}
+
+U0 UiMultilineSetEditable(UiCtl *m, Bool on)
+{
+  UiHtk(m)->readonly = !on;
 }
 
 UiCtl *UiGroupNew(U8 *title)
@@ -327,6 +370,11 @@ U0 UiSetVisible(UiCtl *c, Bool on)
 {
   UiHtk(c)->hidden = !on;
   htk_dirty = TRUE;
+}
+
+U0 UiExpand(UiCtl *c, Bool on)
+{
+  UiHtk(c)->expand = on;
 }
 
 U0 UiHtkTimerFire(I64 ctl, I64 unused)

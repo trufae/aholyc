@@ -85,9 +85,19 @@ extern I64 gtk_check_button_get_group();  // not called; group via set_group
 extern U0 gtk_check_button_set_group(I64 c, I64 group);
 extern I64 gtk_spin_button_new_with_range(F64 min, F64 max, F64 step);
 extern I64 gtk_spin_button_get_value_as_int(I64 s);
+extern U0 gtk_spin_button_set_value(I64 s, F64 value);
 extern I64 gtk_text_view_new();
 extern I64 gtk_text_view_get_buffer(I64 tv);
 extern U0 gtk_text_buffer_set_text(I64 b, U8 *text, I64 len);
+extern U0 gtk_text_buffer_get_bounds(I64 b, U0 *start, U0 *end);
+extern U8 *gtk_text_buffer_get_text(I64 b, U0 *start, U0 *end, I64 hidden);
+extern U0 gtk_text_buffer_place_cursor(I64 b, U0 *where);
+extern I64 gtk_text_buffer_get_insert(I64 b);
+extern U0 gtk_text_view_scroll_to_mark(I64 tv, I64 mark, F64 margin,
+  I64 use_align, F64 xalign, F64 yalign);
+extern U0 gtk_text_view_set_editable(I64 tv, I64 on);
+extern U0 gtk_text_view_set_wrap_mode(I64 tv, I64 mode);
+extern U0 g_free(U8 *p);
 extern U0 gtk_entry_set_visibility(I64 e, I64 vis);
 extern I64 gtk_frame_new(U8 *label);
 extern U0 gtk_frame_set_child(I64 f, I64 child);
@@ -148,6 +158,11 @@ U0 UiGtkClicked(I64 obj, I64 data)
   UiFireClick(data);
 }
 
+U0 UiGtkActivated(I64 obj, I64 data)
+{
+  UiFireSubmit(data);
+}
+
 U0 UiGtkMenuFire(I64 action, I64 param, I64 data)
 {
   UiFireClick(data);
@@ -198,6 +213,7 @@ UiCtl *UiWindowNew(U8 *title, I64 w=480, I64 h=320)
   g_signal_connect_data(ui_gtk_win, "destroy", &UiGtkDestroyed, 0, 0, 0);
   ui_gtk_outer = gtk_box_new(1, 0);
   gtk_window_set_child(ui_gtk_win, ui_gtk_outer);
+  ui_gtk_bar = 0;  // each window gets its own menubar and action group
   ui_gtk_nwin++;
   UiCtl *c = UiCtlNew(UI_WINDOW, ui_gtk_win);
   c->kids = UiCtlNew(UI_BOX, ui_gtk_outer);  // per-window outer box
@@ -249,6 +265,7 @@ UiCtl *UiEntryNew(U8 *text="")
   UiCtl *c = UiCtlNew(UI_ENTRY, gtk_entry_new);
   gtk_editable_set_text(c->native, text);
   g_signal_connect_data(c->native, "changed", &UiGtkClicked, c, 0, 0);
+  g_signal_connect_data(c->native, "activate", &UiGtkActivated, c, 0, 0);
   return c;
 }
 
@@ -400,6 +417,11 @@ I64 UiComboSelected(UiCtl *c)
   return s;
 }
 
+U0 UiComboSetSelected(UiCtl *c, I64 index)
+{
+  gtk_drop_down_set_selected(c->native, index);
+}
+
 UiCtl *UiRadioNew()
 {
   UiCtl *c = UiCtlNew(UI_RADIO, gtk_box_new(1, 4));
@@ -445,11 +467,45 @@ I64 UiSpinValue(UiCtl *s)
   return gtk_spin_button_get_value_as_int(s->native)(I32);
 }
 
+U0 UiSpinSetValue(UiCtl *s, I64 value)
+{
+  F64 v = value;
+  gtk_spin_button_set_value(s->native, v);
+}
+
 UiCtl *UiMultilineNew(U8 *text="")
 {
   I64 tv = gtk_text_view_new;
   gtk_text_buffer_set_text(gtk_text_view_get_buffer(tv), text, -1);
+  gtk_text_view_set_wrap_mode(tv, 3);  // GTK_WRAP_WORD_CHAR
   return UiCtlNew(UI_MULTILINE, tv);
+}
+
+U0 UiMultilineSetText(UiCtl *m, U8 *text)
+{
+  I64 b = gtk_text_view_get_buffer(m->native);
+  U8 start[128], end[128];  // GtkTextIter is an opaque 80-byte struct
+  gtk_text_buffer_set_text(b, text, -1);
+  gtk_text_buffer_get_bounds(b, start, end);
+  gtk_text_buffer_place_cursor(b, end);
+  gtk_text_view_scroll_to_mark(m->native, gtk_text_buffer_get_insert(b),
+    0.0, 1, 0.0, 1.0);
+}
+
+U8 *UiMultilineText(UiCtl *m)
+{
+  I64 b = gtk_text_view_get_buffer(m->native);
+  U8 start[128], end[128];
+  gtk_text_buffer_get_bounds(b, start, end);
+  U8 *g = gtk_text_buffer_get_text(b, start, end, 0);
+  U8 *t = StrNew(g);
+  g_free(g);
+  return t;
+}
+
+U0 UiMultilineSetEditable(UiCtl *m, Bool on)
+{
+  gtk_text_view_set_editable(m->native, on);
 }
 
 UiCtl *UiPasswordNew(U8 *text="")
@@ -489,6 +545,12 @@ U0 UiEnable(UiCtl *c, Bool on)
 U0 UiSetVisible(UiCtl *c, Bool on)
 {
   gtk_widget_set_visible(c->native, on);
+}
+
+U0 UiExpand(UiCtl *c, Bool on)
+{
+  gtk_widget_set_hexpand(c->native, on);
+  gtk_widget_set_vexpand(c->native, on);
 }
 
 I64 UiGtkTimer(I64 data)
@@ -793,6 +855,11 @@ U8 *UiPrompt(U8 *title, U8 *body, U8 *init="")
 U0 UiShow(UiCtl *w)
 {
   gtk_window_present(w->native);
+}
+
+U0 UiWindowClose(UiCtl *w)
+{
+  gtk_window_destroy(w->native);  // "destroy" keeps the window count
 }
 
 U0 UiMain()

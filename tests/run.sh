@@ -417,6 +417,30 @@ for b in $backends; do
 	fi
 done
 
+# lib/llm/mcp.hc drives the fake stdio MCP server in tests/mcp_server.HC
+# (a child process) and decodes HTTP bodies offline; native only as well.
+for b in $backends; do
+	[ "$b" = js ] && continue
+	if ./aholyc -b "$b" tests/mcp_server.HC -o "tests/out/mcp-server-$b" \
+		2>"tests/out/mcp-server-$b.err" &&
+	   ./aholyc -b "$b" tests/mcp.HC -o "tests/out/mcp-$b" \
+		2>"tests/out/mcp-$b.err"; then
+		"tests/out/mcp-$b" "tests/out/mcp-server-$b" \
+			>"tests/out/mcp-$b.txt" 2>&1
+		if cmp -s tests/expected/mcp.out "tests/out/mcp-$b.txt"; then
+			echo "ok   $b/mcp-library"
+		else
+			echo "FAIL $b/mcp-library"
+			diff tests/expected/mcp.out "tests/out/mcp-$b.txt" | head -10
+			fail=1
+		fi
+	else
+		echo "FAIL build $b/mcp-library"
+		head -5 "tests/out/mcp-server-$b.err" "tests/out/mcp-$b.err"
+		fail=1
+	fi
+done
+
 # Compile the same fixture against Win32 when the optional MinGW cross
 # toolchain used by demos/windows is installed.
 if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 &&

@@ -249,6 +249,8 @@ U0 HtkScrollLayout(HtkCtl *c)
   k->y = c->y - c->top;
   k->w = c->w - 1;  // leave room for the scrollbar
   k->h = k->ph;
+  if (k->h < c->h)  // short content still fills the viewport
+    k->h = c->h;
   HtkLayoutCtl(k);
 }
 

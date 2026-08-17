@@ -73,6 +73,38 @@ U0 HtkPickChoose(HtkCtl *p)
     HtkFire(item);
 }
 
+// Left/Right in a menubar dropdown: hop to the neighbouring menu (wrapping).
+U0 HtkPickSideways(HtkCtl *p, I64 step)
+{
+  HtkCtl *menu = p->link;
+  HtkCtl *k = menu->parent->kids;
+  HtkCtl *prev = NULL, *first = NULL, *last = NULL, *next = NULL;
+
+  while (k) {
+    if (k->kind == HTK_MENU) {
+      if (!first)
+        first = k;
+      if (k == menu)
+        prev = last;
+      else if (last == menu)
+        next = k;
+      last = k;
+    }
+    k = k->sib;
+  }
+  if (step > 0)
+    menu = next;
+  else
+    menu = prev;
+  if (!menu && step > 0)
+    menu = first;
+  else if (!menu)
+    menu = last;
+  HtkPopupClose;
+  if (menu && menu->kids)
+    HtkPopupOpen(HtkPickNew(menu, menu->x, menu->y + 1));
+}
+
 Bool HtkPickKey(HtkCtl *p, CTermEvent *e)
 {
   I64 count = HtkKidCount(p->link);
@@ -83,6 +115,13 @@ Bool HtkPickKey(HtkCtl *p, CTermEvent *e)
     p->value++;
   else if (e->key == TERM_KEY_ENTER || e->key == ' ')
     HtkPickChoose(p);
+  else if ((e->key == TERM_KEY_LEFT || e->key == TERM_KEY_RIGHT) &&
+    p->link->kind == HTK_MENU) {
+      if (e->key == TERM_KEY_RIGHT)
+        HtkPickSideways(p, 1);
+      else
+        HtkPickSideways(p, -1);
+    }
   else if (e->key == TERM_KEY_ESCAPE)
     HtkPopupClose;
   else

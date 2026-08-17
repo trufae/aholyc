@@ -19,7 +19,7 @@
 #if UI_BACKEND == UI_GTK4
 #define USE_GTK4
 #else
-#if UIBACKEND == UI_WIN32
+#if UI_BACKEND == UI_WIN32
 #define USE_WIN32
 #else
 #if UI_BACKEND == UI_COCOA

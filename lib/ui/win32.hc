@@ -256,6 +256,7 @@ UiCtl *UiWindowNew(U8 *title, I64 w=480, I64 h=320)
   ui_hwnd = CreateWindowExA(0, "UiWin", title, WS_OVERLAPPEDWINDOW,
     CW_USEDEFAULT, CW_USEDEFAULT, w, h, 0, 0, ui_inst, 0);
   ui_nwin++;
+  ui_menubar = 0;  // menus created next belong to this window
   UiCtl *c = UiCtlNew(UI_WINDOW, ui_hwnd);
   c->w = w;
   c->h = h;
@@ -511,6 +512,11 @@ I64 UiComboSelected(UiCtl *c)
   return SendMessageA(c->native, 0x147, 0, 0)(I32);  // CB_GETCURSEL
 }
 
+U0 UiComboSetSelected(UiCtl *c, I64 index)
+{
+  SendMessageA(c->native, 0x14E, index, 0);  // CB_SETCURSEL
+}
+
 UiCtl *UiRadioNew()
 {
   UiCtl *c = UiCtlNew(UI_RADIO, 0);
@@ -559,12 +565,34 @@ I64 UiSpinValue(UiCtl *s)
   return SendMessageA(s->native, 0x468, 0, 0)(I32);  // UDM_GETPOS
 }
 
+U0 UiSpinSetValue(UiCtl *s, I64 value)
+{
+  SendMessageA(s->native, 0x1113, 0, value);  // UDM_SETPOS32
+}
+
 UiCtl *UiMultilineNew(U8 *text="")
 {
   I64 h = CreateWindowExA(0x200, "EDIT", text,
-    WS_CHILD_VISIBLE | 0xC4,  // ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL-ish
+    WS_CHILD_VISIBLE | 0x2000C4,  // WS_VSCROLL | ES_WANTRETURN | ES_AUTOVSCROLL | ES_MULTILINE
     0, 0, 10, 80, ui_hwnd, 0, ui_inst, 0);
   return UiCtlNew(UI_MULTILINE, h);
+}
+
+U0 UiMultilineSetText(UiCtl *m, U8 *text)
+{
+  SetWindowTextA(m->native, text);
+  SendMessageA(m->native, 0xB1, -1, -1);  // EM_SETSEL: caret to the end
+  SendMessageA(m->native, 0xB7, 0, 0);    // EM_SCROLLCARET
+}
+
+U8 *UiMultilineText(UiCtl *m)
+{
+  return UiEntryText(m);
+}
+
+U0 UiMultilineSetEditable(UiCtl *m, Bool on)
+{
+  SendMessageA(m->native, 0xCF, !on, 0);  // EM_SETREADONLY
 }
 
 UiCtl *UiPasswordNew(U8 *text="")
@@ -620,6 +648,11 @@ U0 UiSetVisible(UiCtl *c, Bool on)
   if (on)
     cmd = SW_SHOW;
   ShowWindow(c->native, cmd);
+}
+
+U0 UiExpand(UiCtl *c, Bool on)
+{
+  c->row = on;  // UiLayout gives expanded multilines the spare height
 }
 
 U0 UiTimer(I64 ms, U0 *fn, U0 *data=NULL)
@@ -876,8 +909,38 @@ U0 UiLayout(UiCtl *w)
       }
       y += 12;
     } else if (c->kind == UI_MULTILINE) {
-      MoveWindow(c->native, 20, y, width - 40, 80, 1);
-      y += 90;
+      I64 mh = 80, rest = 0;
+      UiCtl *k = c->sib;
+      while (k) {  // spare height minus one row per following sibling
+        rest += 38;
+        k = k->sib;
+      }
+      if (c->row && height - y - rest - 30 > mh)
+        mh = height - y - rest - 30;
+      MoveWindow(c->native, 20, y, width - 40, mh, 1);
+      y += mh + 10;
+    } else if (c->kind == UI_BOX) {  // nested row: buttons 90px, rest shared
+      I64 n = 0, buttons = 0, x = 20, kw;
+      UiCtl *k = c->kids;
+      while (k) {
+        n++;
+        if (k->kind == UI_BUTTON)
+          buttons++;
+        k = k->sib;
+      }
+      I64 spare = width - 40 - buttons * 90 - (n - 1) * 10;
+      if (n > buttons)
+        spare /= n - buttons;
+      k = c->kids;
+      while (k) {
+        kw = spare;
+        if (k->kind == UI_BUTTON)
+          kw = 90;
+        MoveWindow(k->native, x, y, kw, 28, 1);
+        x += kw + 10;
+        k = k->sib;
+      }
+      y += 38;
     } else if (c->kind == UI_TABLE || c->kind == UI_TREE) {
       I64 th = height - y - 50;
       if (th < 80)
@@ -904,11 +967,34 @@ U0 UiShow(UiCtl *w)
   ShowWindow(w->native, SW_SHOW);
 }
 
+U0 UiWindowClose(UiCtl *w)
+{
+  DestroyWindow(w->native);  // WM_DESTROY keeps the window count
+}
+
+// Enter in a single-line EDIT is not reported by WM_COMMAND, so the loop
+// peeks at WM_KEYDOWN/VK_RETURN and routes it to UiOnSubmit.
+Bool UiWinSubmitKey(U8 *m)
+{
+  I64 *q = m;  // MSG: hwnd, message (u32 + pad), wParam, lParam, ...
+  U32 *u = m;
+  UiCtl *c;
+  if (u[2] != 0x100 || q[2] != 0x0D)  // WM_KEYDOWN, VK_RETURN
+    return FALSE;
+  c = UiCtlFind(q[0]);
+  if (!c || c->kind != UI_ENTRY || !c->submitfn)
+    return FALSE;
+  UiFireSubmit(c);
+  return TRUE;
+}
+
 U0 UiMain()
 {
   U8 m[64];
   while (GetMessageA(m, 0, 0, 0)(I32) > 0) {
-    TranslateMessage(m);
-    DispatchMessageA(m);
+    if (!UiWinSubmitKey(m)) {
+      TranslateMessage(m);
+      DispatchMessageA(m);
+    }
   }
 }

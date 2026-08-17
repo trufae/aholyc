@@ -19,6 +19,9 @@ U0 HtkTextInsert(HtkCtl *c, I64 rune)
   U8 bytes[8];
   I64 count = Utf8EncodeRune(rune, bytes);
   I64 length = StrLen(c->text);
+
+  if (c->readonly)
+    return;
   U8 *grown;
 
   if (!count)
@@ -62,7 +65,7 @@ U0 HtkTextDelete(HtkCtl *c, I64 at, I64 count)
 {
   I64 length = StrLen(c->text);
 
-  if (at < 0 || count < 1 || at >= length)
+  if (c->readonly || at < 0 || count < 1 || at >= length)
     return;
   StrCpy(c->text + at, c->text + at + count);
   if (c->cursor > at)
@@ -129,6 +132,8 @@ Bool HtkEntryKey(HtkCtl *c, CTermEvent *e)
     HtkTextDelete(c, c->cursor - HtkTextStepBack(c), HtkTextStepBack(c));
   else if (key == TERM_KEY_DELETE)
     HtkTextDelete(c, c->cursor, HtkTextStepAhead(c));
+  else if (key == TERM_KEY_ENTER && c->submit)
+    c->submit(c);
   else if (key >= ' ' && key < 0x110000 && !e->mods)
     HtkTextInsert(c, key);
   else

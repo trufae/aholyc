@@ -56,6 +56,11 @@ U0 UiCocoaTextChange(I64 self, I64 cmd, I64 notif)
   UiFireClick(UiCtlFind(ui_msg(notif, UiSel("object"), 0, 0, 0)));
 }
 
+U0 UiCocoaSubmit(I64 self, I64 cmd, I64 sender)
+{
+  UiFireSubmit(UiCtlFind(sender));
+}
+
 I64 UiCocoaLastClose(I64 self, I64 cmd, I64 sender)
 {
   return 1;  // quit when the last window closes
@@ -255,6 +260,7 @@ U0 UiInit()
   I64 tcls = objc_allocateClassPair(UiCls("NSObject"), "UiTarget", 0);
   class_addMethod(tcls, UiSel("clicked:"), &UiCocoaClick, "v@:@");
   class_addMethod(tcls, UiSel("controlTextDidChange:"), &UiCocoaTextChange, "v@:@");
+  class_addMethod(tcls, UiSel("submitted:"), &UiCocoaSubmit, "v@:@");
   objc_registerClassPair(tcls);
   ui_target = ui_msg(ui_msg(tcls, UiSel("alloc"), 0, 0, 0), UiSel("init"), 0, 0, 0);
   I64 tmcls = objc_allocateClassPair(UiCls("NSObject"), "UiTimerTgt", 0);
@@ -378,6 +384,8 @@ UiCtl *UiEntryNew(U8 *text="")
   I64 e = ui_msg(UiCls("NSTextField"), UiSel("textFieldWithString:"),
     UiStr(text), 0, 0);
   ui_msg(e, UiSel("setDelegate:"), ui_target, 0, 0);
+  ui_msg(e, UiSel("setTarget:"), ui_target, 0, 0);
+  ui_msg(e, UiSel("setAction:"), UiSel("submitted:"), 0, 0);  // Enter
   UiPin(e, "widthAnchor", 200);
   return UiCtlNew(UI_ENTRY, e);
 }
@@ -596,6 +604,11 @@ I64 UiComboSelected(UiCtl *c)
   return ui_msg(c->native, UiSel("indexOfSelectedItem"), 0, 0, 0)(I32);
 }
 
+U0 UiComboSetSelected(UiCtl *c, I64 index)
+{
+  ui_msg(c->native, UiSel("selectItemAtIndex:"), index, 0, 0);
+}
+
 UiCtl *UiRadioNew()
 {
   I64 sv = ui_msg(ui_msg(UiCls("NSStackView"), UiSel("alloc"), 0, 0, 0),
@@ -659,6 +672,12 @@ I64 UiSpinValue(UiCtl *s)
   return v;
 }
 
+U0 UiSpinSetValue(UiCtl *s, I64 value)
+{
+  ui_msg(s->col, UiSel("setIntegerValue:"), value, 0, 0);
+  UiSpinValue(s);  // refresh the mirrored field
+}
+
 UiCtl *UiMultilineNew(U8 *text="")
 {
   I64 tv = ui_msg(ui_msg(UiCls("NSTextView"), UiSel("alloc"), 0, 0, 0),
@@ -670,6 +689,27 @@ UiCtl *UiMultilineNew(U8 *text="")
   UiPin(tv, "heightAnchor", 80);
   UiPin(tv, "widthAnchor", 240);
   return UiCtlNew(UI_MULTILINE, tv);
+}
+
+U0 UiMultilineSetText(UiCtl *m, U8 *text)
+{
+  ui_msg(ui_msg(m->native, UiSel("textStorage"), 0, 0, 0),
+    UiSel("setAttributedString:"),
+    ui_msg(ui_msg(UiCls("NSAttributedString"), UiSel("alloc"), 0, 0, 0),
+      UiSel("initWithString:"), UiStr(text), 0, 0), 0, 0);
+  ui_msg(m->native, UiSel("scrollToEndOfDocument:"), 0, 0, 0);
+}
+
+U8 *UiMultilineText(UiCtl *m)
+{
+  I64 s = ui_msg(m->native, UiSel("string"), 0, 0, 0);
+  U8 *u = ui_msg(s, UiSel("UTF8String"), 0, 0, 0);
+  return StrNew(u);
+}
+
+U0 UiMultilineSetEditable(UiCtl *m, Bool on)
+{
+  ui_msg(m->native, UiSel("setEditable:"), on, 0, 0);
 }
 
 UiCtl *UiPasswordNew(U8 *text="")
@@ -719,6 +759,18 @@ U0 UiEnable(UiCtl *c, Bool on)
 U0 UiSetVisible(UiCtl *c, Bool on)
 {
   ui_msg(c->native, UiSel("setHidden:"), !on, 0, 0);
+}
+
+U0 UiExpand(UiCtl *c, Bool on)
+{
+  // Low hugging priority lets the stack view stretch the control.
+  F64 priority = 250.0;
+  if (on)
+    priority = 1.0;
+  ui_msgf(c->native, UiSel("setContentHuggingPriority:forOrientation:"),
+    priority, 0.0, 0.0, 0.0, 0, 0, 0);
+  ui_msgf(c->native, UiSel("setContentHuggingPriority:forOrientation:"),
+    priority, 0.0, 0.0, 0.0, 1, 0, 0);
 }
 
 U0 UiCocoaSchedule(F64 secs, U0 *fn, U0 *data, I64 repeats)
@@ -908,6 +960,11 @@ U0 UiShow(UiCtl *w)
   ui_msgf(w->native, UiSel("setContentSize:"), fw, fh, 0.0, 0.0, 0, 0, 0);
   ui_msg(w->native, UiSel("center"), 0, 0, 0);
   ui_msg(ui_app, UiSel("activateIgnoringOtherApps:"), 1, 0, 0);
+}
+
+U0 UiWindowClose(UiCtl *w)
+{
+  ui_msg(w->native, UiSel("close"), 0, 0, 0);
 }
 
 U0 UiMain()

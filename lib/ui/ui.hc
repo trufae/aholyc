@@ -26,10 +26,12 @@
 //   U0 UiProgressSet(UiCtl *p, I64 percent);
 //   U0 UiOnClick(UiCtl *c, U0 *fn, U0 *data=NULL);  // fn: U0 (UiCtl*, U0*)
 //   U0 UiOnChange(UiCtl *c, U0 *fn, U0 *data=NULL); // entry/slider/checkbox
+//   U0 UiOnSubmit(UiCtl *e, U0 *fn, U0 *data=NULL); // Enter pressed in entry
 //   U0 UiBoxAdd(UiCtl *box, UiCtl *c);
 //   U0 UiGridAdd(UiCtl *g, UiCtl *c, I64 col, I64 row);
 //   U0 UiWindowSetChild(UiCtl *w, UiCtl *c);
 //   U0 UiShow(UiCtl *w);
+//   U0 UiWindowClose(UiCtl *w);                     // as if the user closed it
 //   U0 UiMain();
 //   U0 UiQuit();
 //   U0 UiCanvasRedraw(UiCtl *c);
@@ -53,12 +55,17 @@
 //   UiCtl *UiComboNew();                         // dropdown
 //   U0 UiComboAdd(UiCtl *c, U8 *text);
 //   I64 UiComboSelected(UiCtl *c);               // -1 if none
+//   U0 UiComboSetSelected(UiCtl *c, I64 index);
 //   UiCtl *UiRadioNew();                          // vertical radio group
 //   U0 UiRadioAdd(UiCtl *r, U8 *text);
 //   I64 UiRadioSelected(UiCtl *r);
 //   UiCtl *UiSpinNew(I64 min=0, I64 max=100);
 //   I64 UiSpinValue(UiCtl *s);
+//   U0 UiSpinSetValue(UiCtl *s, I64 value);
 //   UiCtl *UiMultilineNew(U8 *text="");           // multi-line text area
+//   U0 UiMultilineSetText(UiCtl *m, U8 *text);     // replace, scroll to end
+//   U8 *UiMultilineText(UiCtl *m);                 // MAlloc'd copy, Free it
+//   U0 UiMultilineSetEditable(UiCtl *m, Bool on);
 //   UiCtl *UiPasswordNew(U8 *text="");
 //   UiCtl *UiGroupNew(U8 *title);                 // titled frame
 //   U0 UiGroupSetChild(UiCtl *g, UiCtl *child);
@@ -67,6 +74,7 @@
 //
 // Lifecycle and timing (fn: U0 (UiCtl *ctl, U0 *data)):
 //   U0 UiEnable(UiCtl *c, Bool on);
+//   U0 UiExpand(UiCtl *c, Bool on);               // fill spare box space
 //   U0 UiSetVisible(UiCtl *c, Bool on);
 //   U0 UiTimer(I64 ms, U0 *fn, U0 *data=NULL);    // repeating
 //   U0 UiQueueMain(U0 *fn, U0 *data=NULL);        // run once on the UI thread
@@ -132,6 +140,7 @@ class UiCtl
 {
   I64 native;        // toolkit handle (menu-item id on win32)
   I64 cb, cb_data;   // event callback + user data
+  I64 submitfn, submitdata; // entry Enter callback + user data
   I64 kind;          // UI_*
   I64 w, h;          // window/canvas size
   I64 col, row;      // grid cell (table: ncols, nrows)
@@ -193,6 +202,18 @@ U0 UiOnClick(UiCtl *c, U0 *fn, U0 *data=NULL)
 U0 UiOnChange(UiCtl *c, U0 *fn, U0 *data=NULL)
 {
   UiOnClick(c, fn, data);
+}
+
+U0 UiFireSubmit(UiCtl *c)
+{
+  if (c && c->submitfn)
+    c->submitfn(c, c->submitdata);
+}
+
+U0 UiOnSubmit(UiCtl *c, U0 *fn, U0 *data=NULL)
+{
+  c->submitfn = fn;
+  c->submitdata = data;
 }
 
 U0 UiOnMouse(UiCtl *c, U0 *fn, U0 *data=NULL)
