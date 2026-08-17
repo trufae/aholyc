@@ -658,6 +658,36 @@ static void emit_stmt(JsGen *g, Node *n) {
 		g->cur_blk = db;
 		break;
 	}
+	case ND_WHILE: {
+		int hb = new_block (g), bb = new_block (g), db = new_block (g);
+		jump_to (g, hb);
+		g->cur_blk = hb;
+		char *c = emit_val (g, n->cond);
+		EMIT ("pc=(%s)?%d:%d;continue;\n", c, bb, db);
+		g->blocks[g->cur_blk].term = true;
+		g->cur_blk = bb;
+		emit_stmt (g, n->then);
+		if (!g->blocks[g->cur_blk].term) {
+			jump_to (g, hb);
+		}
+		g->cur_blk = db;
+		break;
+	}
+	case ND_DOWHILE: {
+		int bb = new_block (g), hb = new_block (g), db = new_block (g);
+		jump_to (g, bb);
+		g->cur_blk = bb;
+		emit_stmt (g, n->then);
+		if (!g->blocks[g->cur_blk].term) {
+			jump_to (g, hb);
+		}
+		g->cur_blk = hb;
+		char *c = emit_val (g, n->cond);
+		EMIT ("pc=(%s)?%d:%d;continue;\n", c, bb, db);
+		g->blocks[g->cur_blk].term = true;
+		g->cur_blk = db;
+		break;
+	}
 	case ND_RETURN:
 		if (g->restore_fp) {
 			EMIT ("FP=fp;");
