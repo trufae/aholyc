@@ -372,9 +372,23 @@ static void hc_format(HcOut *o, char *fmt, hc_i64 argc, hc_i64 *argv) {
 		}
 		case 's': {
 			char *s = (char *)(intptr_t)a;
+			if (!s) {
+				s = "(null)";
+			}
+			if (si == 1) {
+				hc_emit (o, s, strlen (s));
+				continue;
+			}
 			spec[si] = 0;
 			strcat (spec, "s");
-			snprintf (out, sizeof(out), spec, s? s: "(null)");
+			int need = snprintf (out, sizeof(out), spec, s);
+			if (need >= (int)sizeof(out)) {
+				char *big = malloc (need + 1);
+				snprintf (big, need + 1, spec, s);
+				hc_emit (o, big, need);
+				free (big);
+				continue;
+			}
 			break;
 		}
 		case 'f':
