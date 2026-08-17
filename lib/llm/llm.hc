@@ -18,11 +18,11 @@
 //   LlmFini(&llm);
 //
 // Public functions are the ones documented in README.md; helpers named
-// LlmParseText, LlmJsonValid, LlmSetError and LlmReset are internal.
+// LlmParseText, LlmSetError and LlmReset are internal.
 
 #include "../json/query.hc"
 #include "../json/pj.hc"
-#include "../net/http.hc"
+#include "../http/client.hc"
 
 class CLlm
 {
@@ -45,20 +45,6 @@ U0 LlmSetError(CLlm *llm, U8 *message)
 {
   Free(llm->error);
   llm->error = StrNew(message);
-}
-
-// Validate a JSON text; type=JSON_TYPE_INVALID accepts any value.
-Bool LlmJsonValid(U8 *json, I64 type=JSON_TYPE_INVALID)
-{
-  CJsonDecoder decoder;
-  CJsonValue value;
-
-  if (!json)
-    return FALSE;
-  JsonDecoderInit(&decoder, json);
-  if (!JsonDecode(&decoder, &value))
-    return FALSE;
-  return type == JSON_TYPE_INVALID || value.type == type;
 }
 
 U0 LlmReset(CLlm *llm)
@@ -129,7 +115,7 @@ U0 LlmSystem(CLlm *llm, U8 *prompt)
 // a "tools" array. The value must be valid JSON text.
 Bool LlmSet(CLlm *llm, U8 *key, U8 *json)
 {
-  if (!key || !LlmJsonValid(json))
+  if (!key || !JsonValid(json))
     return FALSE;
   PjKj(llm->fields, key, json);
   return TRUE;
@@ -184,7 +170,7 @@ U0 LlmFile(CLlm *llm, U8 *file_id, U8 *filename=NULL, U8 *data_url=NULL)
 // helpers do not cover.
 Bool LlmRaw(CLlm *llm, U8 *json)
 {
-  if (!LlmJsonValid(json, JSON_TYPE_OBJECT))
+  if (!JsonValid(json, JSON_TYPE_OBJECT))
     return FALSE;
   PjJ(llm->messages, json);
   return TRUE;

@@ -2,7 +2,7 @@
 
 `lib/llm/llm.hc` talks to OpenAI-compatible Chat Completions endpoints
 (OpenAI, Ollama, llama.cpp, vLLM, OpenRouter, ...) and to the OpenAI
-Responses API through `lib/net/http.hc`. A `CLlm` owns the conversation; the
+Responses API through `lib/http/client.hc`. A `CLlm` owns the conversation; the
 caller only frees the reply strings.
 
 ```holyc
@@ -97,5 +97,8 @@ A tool-call turn has no text, so `LlmSend` returns `NULL` and leaves the
 history untouched: re-add the assistant message from `llm.json` with `LlmRaw`
 before appending the tool result and sending again.
 
-The transport is blocking, like `lib/net/http.hc`. Streaming (`"stream": true`)
+The transport is blocking, like `lib/http/client.hc`. Streaming (`"stream": true`)
 is not interpreted; the buffered SSE body is available as `llm.response->body`.
+
+MCP servers (tools, prompts, resources) are reached through `lib/mcp`, see
+`lib/mcp/README.md`.
