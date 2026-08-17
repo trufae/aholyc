@@ -1,4 +1,4 @@
-# Portable sockets, TLS, and HTTP
+# Portable sockets and TLS
 
 These HolyC modules target aholyc's native C and LLVM backends on Linux,
 macOS, and Windows. They are deliberately blocking and small enough to read.
@@ -72,35 +72,5 @@ All `CSsl` sessions must be closed before `SslFini` unloads the libraries.
 
 ## HTTP
 
-Including `http.hc` includes both lower layers:
-
-```holyc
-#include "lib/net/http.hc"
-
-CHttpResponse *response = HttpGet("https://example.com/");
-if (response->error)
-  "request failed: %s\n", response->error;
-else
-  "HTTP %d, %d body bytes\n", response->status, response->body_length;
-HttpResponseFree(response);
-
-U8 binary[4] = {0, 1, 2, 255};
-response = HttpPost("https://example.com/upload", binary, 4,
-  "application/octet-stream");
-HttpResponseFree(response);
-```
-
-`HttpRequest` accepts a method, optional raw header lines, a body pointer,
-an explicit body length, and a content type. `HttpGet` and `HttpPost` are
-convenience wrappers. Responses expose status, headers, and a binary-safe
-body; use `HttpHeaderValue` to obtain an allocated header value.
-
-`HttpUrlEncode`/`HttpUrlDecode` implement RFC-style percent coding and accept
-explicit lengths. `HttpFormEncode`/`HttpFormDecode` additionally translate
-spaces to/from `+`. Decode functions return the decoded byte length through
-an optional output pointer.
-
-The client supports HTTP and HTTPS, IPv4/IPv6 host syntax, `Content-Length`,
-chunked transfer coding, and connection-close framing. It does not
-automatically follow redirects or decompress content encodings. Define
-`HTTP_MAX_MESSAGE` before inclusion to change the default 256 MiB limit.
+The HTTP client and server live in `lib/http` (`client.hc`, `server.hc`,
+`sse.hc`) on top of these sockets and TLS; see `lib/http/README.md`.
