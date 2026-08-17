@@ -1,0 +1,61 @@
+# Title
+
+## Sub *title*
+
+  Some bold and italic and gone text with code.
+
+                   -------------------------------------
+
++------+-------+---------------+
+| Name | Value |     Note      |
++------+-------+---------------+
+| a    |     1 |     left      |
+| bb   |    22 | center | pipe |
++------+-------+---------------+
+
+   int main() { return 0; }                                               
+   indented code                                                          
+  A very long paragraph line that keeps going and going so that the renderer i-
+  s forced to wrap it around at the configured column width limit.
+# Title
+
+## Sub *title*
+
+  Some [1mbold[22m and [3mitalic[23m and [9mgone[29m text -
+  with code.
+
+          ────────────────────
+
+┌──────┬───────┬───────────────┐
+│ Name │ Value │     Note      │
+├──────┼───────┼───────────────┤
+│ a    │     1 │     left      │
+│ bb   │    [1m22[22m │ center | pipe │
+└──────┴───────┴───────────────┘
+
+   int main() { return 0; }            
+   indented code                       
+  A very long paragraph line that keeps goi-
+  ng and going so that the renderer is forc-
+  ed to wrap it around at the configured co-
+  lumn width limit.
+[30m[42m  Big                                       [49m[0m
+
+[30m[44m                                            [49m[0m
+[34m[46m  Small                                     [49m[0m
+[30m[44m                                            [49m[0m
+╭───┬───╮
+│ a │ b │
+├───┼───┤
+│ 1 │ 2 │
+╰───┴───╯
+  [48;5;234m[37m tab code                            [49m[0m
+<hmark2>##</hmark> <h2>Hi *there*</h>
+
+<table1>+---+---+</table>
+<table1>|</table> a <table1>|</table> b <table1>|</table>
+<table1>+---+---+</table>
+<table1>|</table> <code1>x</code> <table1>|</table> <s1>y</s> <table1>|</table>
+<table1>+---+---+</table>
+
+  <pre1> code                                                                   </pre>

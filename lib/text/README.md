@@ -13,6 +13,10 @@ The library is split by cost:
   caller-buffer APIs support a count-only pass and preserve binary data.
 - Include `encoding.HC` for `CText`, UTF-16/32, ASCII, Latin-1, EBCDIC 037,
   transcoding, and Pascal-string adapters. It includes `utf8.HC` itself.
+- Include `markdown.hc` for the Markdown layout engine (titles, rules,
+  tables, code blocks, emphasis, wrapping) that streams text and style
+  events to callbacks, and `md_ansi.hc` for the terminal backend that
+  turns them into plain or ANSI colored text.
 
 `CStrs` is the common non-owning representation. It stores the half-open byte
 range `[a, b)`, so its length, consumption, and subslicing require no scan or
@@ -86,4 +90,40 @@ StrBufPutS(&buffer, "answer=");
 StrBufPrintf(&buffer, "%d", 42);
 StrBufTakeStrs(&buffer, &text);
 Free(text.a);
+```
+
+`markdown.hc` is a port of radare2's `r_str_md2txt` split in two: the
+engine parses and lays out the text at `md.width` columns (75 by default)
+and calls back with text slices and `MD_STYLE_*` on/off events (bold, italic,
+strike, code, code block line, title and title mark with the heading level,
+banner, rule, table border). It never allocates and never emits escape codes;
+`md.utf8` selects box drawing for rules and tables and `md.slide_titles`
+draws headings as full width bands. Each backend is a separate include, so a
+program includes the engine plus the backend it wants and passes the
+backend's callbacks to `MarkdownInit`. `md_ansi.hc` collects the output in a
+`CStrBuf`, with `color` and `attrs` flags; a `lib/ui` backend can implement
+the same two callbacks on top of widgets.
+
+```c
+#include "lib/text/markdown.hc"
+#include "lib/text/md_ansi.hc"
+
+CMdAnsi ansi;
+CMarkdown md;
+MdAnsiInit(&ansi, TRUE);           // colors; MdAnsiInit(&ansi, FALSE, FALSE) is plain
+MarkdownInit(&md, &MdAnsiText, &MdAnsiStyle, &ansi);
+md.utf8 = TRUE;
+MarkdownRender(&md, "# Title\n\nHello **world**\n");
+PutS(ansi.out.a);
+MdAnsiFini(&ansi);
+```
+
+A backend is two functions reading `md->user`:
+
+```c
+U0 MyText(CMarkdown *md, CStrs *text) { ... }
+U0 MyStyle(CMarkdown *md, I64 style, I64 on) { ... }
+
+MarkdownInit(&md, &MyText, &MyStyle, my_widget);
+MarkdownRenderStrs(&md, &slice);   // any [a, b) slice, no NUL needed
 ```
