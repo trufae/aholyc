@@ -376,6 +376,21 @@ Bool JsonDecode(CJsonDecoder *decoder, CJsonValue *value)
   return TRUE;
 }
 
+// Validate a whole JSON text without keeping the value; type restricts the
+// accepted root type (JSON_TYPE_OBJECT, ...), JSON_TYPE_INVALID accepts any.
+Bool JsonValid(U8 *json, I64 type=JSON_TYPE_INVALID, I64 length=-1)
+{
+  CJsonDecoder decoder;
+  CJsonValue value;
+
+  if (!json)
+    return FALSE;
+  JsonDecoderInit(&decoder, json, length);
+  if (!JsonDecode(&decoder, &value))
+    return FALSE;
+  return type == JSON_TYPE_INVALID || value.type == type;
+}
+
 Bool JsonValueAsBool(CJsonValue *value, Bool *result)
 {
   if (!value || !result || value->type != JSON_TYPE_BOOL)
