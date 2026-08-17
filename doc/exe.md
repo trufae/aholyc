@@ -129,7 +129,7 @@ try/catch, ...) plus:
 | `U0 ExeStreamSet(Token *t)` | aholyc adapter: advance the stream to consume tokens |
 | `I64 Cd(U8 *path)` | change this compiler instance's cwd |
 | `I64 Now()` | compile-time clock, unix seconds (TempleOS: CDate) |
-| `__FILE__`, `__DIR__` | macros: file containing the block, its directory |
+| `__FILE__`, `__DIR__`, `__LINE__` | location of the token using them (available everywhere, not only in blocks) |
 | `class Token`, `TK_*` | mirror of the compiler's token structures |
 | `Option`, `PassTrace`, `Echo` | accepted for TempleOS compatibility, no-ops |
 | `U8 *StrPrintJoin(U8 *dst, U8 *fmt, I64 argc, I64 *argv)` | varargs-forwarding formatter (also in the normal prelude) |

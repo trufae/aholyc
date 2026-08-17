@@ -79,11 +79,12 @@ capabilities are added by the driver after it selects the backend:
   `-fno-asm`.
 - Capability: `HAS_EXCEPTIONS=1` unless `-fno-exceptions` was requested.
 
-Inside `#exe {…}` blocks, `__FILE__` and `__DIR__` are defined to the
-current file/dir (TempleOS style).
+- Location: `__FILE__`, `__DIR__` and `__LINE__` expand to the file, its
+  directory, and the line of the token using them, TempleOS style, anywhere
+  in a source (including inside `#exe {…}` blocks). A `#define` of the same
+  name takes precedence.
 
-Missing predefined names that standard HolyC has: `__LINE__`,
-`__CMD_LINE__` (and `__FILE__`/`__DIR__` outside `#exe`).
+Missing predefined names that standard HolyC has: `__CMD_LINE__`.
 
 ## Command-line `-D`
 
@@ -96,7 +97,7 @@ Missing predefined names that standard HolyC has: `__LINE__`,
 
 - Missing directives: `#ifaot`, `#ifjit`, `#pragma`.
 - `#if` comparisons don't chain (runtime expressions do).
-- No `__LINE__` / `__CMD_LINE__`; `__FILE__`/`__DIR__` only in `#exe`.
+- No `__CMD_LINE__`.
 - Intentional (faithful) omissions: no function-like macros, no `#elif`,
   no `#`/`##`.
 
@@ -113,8 +114,9 @@ small and share it.
    `lex_preprocess` next to `#ifdef` using the existing `skip_cond`.
 3. **`#pragma`** — either ignore-to-end-of-line (like `#help_*`) with an
    optional warning, or implement the handful TempleOS actually uses.
-4. **`__LINE__` / `__CMD_LINE__`** and `__FILE__`/`__DIR__` outside `#exe`
-   — predefine/refresh these during preprocessing.
+4. ~~**`__LINE__`** and `__FILE__`/`__DIR__` outside `#exe`~~ — **done**:
+   expanded per token in `lex_preprocess` (`location_token`). `__CMD_LINE__`
+   remains missing.
 5. *(optional)* chained comparisons in `#if`, to match runtime expression
    semantics.
 
