@@ -35,6 +35,10 @@
 //   U0   LogSetTarget(mask);        // LOG_TARGET_* bits, default STDERR
 //   I64  LogTarget();
 //   Bool LogSetFile(path);          // enables LOG_TARGET_FILE; NULL closes it
+//   U0   LogSetRotate(max_bytes, keep=5); // in-process size rotation, 0 = off
+//   U0   LogSetReopen(on);          // reopen the file path once a second so
+//                                   // an external logrotate is followed
+//   Bool LogReopen();               // reopen now (call from a SIGHUP handler)
 //   U0   LogSetCallback(fn, data);  // Bool (*)(I64 level, U8 *file, I64 line,
 //                                   //           U8 *msg, U0 *data); TRUE = handled
 //   U0   LogSetSource(on);          // prefix [file:line], default off
@@ -52,7 +56,18 @@
 //
 // Environment (read by LogInit): HC_LOG_LEVEL (name or number), HC_LOG_FILE,
 // HC_LOG_TARGET (comma list of stderr,file,system,none), HC_LOG_SOURCE,
-// HC_LOG_TS, HC_LOG_COLOR, HC_LOG_PRIVACY (0/1).
+// HC_LOG_TS, HC_LOG_COLOR, HC_LOG_PRIVACY, HC_LOG_REOPEN (0/1),
+// HC_LOG_ROTATE ("10M,5": size with K/M/G suffix, files to keep).
+//
+// Thread safety: messages are formatted without a lock and the sinks are
+// written under one internal spinlock (built on the prelude's atomic
+// LBts/LBtr, no dependency on lib/thread), so lines never interleave and
+// rotation never loses a line.  Files are O_APPEND with one write per
+// line, so they are safe to share with other processes too — but size
+// rotation is per process; several processes on one file should use an
+// external logrotate with copytruncate or LogReopen.  The callback runs
+// outside the lock so it may log itself.  Level/target/flag setters are
+// plain word stores and need no lock.
 
 #define LOG_FATAL    0
 #define LOG_CRITICAL 1
@@ -86,6 +101,14 @@ Bool (*log_callback)(I64 level, U8 *file, I64 line, U8 *msg, U0 *data);
 U0 *log_callback_data;
 Bool log_in_fatal;
 Bool log_privacy;
+I64 log_lock;
+I64 log_file_size;
+I64 log_rotate_bytes;
+I64 log_rotate_keep = 5;
+Bool log_reopen;
+I64 log_reopen_last;
+
+#define LOG_REOPEN_MS 1000
 
 #define LOG_REDACTED "<private>"
 
@@ -229,28 +252,171 @@ public U0 LogSetCallback(U0 *fn, U0 *data=NULL)
   log_callback_data = data;
 }
 
-// Opens path for appending and enables LOG_TARGET_FILE; NULL closes the
-// current file and disables the target.
-public Bool LogSetFile(U8 *path)
+// One spinlock guards the sinks and the file state.  Holders never block on
+// anything but I/O, so a plain spin is acceptable.
+U0 LogLock()
 {
-  if (log_file_handle) {
+  while (LBts(&log_lock, 0))
+    ;
+}
+
+U0 LogUnlock()
+{
+  LBtr(&log_lock, 0);
+}
+
+// Everything named *Locked expects the caller to hold the lock.
+U0 LogFileCloseLocked()
+{
+  if (log_file_handle)
     LogOsFileClose(log_file_handle);
-    log_file_handle = NULL;
-  }
+  log_file_handle = NULL;
+  log_file_size = 0;
+}
+
+Bool LogFileOpenLocked()
+{
+  log_file_handle = LogOsFileOpen(log_file_path);
+  if (!log_file_handle)
+    return FALSE;
+  log_file_size = LogOsFileSize(log_file_handle);
+  log_reopen_last = LogOsMs;
+  return TRUE;
+}
+
+Bool LogSetFileLocked(U8 *path)
+{
+  LogFileCloseLocked;
   Free(log_file_path);
   log_file_path = NULL;
   if (!path || !*path) {
     log_target &= ~LOG_TARGET_FILE;
     return TRUE;
   }
-  log_file_handle = LogOsFileOpen(path);
-  if (!log_file_handle) {
+  log_file_path = StrNew(path);
+  if (!LogFileOpenLocked) {
     log_target &= ~LOG_TARGET_FILE;
     return FALSE;
   }
-  log_file_path = StrNew(path);
   log_target |= LOG_TARGET_FILE;
   return TRUE;
+}
+
+// Opens path for appending and enables LOG_TARGET_FILE; NULL closes the
+// current file and disables the target.
+public Bool LogSetFile(U8 *path)
+{
+  Bool ok;
+
+  LogLock;
+  ok = LogSetFileLocked(path);
+  LogUnlock;
+  return ok;
+}
+
+// Close and reopen the same path: after an external logrotate renamed the
+// file away and created a new one, this switches to the new one.
+public Bool LogReopen()
+{
+  Bool ok = TRUE;
+
+  LogLock;
+  if (log_file_path) {
+    LogFileCloseLocked;
+    ok = LogFileOpenLocked;
+  }
+  LogUnlock;
+  return ok;
+}
+
+// Rotate when the file would exceed max_bytes: file -> file.1 -> ... ->
+// file.keep, the oldest is dropped, and a fresh file is opened.  Applies
+// only to this process's writes; 0 disables.
+public U0 LogSetRotate(I64 max_bytes, I64 keep=5)
+{
+  LogLock;
+  log_rotate_bytes = max_bytes;
+  if (keep < 1)
+    keep = 1;
+  log_rotate_keep = keep;
+  LogUnlock;
+}
+
+// Reopen the file path at most once a second before writing, so a rename
+// by an external logrotate is followed without a signal handler.
+public U0 LogSetReopen(Bool on=TRUE)
+{
+  log_reopen = on;
+}
+
+U0 LogRotateLocked()
+{
+  U8 *from, *to;
+  I64 i;
+
+  LogFileCloseLocked;
+  to = MStrPrint("%s.%d", log_file_path, log_rotate_keep);
+  LogOsFileDelete(to);
+  Free(to);
+  for (i = log_rotate_keep - 1; i >= 1; i--) {
+    from = MStrPrint("%s.%d", log_file_path, i);
+    to = MStrPrint("%s.%d", log_file_path, i + 1);
+    LogOsFileRename(from, to);
+    Free(from);
+    Free(to);
+  }
+  to = MStrPrint("%s.1", log_file_path);
+  LogOsFileRename(log_file_path, to);
+  Free(to);
+  LogFileOpenLocked;
+}
+
+// The file sink: follow external rotation, rotate ourselves, append.
+U0 LogFileWriteLocked(U8 *text, I64 len)
+{
+  I64 now;
+
+  if (log_reopen) {
+    now = LogOsMs;
+    if (now - log_reopen_last >= LOG_REOPEN_MS) {
+      LogFileCloseLocked;
+      LogFileOpenLocked;
+    }
+  }
+  if (log_rotate_bytes > 0 && log_file_size > 0 &&
+    log_file_size + len > log_rotate_bytes)
+    LogRotateLocked;
+  if (!log_file_handle)
+    return;
+  LogOsFileWrite(log_file_handle, text, len);
+  log_file_size += len;
+}
+
+// "10M,5" -> bytes and keep count; suffixes K, M, G (powers of 1024).
+U0 LogRotateParse(U8 *spec)
+{
+  I64 i = 0, bytes = 0, keep = 5;
+
+  while (spec[i] >= '0' && spec[i] <= '9')
+    bytes = bytes * 10 + spec[i++] - '0';
+  if (spec[i] == 'k' || spec[i] == 'K')
+    bytes *= 1024;
+  else if (spec[i] == 'm' || spec[i] == 'M')
+    bytes *= 1024 * 1024;
+  else if (spec[i] == 'g' || spec[i] == 'G')
+    bytes *= 1024 * 1024 * 1024;
+  while (spec[i] && spec[i] != ',')
+    i++;
+  if (spec[i] == ',') {
+    i++;
+    keep = 0;
+    while (spec[i] >= '0' && spec[i] <= '9')
+      keep = keep * 10 + spec[i++] - '0';
+  }
+  log_rotate_bytes = bytes;
+  if (keep < 1)
+    keep = 1;
+  log_rotate_keep = keep;
 }
 
 // "stderr,file,system" -> mask; "none" or "" -> 0; unknown words ignored.
@@ -293,26 +459,31 @@ Bool LogEnvBool(U8 *name, Bool current)
     *value != 'F';
 }
 
-public U0 LogFini()
+U0 LogFiniLocked()
 {
   if (log_system_open)
     LogNativeClose;
   log_system_open = FALSE;
-  LogSetFile(NULL);
+  LogSetFileLocked(NULL);
   Free(log_name);
   log_name = NULL;
   log_started = FALSE;
 }
 
-// name is the tag seen by the system log (syslog ident, os_log subsystem,
-// Event Log source, GLib domain).  It also reads the HC_LOG_* environment.
-public U0 LogInit(U8 *name=NULL)
+public U0 LogFini()
+{
+  LogLock;
+  LogFiniLocked;
+  LogUnlock;
+}
+
+U0 LogInitLocked(U8 *name)
 {
   U8 *value;
   I64 level;
 
   if (log_started)
-    LogFini;
+    LogFiniLocked;
   log_started = TRUE;
   if (!name)
     name = "aholyc";
@@ -326,9 +497,13 @@ public U0 LogInit(U8 *name=NULL)
   value = LogOsGetEnv("HC_LOG_TARGET");
   if (value)
     log_target = LogTargetParse(value);
+  value = LogOsGetEnv("HC_LOG_ROTATE");
+  if (value && *value)
+    LogRotateParse(value);
+  log_reopen = LogEnvBool("HC_LOG_REOPEN", log_reopen);
   value = LogOsGetEnv("HC_LOG_FILE");
   if (value && *value)
-    LogSetFile(value);
+    LogSetFileLocked(value);
   log_source = LogEnvBool("HC_LOG_SOURCE", log_source);
   log_timestamp = LogEnvBool("HC_LOG_TS", log_timestamp);
   log_privacy = LogEnvBool("HC_LOG_PRIVACY", log_privacy);
@@ -337,6 +512,15 @@ public U0 LogInit(U8 *name=NULL)
     LogSetColor(LogEnvBool("HC_LOG_COLOR", log_color));
   if (!log_color_set)
     log_color = LogOsIsTty;
+}
+
+// name is the tag seen by the system log (syslog ident, os_log subsystem,
+// Event Log source, GLib domain).  It also reads the HC_LOG_* environment.
+public U0 LogInit(U8 *name=NULL)
+{
+  LogLock;
+  LogInitLocked(name);
+  LogUnlock;
 }
 
 // Strip the directory so locations read as [file.hc:12].
@@ -383,29 +567,34 @@ U8 *LogLine(I64 level, U8 *body, Bool color)
 
 U0 LogEmit(I64 level, U8 *file, I64 line, U8 *text)
 {
-  U8 *body, *out;
+  U8 *body, *out, *plain = NULL;
 
-  if (!log_started)
-    LogInit;
   if (log_callback && log_callback(level, file, line, text, log_callback_data))
     return;
   body = LogBody(file, line, text);
+  if (log_target & (LOG_TARGET_STDERR | LOG_TARGET_FILE))
+    plain = LogLine(level, body, FALSE);
+  LogLock;
+  if (!log_started)
+    LogInitLocked(NULL);
   if (log_target & LOG_TARGET_STDERR) {
-    out = LogLine(level, body, log_color);
-    LogOsWrite(out, StrLen(out));
-    Free(out);
+    if (log_color) {
+      out = LogLine(level, body, TRUE);
+      LogOsWrite(out, StrLen(out));
+      Free(out);
+    } else
+      LogOsWrite(plain, StrLen(plain));
   }
-  if (log_target & LOG_TARGET_FILE && log_file_handle) {
-    out = LogLine(level, body, FALSE);
-    LogOsFileWrite(log_file_handle, out, StrLen(out));
-    Free(out);
-  }
+  if (log_target & LOG_TARGET_FILE && log_file_path)
+    LogFileWriteLocked(plain, StrLen(plain));
   if (log_target & LOG_TARGET_SYSTEM) {
     if (!log_system_open)
       log_system_open = LogNativeOpen(log_name);
     if (log_system_open)
       LogNativeWrite(level, body);
   }
+  LogUnlock;
+  Free(plain);
   Free(body);
 }
 

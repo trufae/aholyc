@@ -34,6 +34,7 @@ U0 Main()
   LogSetTimestamp(FALSE);
 
   if (LogSetFile("log-demo.txt")) {
+    LogSetRotate(1024 * 1024, 3);  // rotate at 1 MiB, keep .1 .. .3
     LogInfo("this line also goes to log-demo.txt");
     LogSetFile(NULL);
   }

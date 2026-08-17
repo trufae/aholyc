@@ -73,6 +73,9 @@ U0   LogFini();
 U0   LogSetLevel(I64 level);         I64 LogLevel();
 U0   LogSetTarget(I64 mask);         I64 LogTarget();
 Bool LogSetFile(U8 *path);           // enables LOG_TARGET_FILE; NULL closes
+U0   LogSetRotate(I64 max_bytes, I64 keep=5); // in-process size rotation
+U0   LogSetReopen(Bool on=TRUE);     // follow external logrotate (1/s)
+Bool LogReopen();                    // reopen the file path now
 U0   LogSetCallback(U0 *fn, U0 *data=NULL);
      // fn: Bool (*)(I64 level, U8 *file, I64 line, U8 *msg, U0 *data)
 U0   LogSetSource(Bool on=TRUE);     // prefix [file:line] when known
@@ -91,6 +94,37 @@ takes it explicitly and `LOG_HERE` expands to `__FILE__, __LINE__`:
 LogAt(LOG_ERROR, LOG_HERE, "cannot open %s", path);
 // ERROR: [main.hc:12] cannot open /etc/nothing   (with LogSetSource)
 ```
+
+## Files, rotation and thread safety
+
+The file target is opened append-only (`O_APPEND` / `FILE_APPEND_DATA`,
+shared with delete on Windows) and every line is written with a single
+`write`/`WriteFile`, which the kernel appends atomically — lines never
+interleave, even with other processes writing the same file, and a
+`logrotate copytruncate` is followed cleanly.
+
+All sinks are written under one internal spinlock built on the prelude's
+atomic `LBts`/`LBtr` (no dependency on lib/thread); messages are formatted
+outside it and the callback runs outside it, so a callback may log.  The
+level/target/flag setters are plain word stores.
+
+Rotation is optional and comes in two flavours:
+
+```holyc
+LogSetRotate(10 * 1024 * 1024, 5);  // this process rotates: file -> file.1 .. file.5
+LogSetReopen(TRUE);                 // follow an external logrotate: the path is
+                                    // reopened at most once a second before a write
+LogReopen;                          // or reopen right now, e.g. from a SIGHUP handler
+```
+
+`LogSetRotate` renames under the lock (`rename(2)` / `MoveFileEx` are
+atomic), so no line is lost in-process; it is per process by design —
+several processes sharing one file should use an external logrotate with
+`copytruncate`, or `create` plus `LogSetReopen`/`LogReopen`.  Env:
+`HC_LOG_ROTATE=10M,5`, `HC_LOG_REOPEN=1`.
+
+`tests/`-style check used while developing: 8 threads × 2000 lines with
+64 KB rotation produce exactly 16000 intact lines across 13 files.
 
 ## Privacy
 
@@ -114,7 +148,7 @@ so the hidden values never reach a file, syslog, os_log or a callback.
 `LogInit` (or the first message) reads: `HC_LOG_LEVEL` (a name or number),
 `HC_LOG_TARGET` (comma-separated `stderr`, `file`, `system`, `all`, or
 `none`), `HC_LOG_FILE`, `HC_LOG_SOURCE`, `HC_LOG_TS`, `HC_LOG_COLOR`,
-`HC_LOG_PRIVACY` (`0`/`1`).  Environment values override what the program set before
+`HC_LOG_PRIVACY`, `HC_LOG_REOPEN` (`0`/`1`), `HC_LOG_ROTATE` (`10M,5`).  Environment values override what the program set before
 `LogInit`.
 
 ## Example
@@ -134,5 +168,4 @@ Main;
 ```
 
 See `examples/log.hc` for targets, file output, timestamps and a callback.
-Output is not thread-safe; serialize calls yourself when logging from
-several threads.  The JS backend is not supported (no libc).
+The JS backend is not supported (no libc).
