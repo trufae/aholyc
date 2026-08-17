@@ -204,6 +204,46 @@ HC_API hc_i64 MemCmp(void *a, void *b, hc_i64 n) {
 	return memcmp (a, b, (size_t)n);
 }
 
+HC_API void *MemChr(void *data, hc_i64 ch, hc_i64 n) {
+	return data && n > 0? memchr (data, (int)ch, (size_t)n): NULL;
+}
+
+/* Bounded byte-string search. memchr skips quickly to plausible starts and
+ * memcmp lets the host libc use its word/SIMD implementation for candidates. */
+HC_API void *MemMem(void *data, hc_i64 length, void *needle,
+		hc_i64 needle_length) {
+	unsigned char *haystack = data;
+	unsigned char *find = needle;
+	if (needle_length == 0) {
+		return data;
+	}
+	if (!haystack || !find || length < needle_length || length < 0 ||
+			needle_length < 0) {
+		return NULL;
+	}
+	if (needle_length == 1) {
+		return memchr (haystack, find[0], (size_t)length);
+	}
+	size_t n = (size_t)needle_length;
+	size_t left = (size_t)(length - needle_length + 1);
+	unsigned char *p = haystack;
+	while (left) {
+		unsigned char *candidate = memchr (p, find[0], left);
+		if (!candidate) {
+			return NULL;
+		}
+		size_t skipped = (size_t)(candidate - p);
+		left -= skipped;
+		if (candidate[n - 1] == find[n - 1] &&
+				(n == 2 || !memcmp (candidate + 1, find + 1, n - 2))) {
+			return candidate;
+		}
+		p = candidate + 1;
+		left--;
+	}
+	return NULL;
+}
+
 /* --------------------------------------------------------------- strings */
 
 HC_API hc_i64 StrLen(char *s) {

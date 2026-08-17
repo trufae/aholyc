@@ -52,7 +52,7 @@ I64 rune_cases[10] = {
 };
 I64 unicode_encodings[5] = {
   TEXT_ENCODING_UTF8, TEXT_ENCODING_UTF16_LE, TEXT_ENCODING_UTF16_BE,
-    TEXT_ENCODING_UTF32_LE, TEXT_ENCODING_UTF32_BE
+  TEXT_ENCODING_UTF32_LE, TEXT_ENCODING_UTF32_BE
 };
 Bool roundtrip = TRUE;
 
@@ -67,7 +67,7 @@ Check(Utf8EncodeRune(0x1F600, encoded) == 4 &&
 
 Check(TextInit(&text, sample, sizeof(sample)) &&
   TextValid(&text, &count) && count == 5, "text slice with embedded nul");
-Check(TextInit(&text, "hello") && text.length == 5,
+Check(TextInit(&text, "hello") && StrsLen(&text) == 5,
   "nul-terminated adapter");
 
 Check(TextInit(&text, utf16le, sizeof(utf16le), TEXT_ENCODING_UTF16_LE) &&
@@ -125,7 +125,7 @@ for (i = 0; i < 256; i++) {
 }
 Check(roundtrip, "ebcdic full codepage roundtrip");
 
-Check(TextFromPascal(&text, pascal, sizeof(pascal)) && text.length == 3 &&
+Check(TextFromPascal(&text, pascal, sizeof(pascal)) && StrsLen(&text) == 3 &&
   TextValid(&text, &count) && count == 3, "pascal embedded nul");
 Check(!TextFromPascal(&other, pascal, 3), "pascal bounds");
 length = TextWritePascal(&text, pascal_output, sizeof(pascal_output));

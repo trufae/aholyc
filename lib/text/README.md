@@ -2,35 +2,53 @@
 
 The library is split by cost:
 
+- Include `strs.hc` for allocation-free borrowed byte slices, bounded search,
+  comparison, trimming, tokenization, and splitting.
 - Include `strbuf.hc` for an allocating, small-string-optimized string
-  builder. Its first 63 payload bytes are stored inline.
+  builder. It inherits the byte-slice representation, and its first 63 payload
+  bytes are stored inline.
 - Include `utf8.HC` for three strict UTF-8 primitives: `Utf8DecodeRune`,
   `Utf8EncodeRune`, and `Utf8Valid`.
 - Include `encoding.HC` for `CText`, UTF-16/32, ASCII, Latin-1, EBCDIC 037,
   transcoding, and Pascal-string adapters. It includes `utf8.HC` itself.
 
+`CStrs` is the common non-owning representation. It stores the half-open byte
+range `[a, b)`, so its length, consumption, and subslicing require no scan or
+allocation. `MemChr`, `MemMem`, and `MemCmp` back the hot search and comparison
+operations.
+
+```c
+#include "lib/text/strs.hc"
+
+U8 input[3] = {'a', 0, 'b'};
+CStrs bytes;
+StrsInitN(&bytes, input, sizeof(input));
+```
+
 In the encoding APIs, all string lengths and positions are byte counts. No
-encoding function allocates, and an explicit-length buffer may contain NUL
-bytes.
+encoding function allocates, and an explicit-length slice may contain NUL
+bytes. `CText` inherits `CStrs` and adds only the encoding tag.
 
 ```c
 #include "lib/text/encoding.HC"
 
 U8 input[3] = {'a', 0, 'b'};
+CStrs bytes;
 CText text;
-TextInit(&text, input, sizeof(input));
+StrsInitN(&bytes, input, sizeof(input));
+TextInitStrs(&text, &bytes);
 ```
 
 Decode runes by advancing with the returned byte count:
 
 ```c
-I64 position = 0;
+U8 *position = text.a;
 I64 consumed;
 I64 rune;
 
-while (position < text.length) {
-  consumed = TextDecodeRune(text.data + position,
-    text.length - position, text.encoding, &rune);
+while (position < text.b) {
+  consumed = TextDecodeRune(position, text.b - position,
+    text.encoding, &rune);
   if (!consumed)
     break;
   position += consumed;
@@ -52,17 +70,18 @@ TextConvert(&text, TEXT_ENCODING_UTF16_LE, utf16, needed);
 and an endianness flag instead of multiplying the API with format-specific
 wrappers. Pascal lengths count payload bytes.
 
-Build strings incrementally with `CStrBuf`. `StrBufPutN` preserves embedded
-NUL bytes, and `StrBufTake` returns a `Free`-able allocation and resets the
-builder for reuse.
+Build strings incrementally with `CStrBuf`. `StrBufPutStrs` appends a slice,
+and `StrBufPutN` preserves embedded NUL bytes. `StrBufTakeStrs` returns a slice
+whose `a` pointer is a `Free`-able allocation and resets the builder for reuse.
 
 ```c
 #include "lib/text/strbuf.hc"
 
 CStrBuf buffer;
+CStrs text;
 StrBufInit(&buffer);
 StrBufPutS(&buffer, "answer=");
 StrBufPrintf(&buffer, "%d", 42);
-U8 *text = StrBufTake(&buffer);
-Free(text);
+StrBufTakeStrs(&buffer, &text);
+Free(text.a);
 ```

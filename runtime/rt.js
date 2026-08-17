@@ -253,12 +253,37 @@ function MemSet(d, v, n) {
 }
 //@ MemCmp
 function MemCmp(a, b, n) {
+	if (n >= 32) {
+		return Buffer.compare (Buffer.from (MEM, a, n), Buffer.from (MEM, b, n));
+	}
 	for (let i = 0; i < n; i++) {
 		if (U8A[a + i] !== U8A[b + i]) {
 			return U8A[a + i] - U8A[b + i];
 		}
 	}
 	return 0;
+}
+//@ MemChr
+function MemChr(s, c, n) {
+	if (!s || n <= 0) {
+		return 0;
+	}
+	const i = U8A.subarray (s, s + n).indexOf (c & 0xff);
+	return i < 0? 0: s + i;
+}
+//@ MemMem MemChr
+function MemMem(s, sn, needle, nn) {
+	if (nn === 0) {
+		return s;
+	}
+	if (!s || !needle || sn < nn || sn < 0 || nn < 0) {
+		return 0;
+	}
+	if (nn === 1) {
+		return MemChr (s, U8A[needle], sn);
+	}
+	const i = Buffer.from (MEM, s, sn).indexOf (Buffer.from (MEM, needle, nn));
+	return i < 0? 0: s + i;
 }
 
 //@ StrLen cstr

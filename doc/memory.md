@@ -32,9 +32,11 @@ can.
   valid `CAnimal*` at the byte level — no adjustments, ever.
 * `union` members all start at the union base (offset 0, movable with
   `$$ = n;`); the union takes the size of its widest member.
-* Strings are NUL-terminated `U8*` byte runs. String *literals* should
-  be treated as read-only: the LLVM backend puts them in constant data,
-  so writing into one may fault there while silently working elsewhere.
+* Core strings are NUL-terminated `U8*` byte runs. `lib/text/strs.hc` provides
+  bounded, binary-safe `[start, end)` slices when a terminator is unavailable
+  or embedded NUL bytes are significant. String *literals* should be treated
+  as read-only: the LLVM backend puts them in constant data, so writing into
+  one may fault there while silently working elsewhere.
 
 The layout algorithm lives in one place (`parse_class()` in
 `src/parse.c`) and every backend consumes the computed offsets, which is

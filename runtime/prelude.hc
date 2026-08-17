@@ -41,6 +41,8 @@ extern I64 MSize(U8 *p);
 extern U8 *MemCpy(U8 *dst,U8 *src,I64 n);
 extern U8 *MemSet(U8 *dst,I64 val,I64 n);
 extern I64 MemCmp(U8 *a,U8 *b,I64 n);
+extern U8 *MemChr(U8 *data,I64 ch,I64 n);
+extern U8 *MemMem(U8 *data,I64 length,U8 *needle,I64 needle_length);
 
 // strings
 extern I64 StrLen(U8 *s);
