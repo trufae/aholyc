@@ -69,6 +69,38 @@ static void remember_exe_prefix(Aholyc *cc, Token *t) {
 	}
 }
 
+/* __FILE__, __DIR__ and __LINE__ are TempleOS predefined names that follow
+ * the token using them, so they are expanded here instead of via #define.
+ * A user #define of the same name takes precedence. */
+static Token *location_token(Aholyc *cc, Token *t) {
+	if (strncmp (t->str, "__", 2) || find_macro (cc, t->str)) {
+		return NULL;
+	}
+	Token *n = NULL;
+	if (!strcmp (t->str, "__LINE__")) {
+		n = copy_token (cc, t);
+		n->kind = TK_NUM;
+		n->ival = t->line;
+		n->str = NULL;
+		n->len = 0;
+	} else if (!strcmp (t->str, "__FILE__") || !strcmp (t->str, "__DIR__")) {
+		char *s = xstrdup (cc, t->file? t->file: "");
+		if (t->str[2] == 'D') {
+			char *sl = strrchr (s, '/');
+			if (sl) {
+				*sl = 0;
+			} else {
+				strcpy (s, ".");
+			}
+		}
+		n = copy_token (cc, t);
+		n->kind = TK_STR;
+		n->str = s;
+		n->len = strlen (s);
+	}
+	return n;
+}
+
 static Token *new_eof(Aholyc *cc, Token *near) {
 	Token *t = xcalloc (cc, 1, sizeof(*t));
 	t->kind = TK_EOF;
@@ -482,16 +514,6 @@ Token *lex_preprocess(Aholyc *cc, Token *tok) {
 				Token *rest = q->next;
 				prev->next = new_eof (cc, prev);
 				Token *body = prev == b? prev->next: b->next;
-				/* per-block location macros, TempleOS style */
-				lex_define (cc, "__FILE__", xasprintf (cc, "\"%s\"", d->file));
-				char *dir = xstrdup (cc, d->file);
-				char *sl = strrchr (dir, '/');
-				if (sl) {
-					*sl = 0;
-				} else {
-					strcpy (dir, ".");
-				}
-				lex_define (cc, "__DIR__", xasprintf (cc, "\"%s\"", dir));
 				char *out = exe_run (cc, body, &rest);
 				Token *inj = tokenize (cc, out, "<exe>");
 				if (inj->kind == TK_EOF) {
@@ -516,7 +538,12 @@ Token *lex_preprocess(Aholyc *cc, Token *tok) {
 			error_tok (cc, d, "unknown directive #%s", d->str);
 		}
 		if (tok->kind == TK_ID && !tok->no_expand) {
-			AholyMacro *m = find_macro (cc, tok->str);
+			Token *loc = location_token (cc, tok);
+			if (loc) {
+				loc->next = tok->next;
+				tok = loc;
+			}
+			AholyMacro *m = loc? NULL: find_macro (cc, tok->str);
 			if (m) {
 				if (!m->body) {
 					lex_hints_inherit (cc, tok, tok->next);
