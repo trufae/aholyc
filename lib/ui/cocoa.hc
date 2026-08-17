@@ -609,6 +609,11 @@ U0 UiComboSetSelected(UiCtl *c, I64 index)
   ui_msg(c->native, UiSel("selectItemAtIndex:"), index, 0, 0);
 }
 
+U0 UiComboClear(UiCtl *c)
+{
+  ui_msg(c->native, UiSel("removeAllItems"), 0, 0, 0);
+}
+
 UiCtl *UiRadioNew()
 {
   I64 sv = ui_msg(ui_msg(UiCls("NSStackView"), UiSel("alloc"), 0, 0, 0),

@@ -517,6 +517,11 @@ U0 UiComboSetSelected(UiCtl *c, I64 index)
   SendMessageA(c->native, 0x14E, index, 0);  // CB_SETCURSEL
 }
 
+U0 UiComboClear(UiCtl *c)
+{
+  SendMessageA(c->native, 0x14B, 0, 0);  // CB_RESETCONTENT
+}
+
 UiCtl *UiRadioNew()
 {
   UiCtl *c = UiCtlNew(UI_RADIO, 0);

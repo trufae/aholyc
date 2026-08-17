@@ -78,6 +78,8 @@ extern U0 g_object_unref(I64 obj);
 extern I64 gtk_drop_down_new_from_strings(U8 **strs);
 extern I64 gtk_string_list_new(U8 **strs);
 extern U0 gtk_string_list_append(I64 l, U8 *s);
+extern U0 gtk_string_list_splice(I64 l, I64 pos, I64 n, U8 **add);
+extern I64 g_list_model_get_n_items(I64 l);
 extern I64 gtk_drop_down_new(I64 model, I64 expr);
 extern U0 gtk_drop_down_set_selected(I64 d, I64 pos);
 extern I64 gtk_drop_down_get_selected(I64 d);
@@ -220,14 +222,11 @@ UiCtl *UiWindowNew(U8 *title, I64 w=480, I64 h=320)
   return c;
 }
 
+// Boxes carry no margins of their own: nested rows would otherwise pad
+// twice. The window's root child gets the outer margin in UiWindowSetChild.
 UiCtl *UiBoxNew(Bool vertical=TRUE)
 {
-  I64 box = gtk_box_new(vertical, 20);
-  gtk_widget_set_margin_top(box, 20);
-  gtk_widget_set_margin_bottom(box, 20);
-  gtk_widget_set_margin_start(box, 20);
-  gtk_widget_set_margin_end(box, 20);
-  return UiCtlNew(UI_BOX, box);
+  return UiCtlNew(UI_BOX, gtk_box_new(vertical, 8));
 }
 
 UiCtl *UiGridNew()
@@ -422,6 +421,12 @@ U0 UiComboSetSelected(UiCtl *c, I64 index)
   gtk_drop_down_set_selected(c->native, index);
 }
 
+U0 UiComboClear(UiCtl *c)
+{
+  gtk_string_list_splice(c->col, 0, g_list_model_get_n_items(c->col)(U32),
+    NULL);
+}
+
 UiCtl *UiRadioNew()
 {
   UiCtl *c = UiCtlNew(UI_RADIO, gtk_box_new(1, 4));
@@ -550,7 +555,8 @@ U0 UiSetVisible(UiCtl *c, Bool on)
 U0 UiExpand(UiCtl *c, Bool on)
 {
   gtk_widget_set_hexpand(c->native, on);
-  gtk_widget_set_vexpand(c->native, on);
+  if (c->kind == UI_MULTILINE || c->kind == UI_SCROLL || c->kind == UI_CANVAS)
+    gtk_widget_set_vexpand(c->native, on);  // one-line controls keep their height
 }
 
 I64 UiGtkTimer(I64 data)
@@ -757,6 +763,10 @@ U0 UiBoxAdd(UiCtl *box, UiCtl *c)
 
 U0 UiWindowSetChild(UiCtl *w, UiCtl *c)
 {
+  gtk_widget_set_margin_top(c->native, 12);
+  gtk_widget_set_margin_bottom(c->native, 12);
+  gtk_widget_set_margin_start(c->native, 12);
+  gtk_widget_set_margin_end(c->native, 12);
   gtk_box_append(w->kids->native, c->native);
 }
 

@@ -286,6 +286,21 @@ U0 UiComboSetSelected(UiCtl *c, I64 index)
   htk_dirty = TRUE;
 }
 
+U0 UiComboClear(UiCtl *c)
+{
+  HtkCtl *h = UiHtk(c), *k = h->kids, *next;
+
+  while (k) {
+    next = k->sib;
+    Free(k->text);
+    Free(k);
+    k = next;
+  }
+  h->kids = NULL;
+  h->value = -1;
+  htk_dirty = TRUE;
+}
+
 UiCtl *UiRadioNew()
 {
   return UiHtkWrap(UI_RADIO, HtkRadioNew);

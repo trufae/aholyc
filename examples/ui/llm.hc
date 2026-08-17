@@ -13,9 +13,13 @@
 #include "../../lib/ui/ui.hc"
 #include "../../lib/llm/llm.hc"
 #include "../../lib/io/file.hc"
+#include "../../lib/text/markdown.hc"
 #include "../../lib/thread/thread.hc"
 
 extern U8 *getenv(U8 *name);
+extern I64 time(I64 *now);
+extern U8 *localtime(I64 *now);
+extern I64 strftime(U8 *out, I64 max, U8 *format, U8 *tm);
 
 #define REASONING_COUNT 4
 U8 *reasoning_names[REASONING_COUNT] = {"none", "low", "medium", "high"};
@@ -47,6 +51,8 @@ class Chat
   // settings window
   UiCtl *dlg, *provider, *url_entry, *preset, *model_entry, *key_entry;
   UiCtl *reasoning_combo, *temperature_spin, *system_entry;
+  U8 **models;                     // ids fetched from the endpoint
+  I64 model_count;
   // worker thread
   CThread thread;
   Bool busy, done;
@@ -60,10 +66,41 @@ U0 ChatStatus(Chat *chat, U8 *text)
   UiStatusSet(chat->status, text);
 }
 
-U0 ChatAppend(Chat *chat, U8 *who, U8 *text)
+// Markdown output backend: plain laid-out text, styles ignored.
+U0 MdPlainText(CMarkdown *md, CStrs *text)
 {
-  StrBufPrintf(&chat->transcript, "%s: %s\n\n", who, text);
-  UiMultilineSetText(chat->log, chat->transcript.a);
+  StrBufPutStrs(md->user, text);
+}
+
+U0 MdPlainStyle(CMarkdown *md, I64 style, I64 on)
+{
+}
+
+// One transcript entry: a header rule with author and time, then the body;
+// assistant markdown is laid out by lib/text/markdown.hc.
+U0 ChatAppend(Chat *chat, U8 *who, U8 *text, Bool markdown=FALSE)
+{
+  CStrBuf *out = &chat->transcript;
+  CMarkdown md;
+  U8 stamp[16];
+  I64 now = time(NULL);
+  I64 i;
+
+  strftime(stamp, sizeof(stamp), "%H:%M", localtime(&now));
+  StrBufPrintf(out, "── %s · %s ", who, stamp);
+  for (i = StrLen(who) + 12; i < 72; i++)
+    StrBufPutS(out, "─");
+  StrBufPutC(out, '\n');
+  if (markdown) {
+    MarkdownInit(&md, &MdPlainText, &MdPlainStyle, out);
+    md.utf8 = TRUE;
+    md.width = 72;
+    MarkdownRender(&md, text);
+  } else {
+    StrBufPutS(out, text);
+  }
+  StrBufPutS(out, "\n\n");
+  UiMultilineSetText(chat->log, out->a);
 }
 
 // (Re)configure the client from the settings; starts a fresh conversation.
@@ -134,7 +171,7 @@ U0 ChatCollect(UiCtl *c, U0 *data)
       chat->busy = FALSE;
       UiEnable(chat->send, TRUE);
       if (chat->reply) {
-        ChatAppend(chat, "Assistant", chat->reply);
+        ChatAppend(chat, "Assistant", chat->reply, TRUE);
         text = MStrPrint("%d in / %d out tokens", chat->llm.input_tokens,
           chat->llm.output_tokens);
       } else {
@@ -196,9 +233,82 @@ U0 OnPreset(UiCtl *c, U0 *data)
 {
   Chat *chat = data;
   I64 i = UiComboSelected(chat->preset);
+  U8 *name;
 
-  if (i >= 0)
-    UiEntrySetText(chat->model_entry, model_names[i]);
+  if (i < 0)
+    return;
+  if (chat->models)
+    name = chat->models[i];
+  else
+    name = model_names[i];
+  UiEntrySetText(chat->model_entry, name);
+}
+
+U0 ChatFreeModels(Chat *chat)
+{
+  I64 i;
+
+  for (i = 0; i < chat->model_count; i++)
+    Free(chat->models[i]);
+  Free(chat->models);
+  chat->models = NULL;
+  chat->model_count = 0;
+}
+
+// GET <base>/models from the endpoint in the URL entry (OpenAI-compatible
+// {"data":[{"id":...}]}) and refill the model combo. Blocking but quick.
+U0 OnRefreshModels(UiCtl *c, U0 *data)
+{
+  Chat *chat = data;
+  CLlm probe;
+  CHttpResponse *http;
+  CJsonDecoder decoder;
+  CJsonValue root, list, item, id;
+  U8 *url = UiEntryText(chat->url_entry);
+  U8 *key = UiEntryText(chat->key_entry);
+  U8 *cut = MemMem(url, StrLen(url), "/v1/", 4);
+  U8 *models_url;
+  I64 i;
+
+  if (cut) {  // .../v1/chat/completions -> .../v1/models
+    cut += 3;
+  } else {  // otherwise replace the last path segment
+    cut = url + StrLen(url);
+    while (cut > url && *cut != '/')
+      cut--;
+  }
+  *cut = 0;
+  models_url = MStrPrint("%s/models", url);
+  LlmInit(&probe, models_url, "x", key);  // borrow the header composition
+  http = HttpGet(models_url, probe.headers);
+  LlmFini(&probe);
+  Free(url);
+  Free(key);
+  if (http->error || http->status != 200) {
+    if (http->error)
+      UiWarnBox("Models", http->error);
+    else
+      UiWarnBox("Models", "The endpoint did not list its models");
+  } else {
+    JsonDecoderInit(&decoder, http->body, http->body_length);
+    if (JsonDecode(&decoder, &root) && JsonObjectGet(&root, "data", &list)) {
+      ChatFreeModels(chat);
+      chat->model_count = JsonArrayLength(&list);
+      chat->models = CAlloc(sizeof(U8 *) * (chat->model_count + 1));
+      UiComboClear(chat->preset);
+      for (i = 0; JsonArrayGet(&list, i, &item); i++) {
+        if (JsonObjectGet(&item, "id", &id))
+          chat->models[i] = JsonValueStringNew(&id);
+        else
+          chat->models[i] = StrNew("?");
+        UiComboAdd(chat->preset, chat->models[i]);
+      }
+    } else {
+      UiWarnBox("Models", "Unexpected /models reply");
+    }
+  }
+  HttpResponseFree(http);
+  Free(models_url);
 }
 
 U0 OnApply(UiCtl *c, U0 *data)
@@ -236,11 +346,13 @@ U0 OnApply(UiCtl *c, U0 *data)
 U0 OnSettings(UiCtl *c, U0 *data)
 {
   Chat *chat = data;
-  UiCtl *grid, *row, *apply;
+  UiCtl *grid, *row, *apply, *refresh;
   I64 i;
 
-  chat->dlg = UiWindowNew("LLM settings", 520, 420);
+  ChatFreeModels(chat);
+  chat->dlg = UiWindowNew("LLM settings", 640, 420);
   grid = UiGridNew;
+  UiExpand(grid, TRUE);
   UiGridAdd(grid, UiLabelNew("Provider"), 0, 0);
   chat->provider = UiComboNew;
   for (i = 0; i < PROVIDER_COUNT; i++)
@@ -251,17 +363,26 @@ U0 OnSettings(UiCtl *c, U0 *data)
   chat->url_entry = UiEntryNew(chat->url);
   UiExpand(chat->url_entry, TRUE);
   UiGridAdd(grid, chat->url_entry, 1, 1);
-  UiGridAdd(grid, UiLabelNew("Model preset"), 0, 2);
+  UiGridAdd(grid, UiLabelNew("Models"), 0, 2);
+  row = UiBoxNew(FALSE);
   chat->preset = UiComboNew;
+  UiExpand(chat->preset, TRUE);
   for (i = 0; i < MODEL_COUNT; i++)
     UiComboAdd(chat->preset, model_names[i]);
   UiOnChange(chat->preset, &OnPreset, chat);
-  UiGridAdd(grid, chat->preset, 1, 2);
+  UiBoxAdd(row, chat->preset);
+  refresh = UiButtonNew("Refresh");
+  UiOnClick(refresh, &OnRefreshModels, chat);
+  UiBoxAdd(row, refresh);
+  UiExpand(row, TRUE);
+  UiGridAdd(grid, row, 1, 2);
   UiGridAdd(grid, UiLabelNew("Model"), 0, 3);
   chat->model_entry = UiEntryNew(chat->model);
+  UiExpand(chat->model_entry, TRUE);
   UiGridAdd(grid, chat->model_entry, 1, 3);
   UiGridAdd(grid, UiLabelNew("API key"), 0, 4);
   chat->key_entry = UiPasswordNew(chat->key);
+  UiExpand(chat->key_entry, TRUE);
   UiGridAdd(grid, chat->key_entry, 1, 4);
   UiGridAdd(grid, UiLabelNew("Reasoning"), 0, 5);
   chat->reasoning_combo = UiComboNew;
@@ -275,6 +396,7 @@ U0 OnSettings(UiCtl *c, U0 *data)
   UiGridAdd(grid, chat->temperature_spin, 1, 6);
   UiGridAdd(grid, UiLabelNew("System prompt"), 0, 7);
   chat->system_entry = UiEntryNew(chat->system);
+  UiExpand(chat->system_entry, TRUE);
   UiGridAdd(grid, chat->system_entry, 1, 7);
 
   row = UiBoxNew;
@@ -324,7 +446,9 @@ U0 ChatNew()
   UiMultilineSetEditable(chat->log, FALSE);
   UiExpand(chat->log, TRUE);
   UiBoxAdd(root, UiScrollNew(chat->log));
+  UiBoxAdd(root, UiSeparatorNew);
   row = UiBoxNew(FALSE);
+  UiBoxAdd(row, UiLabelNew(">"));
   chat->entry = UiEntryNew;
   UiExpand(chat->entry, TRUE);
   UiOnSubmit(chat->entry, &OnSend, chat);

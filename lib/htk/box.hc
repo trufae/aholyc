@@ -128,18 +128,36 @@ U0 HtkGridLayout(HtkCtl *c)
   I64 cols[HTK_GRID_MAX];
   I64 rows[HTK_GRID_MAX];
   I64 i, x, y;
+  Bool grow[HTK_GRID_MAX];
+  I64 ncols = 0, used = 0, stretchy = 0;
 
   MemSet(cols, 0, sizeof(cols));
   MemSet(rows, 0, sizeof(rows));
+  MemSet(grow, 0, sizeof(grow));
   while (k) {
     if (!k->hidden && k->col < HTK_GRID_MAX && k->row < HTK_GRID_MAX) {
       if (k->pw > cols[k->col])
         cols[k->col] = k->pw;
       if (k->ph > rows[k->row])
         rows[k->row] = k->ph;
+      if (k->expand)
+        grow[k->col] = TRUE;
+      if (k->col >= ncols)
+        ncols = k->col + 1;
     }
     k = k->sib;
   }
+  // Columns holding an expanding kid share the spare width.
+  for (i = 0; i < ncols; i++) {
+    used += cols[i] + 1;
+    if (grow[i])
+      stretchy++;
+  }
+  if (ncols)
+    used--;
+  for (i = 0; i < ncols && stretchy && used < c->w; i++)
+    if (grow[i])
+      cols[i] += (c->w - used) / stretchy;
   k = c->kids;
   while (k) {
     if (!k->hidden) {

@@ -56,6 +56,7 @@
 //   U0 UiComboAdd(UiCtl *c, U8 *text);
 //   I64 UiComboSelected(UiCtl *c);               // -1 if none
 //   U0 UiComboSetSelected(UiCtl *c, I64 index);
+//   U0 UiComboClear(UiCtl *c);                     // remove every item
 //   UiCtl *UiRadioNew();                          // vertical radio group
 //   U0 UiRadioAdd(UiCtl *r, U8 *text);
 //   I64 UiRadioSelected(UiCtl *r);
