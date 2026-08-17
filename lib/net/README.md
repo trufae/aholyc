@@ -8,7 +8,7 @@ macOS, and Windows. They are deliberately blocking and small enough to read.
 Include `socket.hc` for TCP and UDP:
 
 ```holyc
-#include "lib/socket/socket.hc"
+#include "lib/net/socket.hc"
 
 I64 server = TcpListen(8080, "127.0.0.1");
 I64 client = TcpAccept(server);
@@ -42,8 +42,8 @@ loads Winsock; all high-level constructors call it automatically.
 Include `ssl.hc` for a dynamically loaded OpenSSL client:
 
 ```holyc
-#include "lib/socket/socket.hc"
-#include "lib/socket/ssl.hc"
+#include "lib/net/socket.hc"
+#include "lib/net/ssl.hc"
 
 I64 socket = TcpConnect("example.com", 443);
 CSsl *tls = SslConnect(socket, "example.com");
@@ -75,7 +75,7 @@ All `CSsl` sessions must be closed before `SslFini` unloads the libraries.
 Including `http.hc` includes both lower layers:
 
 ```holyc
-#include "lib/socket/http.hc"
+#include "lib/net/http.hc"
 
 CHttpResponse *response = HttpGet("https://example.com/");
 if (response->error)
