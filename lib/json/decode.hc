@@ -616,6 +616,19 @@ Bool JsonValueCopyString(CJsonValue *value, U8 *output, I64 capacity,
   return TRUE;
 }
 
+// Decode a JSON string into a new heap allocation. Caller frees the result.
+U8 *JsonValueStringNew(CJsonValue *value, I64 *decoded_length = NULL)
+{
+  U8 *text;
+  I64 length;
+
+  if (!JsonValueCopyString(value, NULL, 0, &length))
+    return NULL;
+  text = MAlloc(length + 1);
+  JsonValueCopyString(value, text, length + 1, decoded_length);
+  return text;
+}
+
 Bool JsonValueStringEqualsN(CJsonValue *value, U8 *text, I64 text_length)
 {
   I64 i = 1;
