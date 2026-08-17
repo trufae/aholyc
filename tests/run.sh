@@ -1297,6 +1297,11 @@ printf 'U0 F(I64 x)\n{//c\n  if (x) {\n    "y\\n";\n  }\n}\n' > tests/out/fmt_ex
 cmp -s tests/out/fmt_exp.HC tests/out/fmt_got.HC || fmtok=0
 ./aholyc fmt -q tests/out/fmt_in.HC >/dev/null && fmtok=0   # must exit 1
 ./aholyc fmt -q - < tests/out/fmt_got.HC || fmtok=0         # must exit 0
+printf 'U16 foo[16] = {\n1,2,3,4,5,6,7,8,\n1,2,3,4,5,6,7,8,\n};\n' > tests/out/fmt_init_in.HC
+printf 'U16 foo[16] = {\n  1,2,3,4,5,6,7,8,\n  1,2,3,4,5,6,7,8,\n};\n' > tests/out/fmt_init_exp.HC
+./aholyc fmt tests/out/fmt_init_in.HC > tests/out/fmt_init_got.HC 2>/dev/null
+cmp -s tests/out/fmt_init_exp.HC tests/out/fmt_init_got.HC || fmtok=0
+./aholyc fmt -q - < tests/out/fmt_init_got.HC || fmtok=0
 ./aholyc fmt tests/asm.HC > tests/out/fmt-asm.HC || fmtok=0
 ./aholyc fmt -q - < tests/out/fmt-asm.HC || fmtok=0
 if [ "$haveasm" = 1 ]; then

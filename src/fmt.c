@@ -18,6 +18,7 @@
 typedef struct {
 	int outer;        /* indent level of the line that opened the block */
 	bool is_switch, is_asm;
+	bool is_init;     /* brace-delimited initializer */
 	bool in_sub;      /* between start:/end: in a sub_switch */
 } FBlock;
 
@@ -142,6 +143,8 @@ static void note_word(FState *st, const char *w, int n) {
 
 /* advance the scan state over one (already indent-stripped) line */
 static void scan_line(FState *st, const char *s) {
+	/* Keep the preceding line's last character so "=\n{" is recognized. */
+	char prev_code = st->last_code;
 	st->first_word[0] = st->last_word[0] = 0;
 	st->last_code = 0;
 	st->fw_state = 0;
@@ -199,6 +202,7 @@ static void scan_line(FState *st, const char *s) {
 			continue;
 		}
 		if (c != ' ' && c != '\t') {
+			prev_code = st->last_code? st->last_code: prev_code;
 			st->last_code = c;
 			st->last_word[0] = 0;
 			if (st->fw_state <= 1 && c != '}') {
@@ -216,12 +220,14 @@ static void scan_line(FState *st, const char *s) {
 			break;
 		case '{':
 			if (st->nstk < 256) {
-				bool parent_asm = st->nstk > 0 &&
-					st->stk[st->nstk - 1].is_asm;
+				FBlock *parent = st->nstk > 0?
+					&st->stk[st->nstk - 1]: NULL;
 				st->stk[st->nstk].outer = st->cur_indent;
 				st->stk[st->nstk].is_switch = st->sw_pending;
-				st->stk[st->nstk].is_asm = parent_asm ||
+				st->stk[st->nstk].is_asm = (parent && parent->is_asm) ||
 					!strcmp (st->first_word, "asm");
+				st->stk[st->nstk].is_init = prev_code == '=' ||
+					(parent && parent->is_init);
 				st->nstk++;
 			}
 			st->sw_pending = false;
@@ -376,6 +382,7 @@ static char *fmt_run(Aholyc *cc, const char *src, const FmtOpts *opt) {
 		int level;
 		FBlock *top = st.nstk > 0? &st.stk[st.nstk - 1]: NULL;
 		bool asm_line = top && top->is_asm;
+		bool init_line = top && top->is_init;
 		if (b[0] == '}') {
 			level = top? top->outer: 0;
 		} else if (asm_line && (is_asm_label (b) || b[0] == '#')) {
@@ -456,7 +463,8 @@ static char *fmt_run(Aholyc *cc, const char *src, const FmtOpts *opt) {
 				word_is (st.first_word, "while") ||
 				word_is (st.first_word, "for");
 			char lc = st.last_code;
-			if (lc == '{' || lc == ';' || lc == '}' || lc == ':') {
+			if (lc == '{' || lc == ';' || lc == '}' || lc == ':' ||
+			    (lc == ',' && init_line)) {
 				st.hang = 0;
 				st.ctrl_open = false;
 				st.stmt_open = false;
