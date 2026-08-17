@@ -27,6 +27,8 @@ extern I64 CreateMenu();
 extern I64 CreatePopupMenu();
 extern I64 AppendMenuA(I64 menu, I64 flags, I64 id, U8 *label);
 extern I64 SetMenu(I64 hwnd, I64 menu);
+extern I64 TrackPopupMenu(I64 menu, I64 flags, I64 x, I64 y, I64 reserved,
+  I64 hwnd, I64 rect);
 extern I64 BeginPaint(I64 hwnd, U0 *ps);
 extern I64 EndPaint(I64 hwnd, U0 *ps);
 extern I64 FillRect(I64 hdc, U0 *rect, I64 brush);
@@ -131,6 +133,16 @@ I64 UiWndProc(I64 hwnd, I64 msg, I64 wp, I64 lp)
   case WM_VSCROLL:
     UiFireClick(UiCtlFind(lp));
     return 0;
+  case 0x7B: {  // WM_CONTEXTMENU: wp = clicked hwnd, lp = screen x,y
+    UiCtl *c = UiCtlFind(wp);
+    if (!c || !c->popup)
+      c = UiCtlFind(hwnd);
+    if (c && c->popup) {
+      TrackPopupMenu(c->popup, 0, lp & 0xFFFF, lp >> 16 & 0xFFFF, 0, hwnd, 0);
+      return 0;
+    }
+    break;
+  }
   case WM_TIMER:
     UiFireClick(UiCtlFind(wp));
     if (wp >= 90000)  // one-shot (UiQueueMain) ids live at 90000+
@@ -492,6 +504,23 @@ UiCtl *UiMenuItem(UiCtl *m, U8 *label, U0 *fn, U0 *data=NULL)
   UiCtl *c = UiCtlNew(UI_MENUITEM, id);
   UiOnClick(c, fn, data);
   return c;
+}
+
+UiCtl *UiSubMenu(UiCtl *m, U8 *title)
+{
+  I64 sub = CreatePopupMenu;
+  AppendMenuA(m->native, MF_POPUP, sub, title);
+  return UiCtlNew(UI_MENU, sub);
+}
+
+UiCtl *UiPopupMenuNew()
+{
+  return UiCtlNew(UI_MENU, CreatePopupMenu);
+}
+
+U0 UiContextMenu(UiCtl *c, UiCtl *menu)
+{
+  c->popup = menu->native;  // shown from WM_CONTEXTMENU in UiWndProc
 }
 
 UiCtl *UiComboNew()

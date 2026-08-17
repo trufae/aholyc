@@ -446,6 +446,11 @@ U0 ChatNew()
   UiMultilineSetEditable(chat->log, FALSE);
   UiExpand(chat->log, TRUE);
   UiBoxAdd(root, UiScrollNew(chat->log));
+  menu = UiPopupMenuNew;  // right click on the transcript
+  UiMenuItem(menu, "Clear conversation", &OnClear, chat);
+  UiMenuItem(menu, "Save transcript...", &OnSave, chat);
+  UiMenuItem(menu, "Settings...", &OnSettings, chat);
+  UiContextMenu(chat->log, menu);
   UiBoxAdd(root, UiSeparatorNew);
   row = UiBoxNew(FALSE);
   UiBoxAdd(row, UiLabelNew(">"));

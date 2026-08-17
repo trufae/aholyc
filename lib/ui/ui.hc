@@ -18,6 +18,9 @@
 //   UiCtl *UiCanvasNew(I64 w, I64 h, U0 *drawfn, U0 *data=NULL);
 //   UiCtl *UiMenuNew(U8 *title);                    // create the window first
 //   UiCtl *UiMenuItem(UiCtl *m, U8 *label, U0 *fn, U0 *data=NULL);
+//   UiCtl *UiSubMenu(UiCtl *m, U8 *title);          // nested menu
+//   UiCtl *UiPopupMenuNew();                        // menu outside the bar
+//   U0 UiContextMenu(UiCtl *c, UiCtl *menu);        // pops on right click
 //   U0 UiLabelSetText(UiCtl *l, U8 *text);
 //   U8 *UiEntryText(UiCtl *e);                      // MAlloc'd copy, Free it
 //   U0 UiEntrySetText(UiCtl *e, U8 *text);
@@ -142,6 +145,7 @@ class UiCtl
   I64 native;        // toolkit handle (menu-item id on win32)
   I64 cb, cb_data;   // event callback + user data
   I64 submitfn, submitdata; // entry Enter callback + user data
+  I64 popup;         // context menu handle (backend specific)
   I64 kind;          // UI_*
   I64 w, h;          // window/canvas size
   I64 col, row;      // grid cell (table: ncols, nrows)

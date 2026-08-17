@@ -309,18 +309,62 @@ U0 HtkEnsureFocus()
   HtkFocusMove(1);
 }
 
+// Popups form a chain: a submenu is pushed on top of the popup that opened
+// it and both stay visible; ->parent points down the chain.
+U0 HtkPopupClose()
+{
+  HtkCtl *below;
+
+  while (htk_popup) {
+    below = htk_popup->parent;
+    Free(htk_popup);
+    htk_popup = below;
+  }
+  htk_dirty = TRUE;
+}
+
 U0 HtkPopupOpen(HtkCtl *popup)
 {
-  Free(htk_popup);
+  HtkPopupClose;
+  popup->parent = NULL;
   htk_popup = popup;
   htk_dirty = TRUE;
 }
 
-U0 HtkPopupClose()
+U0 HtkPopupPush(HtkCtl *popup)
 {
-  Free(htk_popup);
-  htk_popup = NULL;
+  popup->parent = htk_popup;
+  htk_popup = popup;
   htk_dirty = TRUE;
+}
+
+// Close only the topmost popup (back out of a submenu).
+U0 HtkPopupPop()
+{
+  HtkCtl *below;
+
+  if (!htk_popup)
+    return;
+  below = htk_popup->parent;
+  Free(htk_popup);
+  htk_popup = below;
+  htk_dirty = TRUE;
+}
+
+HtkCtl *HtkPopupRoot()
+{
+  HtkCtl *p = htk_popup;
+
+  while (p && p->parent)
+    p = p->parent;
+  return p;
+}
+
+U0 HtkPopupDrawChain(HtkCtl *p)
+{
+  if (p->parent)
+    HtkPopupDrawChain(p->parent);
+  HtkPickDraw(p);
 }
 
 U0 HtkHookAdd(I64 delay_ms, I64 repeat_ms, I64 fn, I64 a, I64 b)
@@ -390,14 +434,17 @@ U0 HtkRedraw()
   HtkClipAll;
   HtkDesktopDraw;
   while (w) {
-    HtkClipAll;
-    HtkWindowLayout(w);
-    HtkWindowDraw(w);
+    if (!w->minimized) {
+      HtkClipAll;
+      HtkWindowLayout(w);
+      HtkWindowDraw(w);
+    }
     w = w->sib;
   }
   HtkClipAll;
+  HtkTaskbar(-1, TRUE);
   if (htk_popup)
-    HtkPickDraw(htk_popup);
+    HtkPopupDrawChain(htk_popup);
   TermCommit;
 }
 
@@ -426,24 +473,49 @@ U0 HtkWindowMouse(HtkCtl *w, CTermEvent *e)
   HtkCtl *content = HtkWindowContent(w);
   HtkCtl *hit;
   Bool press = e->pressed && !e->motion && e->button == TERM_MOUSE_LEFT;
+  Bool right = e->pressed && !e->motion && e->button == TERM_MOUSE_RIGHT;
 
+  if (right && e->y == w->y) {  // title bar: window manager menu
+    HtkWindowMenuOpen(w, e->x, e->y + 1);
+    return;
+  }
+  // Any of the four frame corners (two cells wide) resizes; the rest of the
+  // title row drags. Maximized windows do neither.
+  if (press && !w->maximized && (e->y == w->y || e->y == w->y + w->h - 1) &&
+    (e->x <= w->x + 1 || e->x >= w->x + w->w - 2)) {
+      htk_drag = w;
+      if (e->y == w->y && e->x <= w->x + 1)
+        htk_drag_resize = HTK_CORNER_TL;
+      else if (e->y == w->y)
+        htk_drag_resize = HTK_CORNER_TR;
+      else if (e->x <= w->x + 1)
+        htk_drag_resize = HTK_CORNER_BL;
+      else
+        htk_drag_resize = HTK_CORNER_BR;
+      return;
+    }
   if (e->y == w->y) {
+    I64 box = e->x - (w->x + w->w - 10);  // [_][□][■] at the right
     if (!press)
       return;
-    if (e->x >= w->x + 2 && e->x <= w->x + 4) {
+    if (box >= 0 && box < 3) {
+      HtkWindowMinimize(w);
+      return;
+    }
+    if (box >= 3 && box < 6) {
+      HtkWindowMaximize(w);
+      return;
+    }
+    if (box >= 6 && box < 9) {
       HtkWindowClose(w);
       return;
     }
+    if (w->maximized)
+      return;
     htk_drag = w;
-    htk_drag_resize = FALSE;
+    htk_drag_resize = 0;
     htk_drag_dx = e->x - w->x;
     htk_drag_dy = e->y - w->y;
-    return;
-  }
-  // Dragging the bottom-right corner resizes.
-  if (press && e->x >= w->x + w->w - 2 && e->y == w->y + w->h - 1) {
-    htk_drag = w;
-    htk_drag_resize = TRUE;
     return;
   }
   if (HtkWindowHasMenu(w) && e->y == w->y + 1) {
@@ -455,6 +527,16 @@ U0 HtkWindowMouse(HtkCtl *w, CTermEvent *e)
   if (!content)
     return;
   hit = HtkHit(content, e->x, e->y);
+  if (right) {  // nearest context menu up the tree, the window's last
+    HtkCtl *owner = hit;
+    if (!owner)
+      owner = w;
+    while (owner && !owner->menu)
+      owner = owner->parent;
+    if (owner)
+      HtkMenuOpenAt(owner->menu, e->x, e->y);
+    return;
+  }
   if (!hit)
     return;
   if (press && hit->focusable && !hit->disabled)
@@ -577,18 +659,13 @@ U0 HtkMouse(CTermEvent *e)
     if (htk_drag && htk_drag->kind == HTK_CANVAS)
       HtkCanvasMouse(htk_drag, e);
     htk_drag = NULL;
-    htk_drag_resize = FALSE;
+    htk_drag_resize = 0;
   }
   if (htk_drag && e->pressed) {
     if (htk_drag->kind == HTK_WINDOW) {
-      if (htk_drag_resize) {
-        htk_drag->w = e->x - htk_drag->x + 1;
-        htk_drag->h = e->y - htk_drag->y + 1;
-        if (htk_drag->w < 12)
-          htk_drag->w = 12;
-        if (htk_drag->h < 4)
-          htk_drag->h = 4;
-      } else {
+      if (htk_drag_resize)
+        HtkWindowResizeCorner(htk_drag, htk_drag_resize, e->x, e->y);
+      else {
         htk_drag->x = e->x - htk_drag_dx;
         htk_drag->y = e->y - htk_drag_dy;
       }
@@ -600,28 +677,42 @@ U0 HtkMouse(CTermEvent *e)
     return;
   }
   if (htk_popup) {
-    if (e->x >= htk_popup->x && e->x < htk_popup->x + htk_popup->w &&
-      e->y >= htk_popup->y && e->y < htk_popup->y + htk_popup->h) {
-      HtkPickMouse(htk_popup, e);
+    // Topmost popup under the pointer wins; clicking a lower one in the
+    // chain folds the submenus above it first.
+    HtkCtl *p = htk_popup;
+    while (p && !(e->x >= p->x && e->x < p->x + p->w &&
+      e->y >= p->y && e->y < p->y + p->h))
+      p = p->parent;
+    if (p) {
+      if (p != htk_popup && !(e->pressed && !e->motion))
+        return;  // releases and hovers never fold an open submenu
+      while (htk_popup != p)
+        HtkPopupPop;
+      HtkPickMouse(p, e);
       return;
     }
     if (e->pressed && !e->motion)
       HtkPopupClose;
     return;
   }
+  if (e->pressed && !e->motion && HtkTaskbarHeight &&
+    e->y == TermHeight - 1) {
+      HtkWindowRestore(HtkTaskbar(e->x, FALSE));
+      return;
+    }
   w = htk_windows;
   while (w) {
-    if (e->x >= w->x && e->x < w->x + w->w &&
+    if (!w->minimized && e->x >= w->x && e->x < w->x + w->w &&
       e->y >= w->y && e->y < w->y + w->h)
       at = w;
     w = w->sib;
   }
   if (!at)
     return;
-  if (at != HtkTop && e->pressed) {
+  // A press on a background window raises it and still counts: the title
+  // starts dragging right away and controls react without a second click.
+  if (at != HtkTop && e->pressed && !e->motion)
     HtkWindowRaise(at);
-    return;
-  }
   HtkWindowMouse(at, e);
 }
 

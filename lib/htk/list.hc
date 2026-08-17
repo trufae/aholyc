@@ -53,9 +53,20 @@ U0 HtkPickDraw(HtkCtl *p)
       fg = HTK_C_DIM;
     HtkRect(p->x + 1, p->y + 1 + i, p->w - 2, 1, ' ', fg, bg);
     HtkStr(p->x + 2, p->y + 1 + i, k->text, fg, bg);
+    if (k->kind == HTK_MENU)  // submenu marker
+      HtkChr(p->x + p->w - 2, p->y + 1 + i, HTK_R_RIGHT, fg, bg);
     k = k->sib;
     i++;
   }
+}
+
+// Push the submenu of the selected item on top of the popup, beside it.
+U0 HtkPickDescend(HtkCtl *p)
+{
+  HtkCtl *sub = HtkKidAt(p->link, p->value);
+
+  if (sub && sub->kids)
+    HtkPopupPush(HtkPickNew(sub, p->x + p->w - 1, p->y + p->value));
 }
 
 U0 HtkPickChoose(HtkCtl *p)
@@ -63,6 +74,10 @@ U0 HtkPickChoose(HtkCtl *p)
   HtkCtl *owner = p->link;
   HtkCtl *item = HtkKidAt(owner, p->value);
 
+  if (item && item->kind == HTK_MENU) {
+    HtkPickDescend(p);
+    return;
+  }
   HtkPopupClose;
   if (!item || item->disabled)
     return;
@@ -115,15 +130,19 @@ Bool HtkPickKey(HtkCtl *p, CTermEvent *e)
     p->value++;
   else if (e->key == TERM_KEY_ENTER || e->key == ' ')
     HtkPickChoose(p);
+  else if (e->key == TERM_KEY_RIGHT && HtkKidAt(p->link, p->value) &&
+    HtkKidAt(p->link, p->value)->kind == HTK_MENU)
+    HtkPickDescend(p);
   else if ((e->key == TERM_KEY_LEFT || e->key == TERM_KEY_RIGHT) &&
-    p->link->kind == HTK_MENU) {
+    p->link->kind == HTK_MENU && p->link->parent &&
+    p->link->parent->kind == HTK_WINDOW) {
       if (e->key == TERM_KEY_RIGHT)
         HtkPickSideways(p, 1);
       else
         HtkPickSideways(p, -1);
     }
-  else if (e->key == TERM_KEY_ESCAPE)
-    HtkPopupClose;
+  else if (e->key == TERM_KEY_ESCAPE || e->key == TERM_KEY_LEFT && p->parent)
+    HtkPopupPop;  // one level; the root pops to nothing
   else
     return FALSE;
   htk_dirty = TRUE;

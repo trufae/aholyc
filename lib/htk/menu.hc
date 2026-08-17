@@ -19,6 +19,29 @@ HtkCtl *HtkMenuItem(HtkCtl *menu, U8 *label)
   return item;
 }
 
+// A menu that lives outside the menubar: pop it up with HtkMenuOpenAt or
+// attach it to a control's ->menu for right clicks.
+HtkCtl *HtkContextMenuNew()
+{
+  return HtkNew(HTK_MENU);
+}
+
+// Nested menu: an HTK_MENU kid shown with a ▸ marker that opens beside.
+HtkCtl *HtkSubMenu(HtkCtl *menu, U8 *title)
+{
+  HtkCtl *sub = HtkNew(HTK_MENU);
+
+  HtkSetText(sub, title);
+  HtkAdd(menu, sub);
+  return sub;
+}
+
+U0 HtkMenuOpenAt(HtkCtl *m, I64 x, I64 y)
+{
+  if (m && m->kids)
+    HtkPopupOpen(HtkPickNew(m, x, y));
+}
+
 Bool HtkWindowHasMenu(HtkCtl *w)
 {
   HtkCtl *k = w->kids;
@@ -64,9 +87,9 @@ U0 HtkMenubarDraw(HtkCtl *w)
       k->y = w->y + 1;
       k->w = HtkRunes(k->text) + 2;
       k->h = 1;
-      if (htk_popup && htk_popup->link == k)
+      if (htk_popup && HtkPopupRoot->link == k)
         HtkRect(at, w->y + 1, k->w, 1, ' ', TERM_BRIGHT_WHITE, HTK_C_BTN_BG);
-      if (htk_popup && htk_popup->link == k)
+      if (htk_popup && HtkPopupRoot->link == k)
         HtkStr(at + 1, w->y + 1, k->text, TERM_BRIGHT_WHITE, HTK_C_BTN_BG);
       else
         HtkStr(at + 1, w->y + 1, k->text, HtkInk(k, HTK_C_FG), HTK_C_BG);

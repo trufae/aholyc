@@ -43,6 +43,12 @@ extern U0 gtk_widget_set_margin_start(I64 w, I64 px);
 extern U0 gtk_widget_set_margin_end(I64 w, I64 px);
 extern U0 gtk_widget_insert_action_group(I64 w, U8 *prefix, I64 grp);
 extern I64 gtk_popover_menu_bar_new_from_model(I64 model);
+extern I64 gtk_popover_menu_new_from_model(I64 model);
+extern U0 gtk_popover_set_pointing_to(I64 popover, I32 *rect);
+extern U0 gtk_popover_set_has_arrow(I64 popover, I64 on);
+extern U0 gtk_popover_popup(I64 popover);
+extern U0 gtk_widget_set_parent(I64 widget, I64 parent);
+extern U0 gtk_event_controller_set_propagation_phase(I64 c, I64 phase);
 extern I64 g_menu_new();
 extern U0 g_menu_append(I64 m, U8 *label, U8 *action);
 extern U0 g_menu_append_submenu(I64 m, U8 *label, I64 sub);
@@ -216,6 +222,8 @@ UiCtl *UiWindowNew(U8 *title, I64 w=480, I64 h=320)
   ui_gtk_outer = gtk_box_new(1, 0);
   gtk_window_set_child(ui_gtk_win, ui_gtk_outer);
   ui_gtk_bar = 0;  // each window gets its own menubar and action group
+  ui_gtk_grp = g_simple_action_group_new;
+  gtk_widget_insert_action_group(ui_gtk_win, "ui", ui_gtk_grp);
   ui_gtk_nwin++;
   UiCtl *c = UiCtlNew(UI_WINDOW, ui_gtk_win);
   c->kids = UiCtlNew(UI_BOX, ui_gtk_outer);  // per-window outer box
@@ -371,8 +379,6 @@ UiCtl *UiMenuNew(U8 *title)
 {
   if (!ui_gtk_bar) {
     ui_gtk_bar = g_menu_new;
-    ui_gtk_grp = g_simple_action_group_new;
-    gtk_widget_insert_action_group(ui_gtk_win, "ui", ui_gtk_grp);
     gtk_box_prepend(ui_gtk_outer, gtk_popover_menu_bar_new_from_model(ui_gtk_bar));
   }
   I64 m = g_menu_new;
@@ -392,6 +398,48 @@ UiCtl *UiMenuItem(UiCtl *m, U8 *label, U0 *fn, U0 *data=NULL)
   Free(name);
   Free(detailed);
   return c;
+}
+
+UiCtl *UiSubMenu(UiCtl *m, U8 *title)
+{
+  I64 sub = g_menu_new;
+  g_menu_append_submenu(m->native, title, sub);
+  return UiCtlNew(UI_MENU, sub);
+}
+
+UiCtl *UiPopupMenuNew()
+{
+  return UiCtlNew(UI_MENU, g_menu_new);
+}
+
+U0 UiGtkContext(I64 gesture, I64 npress, F64 x, F64 y, I64 data)
+{
+  UiCtl *c = data;
+  I32 rect[4];
+  rect[0] = x;
+  rect[1] = y;
+  rect[2] = 1;
+  rect[3] = 1;
+  gtk_popover_set_pointing_to(c->popup, rect);
+  gtk_popover_popup(c->popup);
+}
+
+// A popover menu parented to the control (the outer box for a window),
+// shown by a right-click gesture. Actions resolve through the window's
+// "ui" action group like menubar items.
+U0 UiContextMenu(UiCtl *c, UiCtl *menu)
+{
+  I64 target = c->native;
+  if (c->kind == UI_WINDOW)
+    target = c->kids->native;
+  c->popup = gtk_popover_menu_new_from_model(menu->native);
+  gtk_popover_set_has_arrow(c->popup, 0);
+  gtk_widget_set_parent(c->popup, target);
+  I64 click = gtk_gesture_click_new;
+  gtk_gesture_single_set_button(click, 3);
+  gtk_event_controller_set_propagation_phase(click, 1);  // GTK_PHASE_CAPTURE:
+  g_signal_connect_data(click, "pressed", &UiGtkContext, c, 0, 0);  // beat
+  gtk_widget_add_controller(target, click);  // the text view's own menu
 }
 
 UiCtl *UiComboNew()

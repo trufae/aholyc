@@ -25,9 +25,9 @@ U0 HtkLabelDraw(HtkCtl *c)
   I64 i = 0, y = c->y;
   I64 bg = HTK_C_BG;
 
-  if (c->kind == HTK_STATUS) {
-    HtkRect(c->x, c->y, c->w, c->h, ' ', HTK_C_FG, bg);
-    HtkStr(c->x + 1, c->y, c->text, HtkInk(c, HTK_C_FG), bg);
+  if (c->kind == HTK_STATUS) {  // docked bar: inverse strip like the frame
+    HtkRect(c->x, c->y, c->w, c->h, ' ', HTK_C_TITLE, HTK_C_DIM);
+    HtkStr(c->x + 1, c->y, c->text, HTK_C_TITLE, HTK_C_DIM);
     return;
   }
   while (c->text[i] && y < c->y + c->h) {

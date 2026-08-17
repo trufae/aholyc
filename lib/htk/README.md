@@ -28,7 +28,19 @@ Tiling containers compute a preferred size bottom-up, then divide space
 top-down: `HTK_BOX` (linear, spare space to `expand` kids), `HTK_GRID`
 (per-cell col/row), `HTK_SPLIT` (first pane keeps its size), `HTK_SCROLL`
 (clipped viewport with scrollbar).  Windows tile with `HtkTile()` or
-`HtkCascade()`, drag by their title bar, and close on the `[■]` box.
+`HtkCascade()`, drag by their title bar and resize by dragging any of the
+four frame corners.  The title carries Windows-style boxes: `[_]` minimizes the window
+to a button on a one-row taskbar at the bottom of the terminal (click the
+button to bring it back), `[□]` maximizes over the desktop and `[▣]`
+restores, `[■]` closes (`HtkWindowMinimize/Maximize/Restore/Close`).  A
+`HtkStatusbarNew` control draws as an inverse strip, so a box with the
+status bar last gives a docked bar like the GTK/Cocoa/Win32 backends.
+A right click on a title bar opens the window menu (Minimize, Maximize or
+Restore, Tile ▸ Left/Right/Top/Bottom, Close).  Any control can carry its
+own context menu: build one with `HtkContextMenuNew` (+ `HtkMenuItem`,
+`HtkSubMenu` for ▸ submenus), assign it to `ctl->menu`, and a right click
+on the control (or anything inside it) pops it up; `HtkMenuOpenAt` shows a
+menu at an arbitrary cell.
 
 ## Theme
 

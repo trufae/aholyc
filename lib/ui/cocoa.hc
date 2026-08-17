@@ -536,6 +536,34 @@ UiCtl *UiMenuItem(UiCtl *m, U8 *label, U0 *fn, U0 *data=NULL)
   return c;
 }
 
+UiCtl *UiSubMenu(UiCtl *m, U8 *title)
+{
+  I64 item = ui_msg(ui_msg(UiCls("NSMenuItem"), UiSel("alloc"), 0, 0, 0),
+    UiSel("init"), 0, 0, 0);
+  I64 sub = ui_msg(ui_msg(UiCls("NSMenu"), UiSel("alloc"), 0, 0, 0),
+    UiSel("initWithTitle:"), UiStr(title), 0, 0);
+  ui_msg(item, UiSel("setTitle:"), UiStr(title), 0, 0);
+  ui_msg(m->native, UiSel("addItem:"), item, 0, 0);
+  ui_msg(item, UiSel("setSubmenu:"), sub, 0, 0);
+  return UiCtlNew(UI_MENU, sub);
+}
+
+UiCtl *UiPopupMenuNew()
+{
+  return UiCtlNew(UI_MENU, ui_msg(ui_msg(UiCls("NSMenu"), UiSel("alloc"),
+    0, 0, 0), UiSel("init"), 0, 0, 0));
+}
+
+// NSView.menu: AppKit pops it on right click by itself.
+U0 UiContextMenu(UiCtl *c, UiCtl *menu)
+{
+  I64 view = c->native;
+  if (c->kind == UI_WINDOW)
+    view = ui_msg(c->native, UiSel("contentView"), 0, 0, 0);
+  ui_msg(view, UiSel("setMenu:"), menu->native, 0, 0);
+  c->popup = menu->native;
+}
+
 I64 UiCocoaAlert(U8 *title, U8 *body, I64 style)
 {
   I64 a = ui_msg(ui_msg(UiCls("NSAlert"), UiSel("alloc"), 0, 0, 0),

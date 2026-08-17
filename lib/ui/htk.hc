@@ -265,6 +265,21 @@ UiCtl *UiMenuItem(UiCtl *m, U8 *label, U0 *fn, U0 *data=NULL)
   return c;
 }
 
+UiCtl *UiSubMenu(UiCtl *m, U8 *title)
+{
+  return UiHtkWrap(UI_MENU, HtkSubMenu(UiHtk(m), title));
+}
+
+UiCtl *UiPopupMenuNew()
+{
+  return UiHtkWrap(UI_MENU, HtkContextMenuNew);
+}
+
+U0 UiContextMenu(UiCtl *c, UiCtl *menu)
+{
+  UiHtk(c)->menu = UiHtk(menu);
+}
+
 UiCtl *UiComboNew()
 {
   return UiHtkWrap(UI_COMBO, HtkComboNew);

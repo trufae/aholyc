@@ -86,6 +86,16 @@ U0 HtkThemeDefault()
 #define HTK_C_SEL_FG   htk_theme.sel_fg
 #define HTK_C_ACCENT   htk_theme.accent
 
+#define HTK_TILE_LEFT 1
+#define HTK_TILE_RIGHT 2
+#define HTK_TILE_TOP 3
+#define HTK_TILE_BOTTOM 4
+
+#define HTK_CORNER_TL 1
+#define HTK_CORNER_TR 2
+#define HTK_CORNER_BL 3
+#define HTK_CORNER_BR 4
+
 // Box-drawing runes.
 #define HTK_R_H  0x2500
 #define HTK_R_V  0x2502
@@ -107,6 +117,8 @@ U0 HtkThemeDefault()
 #define HTK_R_RIGHT 0x25B8
 #define HTK_R_OPEN  0x25BE
 #define HTK_R_CLOSE 0x25A0
+#define HTK_R_MAX   0x25A1   // □ maximize
+#define HTK_R_RESTORE 0x25A3 // ▣ restore
 
 class HtkCtl
 {
@@ -115,6 +127,7 @@ class HtkCtl
   HtkCtl *kids;
   HtkCtl *sib;
   HtkCtl *link;       // popup owner, tree selection, tabpage payload
+  HtkCtl *menu;       // context menu (an unattached HTK_MENU), right click
   I64 x, y, w, h;    // laid-out rect, absolute cells
   I64 pw, ph;        // preferred size from measure
   U8 *text;
@@ -137,6 +150,9 @@ class HtkCtl
   Bool secret;       // password entry
   Bool readonly;     // entry/multiline: navigation only
   Bool closed;       // window dismissed
+  Bool minimized;    // window parked on the taskbar
+  Bool maximized;    // window covers the desktop; rx.. keeps the old rect
+  I64 rx, ry, rw, rh;
 };
 
 // Deferred call: due timestamp, repeating interval (0 = one shot).
@@ -149,10 +165,10 @@ class HtkHook
 
 HtkCtl *htk_windows;   // bottom to top, chained via sib
 HtkCtl *htk_focus;
-HtkCtl *htk_popup;
+HtkCtl *htk_popup;     // topmost popup; submenus chain down via ->parent
 HtkCtl *htk_drag;
 I64 htk_drag_dx, htk_drag_dy;
-Bool htk_drag_resize;
+I64 htk_drag_resize;   // 0 move, else HTK_CORNER_* being dragged
 HtkHook *htk_hooks;
 Bool htk_dirty;
 Bool htk_running;
@@ -166,7 +182,10 @@ U0 HtkDrawCtl(HtkCtl *c);
 Bool HtkKeyCtl(HtkCtl *c, CTermEvent *e);
 U0 HtkSetFocus(HtkCtl *c);
 U0 HtkPopupOpen(HtkCtl *popup);
+U0 HtkPopupPush(HtkCtl *popup);
+U0 HtkPopupPop();
 U0 HtkPopupClose();
+HtkCtl *HtkPopupRoot();
 U0 HtkWindowClose(HtkCtl *w);
 
 HtkCtl *HtkNew(I64 kind)
@@ -209,15 +228,30 @@ U0 HtkFire(HtkCtl *c)
     hit(c);
 }
 
+// Topmost window that is not minimized: keyboard focus and menus go there.
 HtkCtl *HtkTop()
+{
+  HtkCtl *w = htk_windows, *top = NULL;
+
+  while (w) {
+    if (!w->minimized)
+      top = w;
+    w = w->sib;
+  }
+  return top;
+}
+
+// The taskbar takes the bottom row while any window is minimized.
+I64 HtkTaskbarHeight()
 {
   HtkCtl *w = htk_windows;
 
-  if (!w)
-    return NULL;
-  while (w->sib)
+  while (w) {
+    if (w->minimized)
+      return 1;
     w = w->sib;
-  return w;
+  }
+  return 0;
 }
 
 I64 HtkKidCount(HtkCtl *c)
