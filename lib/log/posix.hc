@@ -16,6 +16,7 @@ extern I64 lseek(I64 fd, I64 offset, I64 whence);
 extern I64 rename(U8 *from, U8 *to);
 extern I64 unlink(U8 *path);
 extern I64 isatty(I64 fd);
+extern I64 sched_yield();
 extern U8 *getenv(U8 *name);
 extern I64 clock_gettime(I64 clock, U8 *timespec);
 extern U8 *localtime_r(U8 *time, U8 *tm);
@@ -59,6 +60,12 @@ Bool LogOsIsTty()
 U8 *LogOsGetEnv(U8 *name)
 {
   return getenv(name);
+}
+
+// Give the CPU away while waiting for the log lock.
+U0 LogOsYield()
+{
+  sched_yield;
 }
 
 // Monotonic milliseconds, for throttling the reopen check.

@@ -120,7 +120,7 @@ U8 *log_level_names[LOG_LEVELS] = {
 // info green, debug cyan, trace magenta.
 U8 *log_level_colors[LOG_LEVELS] = {
   "\x1B[1;91m", "\x1B[1;31m", "\x1B[31m", "\x1B[33m", "\x1B[32m", "\x1B[36m",
-    "\x1B[35m"
+  "\x1B[35m"
 };
 
 // The OS layer (stderr, tty detection, time, files) and the system backend
@@ -129,9 +129,14 @@ U8 *log_level_colors[LOG_LEVELS] = {
 //   U0   LogOsWrite(U8 *text, I64 len);            // to stderr
 //   Bool LogOsIsTty();                              // stderr is a terminal
 //   U0   LogOsTimestamp(U8 *buf);                   // "YYYY-MM-DD HH:MM:SS.mmm"
+//   I64  LogOsMs();                                 // monotonic milliseconds
+//   U0   LogOsYield();                              // give up the CPU
 //   U8  *LogOsFileOpen(U8 *path);                   // append mode, NULL on error
-//   U0   LogOsFileWrite(U8 *handle, U8 *text, I64 len);
+//   I64  LogOsFileSize(U8 *handle);
+//   U0   LogOsFileWrite(U8 *handle, U8 *text, I64 len); // one append per line
 //   U0   LogOsFileClose(U8 *handle);
+//   Bool LogOsFileRename(U8 *from, U8 *to);         // atomic, replaces to
+//   U0   LogOsFileDelete(U8 *path);
 //   U8  *LogOsGetEnv(U8 *name);
 //   Bool LogNativeOpen(U8 *name);
 //   U0   LogNativeWrite(I64 level, U8 *msg);        // one message, no newline
@@ -252,12 +257,20 @@ public U0 LogSetCallback(U0 *fn, U0 *data=NULL)
   log_callback_data = data;
 }
 
-// One spinlock guards the sinks and the file state.  Holders never block on
-// anything but I/O, so a plain spin is acceptable.
+// One spinlock guards the sinks and the file state.  Holders only do I/O,
+// so waiters spin briefly and then yield the CPU instead of burning it if
+// the holder was preempted.
 U0 LogLock()
 {
-  while (LBts(&log_lock, 0))
-    ;
+  I64 spins = 0;
+
+  while (LBts(&log_lock, 0)) {
+    spins++;
+    if (spins > 64) {
+      LogOsYield;
+      spins = 0;
+    }
+  }
 }
 
 U0 LogUnlock()

@@ -104,7 +104,8 @@ interleave, even with other processes writing the same file, and a
 `logrotate copytruncate` is followed cleanly.
 
 All sinks are written under one internal spinlock built on the prelude's
-atomic `LBts`/`LBtr` (no dependency on lib/thread); messages are formatted
+atomic `LBts`/`LBtr` (no dependency on lib/thread; waiters yield with
+`sched_yield`/`SwitchToThread` after a short spin); messages are formatted
 outside it and the callback runs outside it, so a callback may log.  The
 level/target/flag setters are plain word stores.
 

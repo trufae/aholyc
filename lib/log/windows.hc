@@ -19,6 +19,7 @@ extern I64 GetFileSizeEx(U8 *handle, I64 *size);
 extern I64 MoveFileExA(U8 *from, U8 *to, U32 flags);
 extern I64 DeleteFileA(U8 *path);
 extern I64 GetTickCount64();
+extern I64 SwitchToThread();
 extern U0 GetLocalTime(U8 *systemtime);
 extern U8 *getenv(U8 *name);
 
@@ -62,6 +63,11 @@ U8 *LogOsGetEnv(U8 *name)
 I64 LogOsMs()
 {
   return GetTickCount64;
+}
+
+U0 LogOsYield()
+{
+  SwitchToThread;
 }
 
 // "YYYY-MM-DD HH:MM:SS.mmm" from SYSTEMTIME (eight U16 fields).
