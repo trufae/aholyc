@@ -4,6 +4,18 @@
 // arrangement of the whole stack. Minimized windows become buttons on a
 // one-row taskbar along the bottom of the terminal.
 
+extern I64 time(I64 *now);
+extern I32 *localtime(I64 *now);
+
+// "HH:MM" from the C runtime clock; struct tm starts sec, min, hour.
+U0 HtkClockText(U8 *out)
+{
+  I64 now = time(NULL);
+  I32 *tm = localtime(&now);
+
+  StrPrint(out, "%02d:%02d", tm[2], tm[1]);
+}
+
 HtkCtl *HtkWindowNew(U8 *title, I64 w, I64 h)
 {
   HtkCtl *win = HtkNew(HTK_WINDOW);
@@ -345,17 +357,35 @@ U0 HtkDesktopDraw()
   HtkRect(0, 0, TermWidth, TermHeight, HTK_R_MED, HTK_C_DESK_FG, HTK_C_DESK_BG);
 }
 
-// Bottom row: one [ title ] button per minimized window; returns the window
-// under column x when hit-testing (x >= 0), NULL when only drawing.
+#ifdef HTK_NODESK
+#define HTK_BAR_APP 0
+#else
+#define HTK_BAR_APP 6  // "[App] " at the left of the window bar
+#endif
+
+// Bottom row: [App], one [ title ] button per minimized window, and the
+// clock at the right. Returns the window under column x when hit-testing
+// (x >= 0), NULL when only drawing or when x is on [App]/clock.
 HtkCtl *HtkTaskbar(I64 x, Bool draw)
 {
   HtkCtl *w = htk_windows;
-  I64 at = 0, y = TermHeight - 1, width;
+  I64 at = HTK_BAR_APP, y = TermHeight - 1, width;
+  U8 clock[8];
 
   if (!HtkTaskbarHeight)
     return NULL;
-  if (draw)
+  if (draw) {
     HtkRect(0, y, TermWidth, 1, ' ', HTK_C_FG, HTK_C_BG);
+    if (HTK_BAR_APP) {
+      HtkStr(0, y, "[", HTK_C_DIM, HTK_C_BG);
+      HtkStr(1, y, "App", HTK_C_ACCENT, HTK_C_BG, TERM_BOLD);
+      HtkStr(4, y, "]", HTK_C_DIM, HTK_C_BG);
+    }
+    if (htk_bar_clock) {
+      HtkClockText(clock);
+      HtkStr(TermWidth - 6, y, clock, HTK_C_FG, HTK_C_BG, TERM_BOLD);
+    }
+  }
   while (w) {
     if (w->minimized) {
       width = HtkRunes(w->text) + 4;

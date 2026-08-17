@@ -40,6 +40,7 @@ extern I64 SelectObject(I64 hdc, I64 obj);
 extern I64 DeleteObject(I64 obj);
 extern I64 MessageBoxA(I64 hwnd, U8 *body, U8 *title, I64 flags);
 extern I64 GetOpenFileNameA(U0 *ofn);
+extern I64 ChooseColorA(U0 *cc);
 extern I64 DestroyWindow(I64 hwnd);
 extern I64 EnableWindow(I64 hwnd, I64 on);
 extern I64 SetTimer(I64 hwnd, I64 id, I64 ms, I64 proc);
@@ -334,6 +335,29 @@ U8 *UiPrompt(U8 *title, U8 *body, U8 *init="")
   }
   DestroyWindow(win);
   return ui_dlg_text;
+}
+
+// CHOOSECOLORA (x64, 72 bytes): lStructSize@0, hwndOwner@8, hInstance@16,
+// rgbResult@24, lpCustColors@32, Flags@40, lCustData@48, lpfnHook@56,
+// lpTemplateName@64. COLORREF is 0x00BBGGRR.
+I64 UiPickColor(U8 *title, I64 rgb=0x808080)
+{
+  U8 cc[72];
+  U32 custom[16];
+  I64 *q = cc;
+  U32 *u = cc;
+  I64 bgr = (rgb & 0xFF) << 16 | rgb & 0xFF00 | rgb >> 16 & 0xFF;
+  MemSet(cc, 0, sizeof(cc));
+  MemSet(custom, 0, sizeof(custom));
+  u[0] = 72;
+  q[1] = ui_hwnd;
+  u[6] = bgr;
+  q[4] = custom;
+  u[10] = 3;  // CC_RGBINIT | CC_FULLOPEN
+  if (!ChooseColorA(cc)(I32))
+    return -1;
+  bgr = u[6];
+  return (bgr & 0xFF) << 16 | bgr & 0xFF00 | bgr >> 16 & 0xFF;
 }
 
 UiCtl *UiBoxNew(Bool vertical=TRUE)

@@ -35,6 +35,19 @@ button to bring it back), `[□]` maximizes over the desktop and `[▣]`
 restores, `[■]` closes (`HtkWindowMinimize/Maximize/Restore/Close`).  A
 `HtkStatusbarNew` control draws as an inverse strip, so a box with the
 status bar last gives a docked bar like the GTK/Cocoa/Win32 backends.
+The window bar's `[App]` button (and a right click on the desktop) opens
+Refresh / Settings... / Quit; Settings picks a theme preset, the desktop
+color, whether the bar is always shown, a clock at its right and dimming of
+unfocused windows (`htk_bar_always`, `htk_bar_clock`, `htk_dim_inactive`,
+`HtkThemePreset`).  Build with `-DHTK_NODESK` to drop that layer: the bar then
+appears only while windows are minimized.
+Entries and the multiline editor support selection: drag with the mouse or
+move with Shift+arrows/Home/End; typing, Enter, Backspace and Delete replace
+or remove the selected range (`anchor`/`cursor` byte indices).
+`HtkColorPick(title, rgb)` is a modal color picker that adapts to the
+terminal: 16 swatches, the 256-color palette, or palette plus R/G/B sliders
+on true-color terminals (via `TermColorRgb`/`TermColor256`; lib/ui exposes it
+as `UiPickColor`).
 A right click on a title bar opens the window menu (Minimize, Maximize or
 Restore, Tile ▸ Left/Right/Top/Bottom, Close).  Any control can carry its
 own context menu: build one with `HtkContextMenuNew` (+ `HtkMenuItem`,

@@ -231,11 +231,15 @@ Bool TermNativeLegacy()
 
 I64 TermWinAttr(U64 cell)
 {
-  I64 fg = cell >> 32 & 0xFF;
-  I64 bg = cell >> 40 & 0xFF;
-  I64 attr = cell >> 48 & 0xFF;
+  I64 fg = TermCellFg(cell);
+  I64 bg = TermCellBg(cell);
+  I64 attr = TermCellAttr(cell);
   I64 fore, back, swap;
 
+  if (fg > 16)  // extended colors degrade to the nearest basic one
+    fg = TermRgbToBasic(TermColorToRgb(fg));
+  if (bg > 16)
+    bg = TermRgbToBasic(TermColorToRgb(bg));
   if (fg > 15)
     fore = term_win_saved_attr & 15;
   else
@@ -271,7 +275,7 @@ U0 TermNativeBlit(I64 x, I64 y, U64 *cells, I64 count)
   }
   pairs = term_win_blit;
   for (i = 0; i < count; i++) {
-    rune = cells[i] & 0xFFFFFFFF;
+    rune = TermCellChar(cells[i]);
     if (rune > 0xFFFF)
       rune = '?';
     pairs[i * 2] = rune;

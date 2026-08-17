@@ -73,6 +73,78 @@ U0 HtkTextDelete(HtkCtl *c, I64 at, I64 count)
   HtkFire(c);
 }
 
+// Selection is the byte range between anchor and cursor.
+Bool HtkTextSelected(HtkCtl *c, I64 *from, I64 *to)
+{
+  if (c->anchor < 0 || c->anchor == c->cursor)
+    return FALSE;
+  *from = c->anchor;
+  *to = c->cursor;
+  if (*from > *to) {
+    *from = c->cursor;
+    *to = c->anchor;
+  }
+  return TRUE;
+}
+
+// Remove the selected bytes; TRUE when something was removed.
+Bool HtkTextDeleteSelection(HtkCtl *c)
+{
+  I64 from, to;
+
+  if (!HtkTextSelected(c, &from, &to)) {
+    c->anchor = -1;
+    return FALSE;
+  }
+  c->cursor = to;
+  HtkTextDelete(c, from, to - from);
+  c->cursor = from;
+  c->anchor = -1;
+  return TRUE;
+}
+
+// Shift+movement extends the selection, plain movement drops it.
+U0 HtkTextMoveStart(HtkCtl *c, CTermEvent *e)
+{
+  if (e->mods & TERM_MOD_SHIFT) {
+    if (c->anchor < 0)
+      c->anchor = c->cursor;
+  } else
+    c->anchor = -1;
+}
+
+// Cursor at display column x of an entry (respecting its scroll offset).
+U0 HtkEntryCursorAt(HtkCtl *c, I64 x)
+{
+  I64 want = x - c->x;
+  I64 i = c->top;
+
+  while (want > 0 && c->text[i]) {
+    TermRuneNext(c->text, &i);
+    want--;
+  }
+  c->cursor = i;
+  htk_dirty = TRUE;
+}
+
+// Cursor at cell (x, y) of a multiline: row top+dy, then column dx.
+U0 HtkMultilineCursorAt(HtkCtl *c, I64 x, I64 y)
+{
+  I64 row = c->top + y - c->y, col = x - c->x, i = 0;
+
+  while (row > 0 && c->text[i]) {
+    if (c->text[i] == '\n')
+      row--;
+    i++;
+  }
+  while (col > 0 && c->text[i] && c->text[i] != '\n') {
+    TermRuneNext(c->text, &i);
+    col--;
+  }
+  c->cursor = i;
+  htk_dirty = TRUE;
+}
+
 U0 HtkEntryMeasure(HtkCtl *c)
 {
   c->pw = 16;
@@ -84,7 +156,8 @@ U0 HtkEntryMeasure(HtkCtl *c)
 U0 HtkEntryDraw(HtkCtl *c)
 {
   I64 i = c->top, x = c->x, rune, at = c->x;
-  Bool focused = HtkFocused(c);
+  I64 sel_from = -1, sel_to = -1;
+  Bool focused = HtkFocused(c), selected;
 
   // Keep the cursor inside the view.
   if (c->cursor < c->top)
@@ -93,13 +166,18 @@ U0 HtkEntryDraw(HtkCtl *c)
     c->top = 0;
   HtkRect(c->x, c->y, c->w, 1, ' ', HTK_C_FIELD_FG, HTK_C_FIELD_BG);
   i = c->top;
+  HtkTextSelected(c, &sel_from, &sel_to);
   while (c->text[i] && x < c->x + c->w) {
     if (i == c->cursor)
       at = x;
+    selected = i >= sel_from && i < sel_to;
     rune = TermRuneNext(c->text, &i);
     if (c->secret)
       rune = '*';
-    HtkChr(x, c->y, rune, HtkInk(c, HTK_C_FIELD_FG), HTK_C_FIELD_BG);
+    if (selected)
+      HtkChr(x, c->y, rune, HTK_C_SEL_FG, HTK_C_SEL_BG);
+    else
+      HtkChr(x, c->y, rune, HtkInk(c, HTK_C_FIELD_FG), HTK_C_FIELD_BG);
     x++;
   }
   if (c->cursor >= i)
@@ -120,23 +198,30 @@ Bool HtkEntryKey(HtkCtl *c, CTermEvent *e)
 {
   I64 key = e->key;
 
-  if (key == TERM_KEY_LEFT)
+  if (key == TERM_KEY_LEFT) {
+    HtkTextMoveStart(c, e);
     c->cursor -= HtkTextStepBack(c);
-  else if (key == TERM_KEY_RIGHT)
+  } else if (key == TERM_KEY_RIGHT) {
+    HtkTextMoveStart(c, e);
     c->cursor += HtkTextStepAhead(c);
-  else if (key == TERM_KEY_HOME)
+  } else if (key == TERM_KEY_HOME) {
+    HtkTextMoveStart(c, e);
     c->cursor = 0;
-  else if (key == TERM_KEY_END)
+  } else if (key == TERM_KEY_END) {
+    HtkTextMoveStart(c, e);
     c->cursor = StrLen(c->text);
-  else if (key == TERM_KEY_BACKSPACE)
-    HtkTextDelete(c, c->cursor - HtkTextStepBack(c), HtkTextStepBack(c));
-  else if (key == TERM_KEY_DELETE)
-    HtkTextDelete(c, c->cursor, HtkTextStepAhead(c));
-  else if (key == TERM_KEY_ENTER && c->submit)
+  } else if (key == TERM_KEY_BACKSPACE) {
+    if (!HtkTextDeleteSelection(c))
+      HtkTextDelete(c, c->cursor - HtkTextStepBack(c), HtkTextStepBack(c));
+  } else if (key == TERM_KEY_DELETE) {
+    if (!HtkTextDeleteSelection(c))
+      HtkTextDelete(c, c->cursor, HtkTextStepAhead(c));
+  } else if (key == TERM_KEY_ENTER && c->submit)
     c->submit(c);
-  else if (key >= ' ' && key < 0x110000 && !e->mods)
+  else if (key >= ' ' && key < 0x110000 && !e->mods) {
+    HtkTextDeleteSelection(c);  // typing replaces the selection
     HtkTextInsert(c, key);
-  else
+  } else
     return FALSE;
   htk_dirty = TRUE;
   return TRUE;
@@ -171,6 +256,9 @@ U0 HtkMultilineDraw(HtkCtl *c)
 {
   I64 i = 0, row = 0, col = 0, x, y;
   I64 crow = 0, ccol = 0;
+  I64 sel_from = -1, sel_to = -1;
+
+  HtkTextSelected(c, &sel_from, &sel_to);
 
   // Locate the cursor in row/column terms.
   while (i < c->cursor && c->text[i]) {
@@ -200,10 +288,15 @@ U0 HtkMultilineDraw(HtkCtl *c)
       x = c->x;
       i++;
     } else {
+      Bool selected = i >= sel_from && i < sel_to;
       I64 rune = TermRuneNext(c->text, &i);
-      if (row >= c->top && row < c->top + c->h && col < c->w)
-        HtkChr(x, c->y + row - c->top, rune,
-          HtkInk(c, HTK_C_FIELD_FG), HTK_C_FIELD_BG);
+      if (row >= c->top && row < c->top + c->h && col < c->w) {
+        if (selected)
+          HtkChr(x, c->y + row - c->top, rune, HTK_C_SEL_FG, HTK_C_SEL_BG);
+        else
+          HtkChr(x, c->y + row - c->top, rune,
+            HtkInk(c, HTK_C_FIELD_FG), HTK_C_FIELD_BG);
+      }
       x++;
       col++;
     }
@@ -225,8 +318,10 @@ Bool HtkMultilineKey(HtkCtl *c, CTermEvent *e)
   I64 start, up;
 
   if (key == TERM_KEY_ENTER) {
+    HtkTextDeleteSelection(c);
     HtkTextInsert(c, '\n');
   } else if (key == TERM_KEY_UP) {
+    HtkTextMoveStart(c, e);
     start = HtkLineStart(c->text, c->cursor);
     if (!start)
       return TRUE;
@@ -237,6 +332,7 @@ Bool HtkMultilineKey(HtkCtl *c, CTermEvent *e)
     if (c->cursor > start - 1)
       c->cursor = start - 1;
   } else if (key == TERM_KEY_DOWN) {
+    HtkTextMoveStart(c, e);
     start = c->cursor;
     while (c->text[start] && c->text[start] != '\n')
       start++;

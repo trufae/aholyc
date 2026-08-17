@@ -45,6 +45,11 @@ U0 HtkCanvasColor(F64 r, F64 g, F64 b)
 {
   I64 index = 0;
 
+  if (TermColorDepth > 16) {  // 256/truecolor terminals get the real value
+    htk_canvas_fg = TermColorRgb(ToI64(r * 255.0), ToI64(g * 255.0),
+      ToI64(b * 255.0));
+    return;
+  }
   if (r > 0.25)
     index |= 1;
   if (g > 0.25)

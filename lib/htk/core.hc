@@ -135,6 +135,7 @@ class HtkCtl
   I64 low, high;     // bounds; table: high = row count; window: low=dismissable
   I64 top;           // first visible row / scroll offset
   I64 cursor;        // entry/multiline cursor, byte index
+  I64 anchor;        // selection anchor (byte index), -1 when nothing selected
   I64 col, row;      // grid placement
   I64 fn, data;      // canvas draw callback / table cell callback + data
   I64 mouse_x, mouse_y, mouse_button;
@@ -182,6 +183,7 @@ U0 HtkDrawCtl(HtkCtl *c);
 Bool HtkKeyCtl(HtkCtl *c, CTermEvent *e);
 U0 HtkSetFocus(HtkCtl *c);
 U0 HtkPopupOpen(HtkCtl *popup);
+U0 HtkAppMenuOpen(I64 x, I64 y);
 U0 HtkPopupPush(HtkCtl *popup);
 U0 HtkPopupPop();
 U0 HtkPopupClose();
@@ -194,6 +196,7 @@ HtkCtl *HtkNew(I64 kind)
 
   c->kind = kind;
   c->text = StrNew("");
+  c->anchor = -1;
   return c;
 }
 
@@ -241,11 +244,25 @@ HtkCtl *HtkTop()
   return top;
 }
 
-// The taskbar takes the bottom row while any window is minimized.
+// Desktop settings (see desktop.hc): the window bar at the bottom carries
+// the [App] menu button, minimized windows and optionally a clock.
+#ifdef HTK_NODESK
+Bool htk_bar_always = FALSE;  // no [App] menu/settings: bar only when needed
+#else
+Bool htk_bar_always = TRUE;
+#endif
+Bool htk_bar_clock;
+Bool htk_dim_inactive;   // paint unfocused windows with dim foregrounds
+Bool htk_paint_dim;      // set while such a window is being drawn
+
+// The window bar takes the bottom row when always on or while any window
+// is minimized.
 I64 HtkTaskbarHeight()
 {
   HtkCtl *w = htk_windows;
 
+  if (htk_bar_always)
+    return 1;
   while (w) {
     if (w->minimized)
       return 1;
@@ -314,8 +331,37 @@ U0 HtkClipAll()
   htk_clip_y2 = TermHeight;
 }
 
+// A darker version of a color: 60% intensity on 256/true-color terminals,
+// bright -> normal, white -> gray, gray -> black on a 16-color one.
+I64 HtkDimColor(I64 color)
+{
+  I64 rgb;
+
+  if (color == TERM_DEFAULT)
+    return color;
+  if (TermColorDepth > 16) {
+    rgb = TermColorToRgb(color);
+    return TermColorRgb((rgb >> 16 & 0xFF) * 6 / 10, (rgb >> 8 & 0xFF) * 6 / 10,
+      (rgb & 0xFF) * 6 / 10);
+  }
+  if (color > 15)
+    color = TermRgbToBasic(TermColorToRgb(color));
+  if (color == TERM_WHITE)
+    return TERM_GRAY;
+  if (color == TERM_GRAY)
+    return TERM_BLACK;
+  if (color >= 8)
+    return color - 8;
+  return color;
+}
+
 U0 HtkChr(I64 x, I64 y, I64 rune, I64 fg, I64 bg, I64 attr=0)
 {
+  if (htk_paint_dim) {  // inactive window: everything a shade darker
+    fg = HtkDimColor(fg);
+    bg = HtkDimColor(bg);
+    attr = 0;
+  }
   if (x >= htk_clip_x && y >= htk_clip_y && x < htk_clip_x2 && y < htk_clip_y2)
     TermCell(x, y, rune, fg, bg, attr);
 }

@@ -81,7 +81,13 @@ U64  TermPeek(I64 x, I64 y);                  // read back a drawn cell
 ```
 
 Colors are the 16 ANSI colors (`TERM_BLACK` … `TERM_BRIGHT_WHITE`) plus
-`TERM_DEFAULT`.  Keys are Unicode codepoints, with specials as
+`TERM_DEFAULT`; `TermColor256(n)` and `TermColorRgb(r, g, b)` give values
+from the 256-color palette and true color that work anywhere a color is
+accepted.  `TermColorDepth()` (16, 256 or 16777216, detected from `TERM`
+and `COLORTERM`, overridable with `TermSetColorDepth`) drives automatic
+degradation to what the terminal supports, and `TermColorToRgb` maps any
+value back to `0xRRGGBB`.  Cells now hold rune (21 bits), attributes and
+two 18-bit colors; read them with `TermCellChar/Attr/Fg/Bg`.  Keys are Unicode codepoints, with specials as
 `TERM_KEY_UP`, `TERM_KEY_F1`, … and modifiers reported in
 `event->mods` (`TERM_MOD_SHIFT|ALT|CTRL`).  Ctrl+letter arrives as the
 letter with `TERM_MOD_CTRL`; `^C` never arrives as a key — it sets the

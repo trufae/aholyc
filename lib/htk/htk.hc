@@ -44,5 +44,13 @@
 #include "window.hc"
 #include "loop.hc"
 #include "dialog.hc"
+#include "colorpick.hc"
+#ifdef HTK_NODESK
+U0 HtkAppMenuOpen(I64 x, I64 y)
+{
+}
+#else
+#include "desktop.hc"
+#endif
 
 #endif

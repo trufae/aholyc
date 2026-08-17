@@ -56,6 +56,9 @@
 #define TERM_BRIGHT_CYAN    14
 #define TERM_BRIGHT_WHITE   15
 #define TERM_DEFAULT        16
+// Extended colors: TermColor256(n) and TermColorRgb(r, g, b) return values
+// usable wherever a color is expected; TermOutPen degrades them to what the
+// terminal supports (TermColorDepth: 16, 256 or 16777216).
 
 // Cell attributes.  Legacy Windows consoles render bold as bright and
 // underline natively; italic, strike, dim, and blink degrade to plain there.
@@ -131,8 +134,8 @@ class CTermEvent
 };
 
 // A cell packs into one U64 so a store is atomic on 64-bit targets:
-// codepoint in bits 0..31, fg 32..39, bg 40..47, attr 48..55.
-#define TERM_CELL_EMPTY   0x101000000020
+// codepoint in bits 0..20, attr 21..27, fg 28..45, bg 46..63.
+#define TERM_CELL_EMPTY   0x400100000020
 #define TERM_CELL_INVALID 0xFFFFFFFFFFFFFFFF
 
 // Set by the backends, polled by the application.
@@ -176,6 +179,14 @@ I64 TermRuneNext(U8 *text, I64 *index)
   *index += consumed;
   return rune;
 }
+
+// Cell unpacking and color degradation, used by the native backends below.
+I64 TermCellChar(U64 cell);
+I64 TermCellAttr(U64 cell);
+I64 TermCellFg(U64 cell);
+I64 TermCellBg(U64 cell);
+I64 TermColorToRgb(I64 color);
+I64 TermRgbToBasic(I64 rgb);
 
 // TERM_WINDOWS/TERM_POSIX let cross-builds override the compiler host.
 #ifdef TERM_WINDOWS
@@ -247,10 +258,172 @@ U0 TermOutMove(I64 x, I64 y)
 
 // Full reset-based SGR: a few bytes more than incremental updates, but
 // always correct and trivially portable.
+// --- extended colors ------------------------------------------------------
+
+extern U8 *getenv(U8 *name);
+
+I64 term_color_depth = 16;   // 16, 256 or 16777216
+I64 *term_rgb_table;         // registry behind TermColorRgb handles
+I64 term_rgb_count;
+I64 term_rgb_cap;
+
+// The xterm defaults for the 16 basic colors, as 0xRRGGBB.
+I64 term_basic_rgb[16] = {0x000000, 0xCD0000, 0x00CD00, 0xCDCD00, 0x0000EE,
+    0xCD00CD, 0x00CDCD, 0xE5E5E5, 0x7F7F7F, 0xFF0000, 0x00FF00, 0xFFFF00,
+    0x5C5CFF, 0xFF00FF, 0x00FFFF, 0xFFFFFF};
+
+public I64 TermColorDepth()
+{
+  return term_color_depth;
+}
+
+public U0 TermSetColorDepth(I64 colors)
+{
+  term_color_depth = colors;
+}
+
+U0 TermDetectColorDepth()
+{
+  U8 *colorterm = getenv("COLORTERM");
+  U8 *term = getenv("TERM");
+
+  term_color_depth = 16;
+  if (term && MemMem(term, StrLen(term), "256", 3))
+    term_color_depth = 256;
+  if (colorterm && (!StrCmp(colorterm, "truecolor") ||
+      !StrCmp(colorterm, "24bit")))
+    term_color_depth = 16777216;
+}
+
+// A color from the 256-color palette (0..255).
+public I64 TermColor256(I64 index)
+{
+  return 256 + (index & 0xFF);
+}
+
+// A 24-bit color; distinct values get a handle in a growing registry.
+public I64 TermColorRgb(I64 r, I64 g, I64 b)
+{
+  I64 rgb = (r & 0xFF) << 16 | (g & 0xFF) << 8 | b & 0xFF;
+  I64 i;
+  I64 *grown;
+
+  for (i = 0; i < term_rgb_count; i++)
+    if (term_rgb_table[i] == rgb)
+      return 512 + i;
+  if (term_rgb_count == term_rgb_cap) {
+    term_rgb_cap = term_rgb_cap * 2 + 64;
+    grown = MAlloc(term_rgb_cap * sizeof(I64));
+    if (term_rgb_count)
+      MemCpy(grown, term_rgb_table, term_rgb_count * sizeof(I64));
+    Free(term_rgb_table);
+    term_rgb_table = grown;
+  }
+  term_rgb_table[term_rgb_count] = rgb;
+  return 512 + term_rgb_count++;
+}
+
+I64 TermCubeLevel(I64 step)
+{
+  if (!step)
+    return 0;
+  return 55 + step * 40;
+}
+
+I64 TermCubeStep(I64 level)
+{
+  if (level < 48)
+    return 0;
+  if (level < 115)
+    return 1;
+  return (level - 35) / 40;
+}
+
+// 0xRRGGBB for any color value; TERM_DEFAULT reports -1.
+public I64 TermColorToRgb(I64 color)
+{
+  I64 index, level;
+
+  if (color < 16)
+    return term_basic_rgb[color & 15];
+  if (color == TERM_DEFAULT)
+    return -1;
+  if (color < 512) {
+    index = color - 256;
+    if (index < 16)
+      return term_basic_rgb[index];
+    if (index < 232) {  // 6x6x6 cube
+      index -= 16;
+      return TermCubeLevel(index / 36) << 16 |
+        TermCubeLevel(index / 6 % 6) << 8 | TermCubeLevel(index % 6);
+    }
+    level = 8 + (index - 232) * 10;
+    return level << 16 | level << 8 | level;
+  }
+  if (color - 512 < term_rgb_count)
+    return term_rgb_table[color - 512];
+  return -1;
+}
+
+// Nearest basic color by RGB distance.
+I64 TermRgbToBasic(I64 rgb)
+{
+  I64 i, best = 0, best_d = 0x7FFFFFFF, d, dr, dg, db;
+
+  for (i = 0; i < 16; i++) {
+    dr = (rgb >> 16 & 0xFF) - (term_basic_rgb[i] >> 16 & 0xFF);
+    dg = (rgb >> 8 & 0xFF) - (term_basic_rgb[i] >> 8 & 0xFF);
+    db = (rgb & 0xFF) - (term_basic_rgb[i] & 0xFF);
+    d = dr * dr + dg * dg + db * db;
+    if (d < best_d) {
+      best_d = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
+I64 TermRgbTo256(I64 rgb)
+{
+  return 16 + 36 * TermCubeStep(rgb >> 16 & 0xFF) +
+    6 * TermCubeStep(rgb >> 8 & 0xFF) + TermCubeStep(rgb & 0xFF);
+}
+
+// SGR fragment (";38;5;n" style) for one color, degraded to the depth.
+U0 TermPenColor(U8 *item, I64 color, Bool bg)
+{
+  I64 base = 30, rgb;
+
+  if (bg)
+    base = 40;
+  if (color >= 512 && term_color_depth < 16777216) {  // rgb -> 256 or 16
+    rgb = TermColorToRgb(color);
+    if (term_color_depth >= 256)
+      color = TermColor256(TermRgbTo256(rgb));
+    else
+      color = TermRgbToBasic(rgb);
+  }
+  if (color >= 256 && color < 512 && term_color_depth < 256)
+    color = TermRgbToBasic(TermColorToRgb(color));
+  if (color < 8)
+    StrPrint(item, ";%d", base + color);
+  else if (color < 16)
+    StrPrint(item, ";%d", base + 60 + color - 8);
+  else if (color == TERM_DEFAULT)
+    StrPrint(item, ";%d", base + 9);
+  else if (color < 512)
+    StrPrint(item, ";%d;5;%d", base + 8, color - 256);
+  else {
+    rgb = TermColorToRgb(color);
+    StrPrint(item, ";%d;2;%d;%d;%d", base + 8, rgb >> 16 & 0xFF,
+      rgb >> 8 & 0xFF, rgb & 0xFF);
+  }
+}
+
 U0 TermOutPen(I64 fg, I64 bg, I64 attr)
 {
-  U8 sequence[64];
-  U8 item[16];
+  U8 sequence[96];
+  U8 item[32];  // ";48;2;255;255;255" is the longest fragment
 
   StrCpy(sequence, "\x1B[0");
   if (attr & TERM_BOLD)
@@ -267,19 +440,9 @@ U0 TermOutPen(I64 fg, I64 bg, I64 attr)
     StrCat(sequence, ";7");
   if (attr & TERM_STRIKE)
     StrCat(sequence, ";9");
-  if (fg < 8)
-    StrPrint(item, ";%d", 30 + fg);
-  else if (fg < 16)
-    StrPrint(item, ";%d", 90 + fg - 8);
-  else
-    StrCpy(item, ";39");
+  TermPenColor(item, fg, FALSE);
   StrCat(sequence, item);
-  if (bg < 8)
-    StrPrint(item, ";%d", 40 + bg);
-  else if (bg < 16)
-    StrPrint(item, ";%d", 100 + bg - 8);
-  else
-    StrCpy(item, ";49");
+  TermPenColor(item, bg, TRUE);
   StrCat(sequence, item);
   StrCat(sequence, "m");
   TermOutText(sequence);
@@ -334,6 +497,7 @@ public Bool TermInit(Bool alt_screen=TRUE, Bool raw=TRUE)
     TermNativeFini;
     return FALSE;
   }
+  TermDetectColorDepth;
   term_fg = TERM_DEFAULT;
   term_bg = TERM_DEFAULT;
   term_attr = 0;
@@ -459,8 +623,28 @@ public U0 TermCell(I64 x, I64 y, I64 ch,
 {
   if (x < 0 || y < 0 || x >= term_width || y >= term_height)
     return;
-  term_back[y * term_width + x] = ch & 0xFFFFFFFF |
-    fg << 32 | bg << 40 | attr << 48;
+  term_back[y * term_width + x] = ch & 0x1FFFFF | (attr & 0x7F) << 21 |
+    (fg & 0x3FFFF) << 28 | (bg & 0x3FFFF) << 46;
+}
+
+public I64 TermCellChar(U64 cell)
+{
+  return cell & 0x1FFFFF;
+}
+
+public I64 TermCellAttr(U64 cell)
+{
+  return cell >> 21 & 0x7F;
+}
+
+public I64 TermCellFg(U64 cell)
+{
+  return cell >> 28 & 0x3FFFF;
+}
+
+public I64 TermCellBg(U64 cell)
+{
+  return cell >> 46 & 0x3FFFF;
 }
 
 public U0 TermText(I64 x, I64 y, U8 *text,
@@ -636,12 +820,12 @@ public U0 TermCommit()
         changed = TRUE;
         if (x != last_x || y != last_y)
           TermOutMove(x, y);
-        pen = cell >> 32;
+        pen = cell >> 21;
         if (pen != last_pen) {
-          TermOutPen(pen & 0xFF, pen >> 8 & 0xFF, pen >> 16 & 0xFF);
+          TermOutPen(TermCellFg(cell), TermCellBg(cell), TermCellAttr(cell));
           last_pen = pen;
         }
-        TermOutChar(cell & 0xFFFFFFFF);
+        TermOutChar(TermCellChar(cell));
         last_x = x + 1;
         last_y = y;
         if (last_x >= term_width)

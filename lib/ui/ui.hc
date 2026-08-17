@@ -50,6 +50,7 @@
 //   U0 UiWarnBox(U8 *title, U8 *body);
 //   U8 *UiOpenFile();                            // MAlloc'd path, NULL on cancel
 //   U8 *UiPrompt(U8 *title, U8 *body, U8 *init=""); // MAlloc'd, NULL on cancel
+//   I64 UiPickColor(U8 *title, I64 rgb=0x808080);  // 0xRRGGBB, -1 on cancel
 //
 // UiWindowNew may be called repeatedly; the program ends when the last
 // window closes (on win32, create each window before its widgets).

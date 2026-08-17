@@ -21,6 +21,7 @@ I64 (*ui_msg)(I64 self, I64 sel, I64 a, I64 b, I64 c);
 I64 (*ui_msgf)(I64 self, I64 sel, F64 x, F64 y, F64 w, F64 h, I64 a, I64 b, I64 c);
 // interval(d0) then four integer args (x2..x5): NSTimer scheduling
 I64 (*ui_msgt)(I64 self, I64 sel, F64 iv, I64 tgt, I64 s2, I64 ui, I64 rep);
+I64 (*ui_msg4)(I64 self, I64 sel, I64 a, I64 b, I64 c, I64 d);
 I64 ui_app, ui_target, ui_timer_tgt, ui_tbl_src, ui_tree_src, ui_mainmenu = 0;
 I64 ui_cg = 0;  // CGContext, valid inside a draw callback
 
@@ -246,6 +247,7 @@ U0 UiInit()
 {
   ui_msg = dlsym(-2, "objc_msgSend");
   ui_msgf = dlsym(-2, "objc_msgSend");
+  ui_msg4 = dlsym(-2, "objc_msgSend");
   ui_msgt = dlsym(-2, "objc_msgSend");
   ui_msg(ui_msg(UiCls("NSAutoreleasePool"), UiSel("alloc"), 0, 0, 0),
     UiSel("init"), 0, 0, 0);
@@ -610,6 +612,34 @@ U8 *UiPrompt(U8 *title, U8 *body, U8 *init="")
   U8 *u = ui_msg(ui_msg(tf, UiSel("stringValue"), 0, 0, 0),
     UiSel("UTF8String"), 0, 0, 0);
   return StrNew(u);
+}
+
+// An NSAlert whose accessory is an NSColorWell: clicking the well opens the
+// shared NSColorPanel; OK reads the well back in sRGB.
+I64 UiPickColor(U8 *title, I64 rgb=0x808080)
+{
+  I64 a = UiCocoaAlert(title, "Choose a color", 1);
+  F64 r = (rgb >> 16 & 0xFF) / 255.0, g = (rgb >> 8 & 0xFF) / 255.0;
+  F64 b = (rgb & 0xFF) / 255.0, alpha = 1.0;
+  ui_msg(a, UiSel("addButtonWithTitle:"), UiStr("OK"), 0, 0);
+  ui_msg(a, UiSel("addButtonWithTitle:"), UiStr("Cancel"), 0, 0);
+  I64 well = ui_msg(ui_msg(UiCls("NSColorWell"), UiSel("alloc"), 0, 0, 0),
+    UiSel("init"), 0, 0, 0);
+  UiFrame(well, 0.0, 0.0, 220.0, 40.0);
+  I64 color = ui_msgf(UiCls("NSColor"),
+    UiSel("colorWithSRGBRed:green:blue:alpha:"), r, g, b, alpha, 0, 0, 0);
+  ui_msg(well, UiSel("setColor:"), color, 0, 0);
+  ui_msg(a, UiSel("setAccessoryView:"), well, 0, 0);
+  I64 rc = ui_msg(a, UiSel("runModal"), 0, 0, 0);
+  ui_msg(ui_msg(UiCls("NSColorPanel"), UiSel("sharedColorPanel"), 0, 0, 0),
+    UiSel("orderOut:"), 0, 0, 0);
+  if (rc(I32) != 1000)  // NSAlertFirstButtonReturn
+    return -1;
+  color = ui_msg(ui_msg(well, UiSel("color"), 0, 0, 0),
+    UiSel("colorUsingColorSpace:"),
+    ui_msg(UiCls("NSColorSpace"), UiSel("sRGBColorSpace"), 0, 0, 0), 0, 0);
+  ui_msg4(color, UiSel("getRed:green:blue:alpha:"), &r, &g, &b, &alpha);
+  return ToI64(r * 255.0) << 16 | ToI64(g * 255.0) << 8 | ToI64(b * 255.0);
 }
 
 UiCtl *UiComboNew()

@@ -45,6 +45,17 @@ U0 OnAsk(UiCtl *c, U0 *data)
   Free(s);
 }
 
+U0 OnColor(UiCtl *c, U0 *data)
+{
+  I64 rgb = UiPickColor("Pick a color", 0x3366CC);
+  U8 *s;
+  if (rgb < 0)
+    return;
+  s = MStrPrint("Picked #%06X", rgb);
+  UiLabelSetText(gStatus, s);
+  Free(s);
+}
+
 U0 OnNewWin(UiCtl *c, U0 *data)
 {
   UiCtl *w2 = UiWindowNew("Second temple", 300, 160);
@@ -117,6 +128,7 @@ UiCtl *m = UiMenuNew("File");
 UiMenuItem(m, "About", &OnAbout);
 UiMenuItem(m, "Open...", &OnOpen);
 UiMenuItem(m, "Ask name...", &OnAsk);
+UiMenuItem(m, "Pick color...", &OnColor);
 UiMenuItem(m, "New window", &OnNewWin);
 UiMenuItem(m, "Quit", &OnQuit);
 

@@ -44,6 +44,9 @@ extern U0 gtk_widget_set_margin_end(I64 w, I64 px);
 extern U0 gtk_widget_insert_action_group(I64 w, U8 *prefix, I64 grp);
 extern I64 gtk_popover_menu_bar_new_from_model(I64 model);
 extern I64 gtk_popover_menu_new_from_model(I64 model);
+extern I64 gtk_color_chooser_dialog_new(U8 *title, I64 parent);
+extern U0 gtk_color_chooser_set_rgba(I64 chooser, F64 *rgba);
+extern U0 gtk_color_chooser_get_rgba(I64 chooser, F64 *rgba);
 extern U0 gtk_popover_set_pointing_to(I64 popover, I32 *rect);
 extern U0 gtk_popover_set_has_arrow(I64 popover, I64 on);
 extern U0 gtk_popover_popup(I64 popover);
@@ -908,6 +911,42 @@ U8 *UiPrompt(U8 *title, U8 *body, U8 *init="")
   if (!ui_dlg_gone)
     gtk_window_destroy(win);
   return ui_dlg_text;
+}
+
+U0 UiGtkColorResponse(I64 dialog, I64 response, I64 data)
+{
+  ui_dlg_text = response;  // GTK_RESPONSE_OK is -5
+  ui_dlg_done = 1;
+}
+
+// GtkColorChooserDialog run to completion like UiPrompt.
+I64 UiPickColor(U8 *title, I64 rgb=0x808080)
+{
+  I64 dialog = gtk_color_chooser_dialog_new(title, ui_gtk_win);
+  F64 rgba[4];
+  rgba[0] = (rgb >> 16 & 0xFF) / 255.0;
+  rgba[1] = (rgb >> 8 & 0xFF) / 255.0;
+  rgba[2] = (rgb & 0xFF) / 255.0;
+  rgba[3] = 1.0;
+  gtk_color_chooser_set_rgba(dialog, rgba);
+  g_signal_connect_data(dialog, "response", &UiGtkColorResponse, 0, 0, 0);
+  g_signal_connect_data(dialog, "destroy", &UiGtkPromptGone, 0, 0, 0);
+  gtk_window_present(dialog);
+  ui_dlg_done = 0;
+  ui_dlg_text = 0;
+  ui_dlg_gone = 0;
+  while (!ui_dlg_done)
+    g_main_context_iteration(0, 1);
+  rgb = -1;
+  if (!ui_dlg_gone) {
+    if (ui_dlg_text == -5) {
+      gtk_color_chooser_get_rgba(dialog, rgba);
+      rgb = ToI64(rgba[0] * 255.0) << 16 | ToI64(rgba[1] * 255.0) << 8 |
+        ToI64(rgba[2] * 255.0);
+    }
+    gtk_window_destroy(dialog);
+  }
+  return rgb;
 }
 
 U0 UiShow(UiCtl *w)

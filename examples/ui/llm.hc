@@ -18,7 +18,7 @@
 
 extern U8 *getenv(U8 *name);
 extern I64 time(I64 *now);
-extern U8 *localtime(I64 *now);
+extern I32 *localtime(I64 *now);
 extern I64 strftime(U8 *out, I64 max, U8 *format, U8 *tm);
 
 #define REASONING_COUNT 4
@@ -86,7 +86,7 @@ U0 ChatAppend(Chat *chat, U8 *who, U8 *text, Bool markdown=FALSE)
   I64 now = time(NULL);
   I64 i;
 
-  strftime(stamp, sizeof(stamp), "%H:%M", localtime(&now));
+  strftime(stamp, sizeof(stamp), "%H:%M", localtime(&now)(U8 *));
   StrBufPrintf(out, "── %s · %s ", who, stamp);
   for (i = StrLen(who) + 12; i < 72; i++)
     StrBufPutS(out, "─");

@@ -437,7 +437,9 @@ U0 HtkRedraw()
     if (!w->minimized) {
       HtkClipAll;
       HtkWindowLayout(w);
+      htk_paint_dim = htk_dim_inactive && w != HtkTop;
       HtkWindowDraw(w);
+      htk_paint_dim = FALSE;
     }
     w = w->sib;
   }
@@ -591,16 +593,17 @@ U0 HtkWindowMouse(HtkCtl *w, CTermEvent *e)
       HtkComboOpen(hit);
     break;
   case HTK_ENTRY:
+    if (press) {  // click places the cursor; dragging selects from there
+      HtkEntryCursorAt(hit, e->x);
+      hit->anchor = hit->cursor;
+      htk_drag = hit;
+    }
+    break;
+  case HTK_MULTILINE:
     if (press) {
-      // Put the cursor on the clicked column.
-      I64 want = e->x - hit->x;
-      I64 i = hit->top;
-      while (want > 0 && hit->text[i]) {
-        TermRuneNext(hit->text, &i);
-        want--;
-      }
-      hit->cursor = i;
-      htk_dirty = TRUE;
+      HtkMultilineCursorAt(hit, e->x, e->y);
+      hit->anchor = hit->cursor;
+      htk_drag = hit;
     }
     break;
   case HTK_TABLE:
@@ -658,6 +661,9 @@ U0 HtkMouse(CTermEvent *e)
   if (!e->pressed) {
     if (htk_drag && htk_drag->kind == HTK_CANVAS)
       HtkCanvasMouse(htk_drag, e);
+    if (htk_drag && (htk_drag->kind == HTK_ENTRY ||
+      htk_drag->kind == HTK_MULTILINE) && htk_drag->anchor == htk_drag->cursor)
+      htk_drag->anchor = -1;  // a plain click selects nothing
     htk_drag = NULL;
     htk_drag_resize = 0;
   }
@@ -674,6 +680,10 @@ U0 HtkMouse(CTermEvent *e)
       HtkSliderMouse(htk_drag, e->x);
     else if (htk_drag->kind == HTK_CANVAS)
       HtkCanvasMouse(htk_drag, e);
+    else if (htk_drag->kind == HTK_ENTRY)
+      HtkEntryCursorAt(htk_drag, e->x);  // extends the selection
+    else if (htk_drag->kind == HTK_MULTILINE)
+      HtkMultilineCursorAt(htk_drag, e->x, e->y);
     return;
   }
   if (htk_popup) {
@@ -697,7 +707,10 @@ U0 HtkMouse(CTermEvent *e)
   }
   if (e->pressed && !e->motion && HtkTaskbarHeight &&
     e->y == TermHeight - 1) {
-      HtkWindowRestore(HtkTaskbar(e->x, FALSE));
+      if (HTK_BAR_APP && e->x < HTK_BAR_APP)
+        HtkAppMenuOpen(0, TermHeight - 1);
+      else
+        HtkWindowRestore(HtkTaskbar(e->x, FALSE));
       return;
     }
   w = htk_windows;
@@ -707,8 +720,11 @@ U0 HtkMouse(CTermEvent *e)
       at = w;
     w = w->sib;
   }
-  if (!at)
+  if (!at) {
+    if (e->pressed && !e->motion && e->button == TERM_MOUSE_RIGHT)
+      HtkAppMenuOpen(e->x, e->y);  // desktop context menu
     return;
+  }
   // A press on a background window raises it and still counts: the title
   // starts dragging right away and controls react without a second click.
   if (at != HtkTop && e->pressed && !e->motion)

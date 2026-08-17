@@ -558,3 +558,8 @@ U8 *UiPrompt(U8 *title, U8 *body, U8 *init="")
 {
   return HtkPrompt(title, body, init);
 }
+
+I64 UiPickColor(U8 *title, I64 rgb=0x808080)
+{
+  return HtkColorPick(title, rgb);
+}
