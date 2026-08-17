@@ -396,6 +396,27 @@ for b in $backends; do
 	fi
 done
 
+# lib/llm builds requests and parses replies without a server, but includes
+# the native lib/net transport, so it is a native-only fixture as well.
+for b in $backends; do
+	[ "$b" = js ] && continue
+	if ./aholyc -b "$b" tests/llm.HC -o "tests/out/llm-$b" \
+		2>"tests/out/llm-$b.err"; then
+		"tests/out/llm-$b" >"tests/out/llm-$b.txt" 2>&1
+		if cmp -s tests/expected/llm.out "tests/out/llm-$b.txt"; then
+			echo "ok   $b/llm-library"
+		else
+			echo "FAIL $b/llm-library"
+			diff tests/expected/llm.out "tests/out/llm-$b.txt" | head -10
+			fail=1
+		fi
+	else
+		echo "FAIL build $b/llm-library"
+		head -5 "tests/out/llm-$b.err"
+		fail=1
+	fi
+done
+
 # Compile the same fixture against Win32 when the optional MinGW cross
 # toolchain used by demos/windows is installed.
 if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 &&

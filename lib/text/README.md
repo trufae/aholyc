@@ -9,6 +9,8 @@ The library is split by cost:
   bytes are stored inline.
 - Include `utf8.HC` for three strict UTF-8 primitives: `Utf8DecodeRune`,
   `Utf8EncodeRune`, and `Utf8Valid`.
+- Include `base64.hc` for RFC 4648 Base64 encoding and strict decoding. The
+  caller-buffer APIs support a count-only pass and preserve binary data.
 - Include `encoding.HC` for `CText`, UTF-16/32, ASCII, Latin-1, EBCDIC 037,
   transcoding, and Pascal-string adapters. It includes `utf8.HC` itself.
 
