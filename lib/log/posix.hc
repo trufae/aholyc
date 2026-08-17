@@ -40,16 +40,12 @@ extern I64 strftime(U8 *buf, I64 max, U8 *fmt, U8 *tm);
 #define LOG_SEEK_END 2
 #define LOG_MODE_644 0x1A4  // HolyC has no octal literals
 
+// Exactly one write(2) per line, never a retry: a second write for the
+// remainder could interleave with another writer, which is worse than a
+// truncated line, and regular files only short-write when the disk is full.
 U0 LogOsWrite(U8 *text, I64 len)
 {
-  I64 done = 0, n;
-
-  while (done < len) {
-    n = write(2, text + done, len - done);
-    if (n <= 0)
-      break;
-    done += n;
-  }
+  write(2, text, len);
 }
 
 Bool LogOsIsTty()
@@ -118,18 +114,10 @@ I64 LogOsFileSize(U8 *handle)
   return size;
 }
 
-// One write per line; a short write is retried for the remainder.
+// One write per line, no retry (see LogOsWrite).
 U0 LogOsFileWrite(U8 *handle, U8 *text, I64 len)
 {
-  I64 fd = handle(I64) - 1;
-  I64 done = 0, n;
-
-  while (done < len) {
-    n = write(fd, text + done, len - done);
-    if (n <= 0)
-      break;
-    done += n;
-  }
+  write(handle(I64) - 1, text, len);
 }
 
 U0 LogOsFileClose(U8 *handle)
