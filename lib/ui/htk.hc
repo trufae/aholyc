@@ -307,7 +307,7 @@ U0 UiComboClear(UiCtl *c)
 
   while (k) {
     next = k->sib;
-    Free(k->text);
+    HtkFreeText(k);
     Free(k);
     k = next;
   }
@@ -414,18 +414,12 @@ U0 UiHtkTimerFire(I64 ctl, I64 unused)
 
 U0 UiTimer(I64 ms, UiCallback *fn, U0 *data=NULL)
 {
-  UiCtl *t = UiCtlNew(UI_TIMER, 0);
-
-  UiOnClick(t, fn, data);
-  HtkHookAdd(ms, ms, &UiHtkTimerFire, t, 0);
+  HtkHookAdd(ms, ms, &UiHtkTimerFire, UiTimerCtl(fn, data), 0);
 }
 
 U0 UiQueueMain(UiCallback *fn, U0 *data=NULL)
 {
-  UiCtl *t = UiCtlNew(UI_TIMER, 0);
-
-  UiOnClick(t, fn, data);
-  HtkHookAdd(0, 0, &UiHtkTimerFire, t, 0);
+  HtkHookAdd(0, 0, &UiHtkTimerFire, UiTimerCtl(fn, data), 0);
 }
 
 UiCtl *UiToolbarNew()
@@ -443,9 +437,7 @@ U0 UiToolAdd(UiCtl *tb, U8 *label, UiCallback *fn, U0 *data=NULL)
 
 UiCtl *UiStatusbarNew(U8 *text="")
 {
-  HtkCtl *h = HtkStatusbarNew(text);
-
-  return UiHtkWrap(UI_STATUS, h);
+  return UiHtkWrap(UI_STATUS, HtkStatusbarNew(text));
 }
 
 U0 UiStatusSet(UiCtl *sb, U8 *text)
@@ -539,27 +531,8 @@ UiCtl *UiTreeSelected(UiCtl *t)
   return node->user;
 }
 
-U0 UiMsgBox(U8 *title, U8 *body)
-{
-  HtkMsgBox(title, body);
-}
-
-U0 UiWarnBox(U8 *title, U8 *body)
-{
-  HtkMsgBox(title, body);
-}
-
-U8 *UiOpenFile()
-{
-  return HtkOpenFile;
-}
-
-U8 *UiPrompt(U8 *title, U8 *body, U8 *init="")
-{
-  return HtkPrompt(title, body, init);
-}
-
-I64 UiPickColor(U8 *title, I64 rgb=0x808080)
-{
-  return HtkColorPick(title, rgb);
-}
+#define UiMsgBox HtkMsgBox
+#define UiWarnBox HtkMsgBox
+#define UiOpenFile HtkOpenFile
+#define UiPrompt HtkPrompt
+#define UiPickColor HtkColorPick

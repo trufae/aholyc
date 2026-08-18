@@ -109,15 +109,11 @@ UiWndClass ui_wc, ui_cwc, ui_dwc;
 
 U0 UiLayout(UiCtl *w);  // defined after the window procs that call it
 
-UiCtl *UiMenuFind(I64 id)
+// A visible child control of the current window; UiLayout places it later.
+I64 UiW32Child(I64 ex, U8 *cls, U8 *text, I64 style, I64 w, I64 h)
 {
-  UiCtl *c = ui_ctls;
-  while (c) {
-    if (c->kind == UI_MENUITEM && c->native == id)
-      return c;
-    c = c->reg;
-  }
-  return NULL;
+  return CreateWindowExA(ex, cls, text, WS_CHILD_VISIBLE | style,
+    0, 0, w, h, ui_hwnd, 0, ui_inst, 0);
 }
 
 I64 UiWndProc(I64 hwnd, I64 msg, I64 wp, I64 lp)
@@ -126,7 +122,7 @@ I64 UiWndProc(I64 hwnd, I64 msg, I64 wp, I64 lp)
   switch (msg) {
   case WM_COMMAND:
     if (!lp)
-      UiFireClick(UiMenuFind(wp & 0xFFFF));
+      UiFireClick(UiCtlFind(wp & 0xFFFF, UI_MENUITEM));
     else if (code == 0 || code == 0x300 || code == 1)  // BN_CLICKED, EN_CHANGE, CBN_SELCHANGE
       UiFireClick(UiCtlFind(lp));
     return 0;
@@ -317,14 +313,13 @@ U8 *UiPrompt(U8 *title, U8 *body, U8 *init="")
 {
   I64 win = CreateWindowExA(0, "UiDlg", title, 0xCA0000,  // caption+sysmenu
     CW_USEDEFAULT, CW_USEDEFAULT, 320, 180, ui_hwnd, 0, ui_inst, 0);
-  I64 lbl = CreateWindowExA(0, "STATIC", body, WS_CHILD_VISIBLE,
+  CreateWindowExA(0, "STATIC", body, WS_CHILD_VISIBLE,
     20, 15, 260, 22, win, 0, ui_inst, 0);
   I64 entry = CreateWindowExA(0x200, "EDIT", init, WS_CHILD_VISIBLE | 0x80,
     20, 45, 260, 24, win, 0, ui_inst, 0);
   I64 okh = CreateWindowExA(0, "BUTTON", "OK", WS_CHILD_VISIBLE,
     100, 85, 100, 28, win, 0, ui_inst, 0);
-  UiCtl *ok = UiCtlNew(UI_BUTTON, okh);
-  UiOnClick(ok, &UiW32PromptOk, entry);
+  UiOnClick(UiCtlNew(UI_BUTTON, okh), &UiW32PromptOk, entry);
   ShowWindow(win, SW_SHOW);
   ui_dlg_done = 0;
   ui_dlg_text = 0;
@@ -379,9 +374,7 @@ U0 UiGridAdd(UiCtl *g, UiCtl *c, I64 col, I64 row)
 
 UiCtl *UiLabelNew(U8 *text="")
 {
-  I64 h = CreateWindowExA(0, "STATIC", text, WS_CHILD_VISIBLE,
-    0, 0, 10, 10, ui_hwnd, 0, ui_inst, 0);
-  return UiCtlNew(UI_LABEL, h);
+  return UiCtlNew(UI_LABEL, UiW32Child(0, "STATIC", text, 0, 10, 10));
 }
 
 U0 UiLabelSetText(UiCtl *l, U8 *text)
@@ -391,17 +384,13 @@ U0 UiLabelSetText(UiCtl *l, U8 *text)
 
 UiCtl *UiButtonNew(U8 *text)
 {
-  I64 h = CreateWindowExA(0, "BUTTON", text, WS_CHILD_VISIBLE,
-    0, 0, 10, 10, ui_hwnd, 0, ui_inst, 0);
-  return UiCtlNew(UI_BUTTON, h);
+  return UiCtlNew(UI_BUTTON, UiW32Child(0, "BUTTON", text, 0, 10, 10));
 }
 
 UiCtl *UiEntryNew(U8 *text="")
 {
-  I64 h = CreateWindowExA(0x200, "EDIT", text,  // WS_EX_CLIENTEDGE
-    WS_CHILD_VISIBLE | 0x80,                    // ES_AUTOHSCROLL
-    0, 0, 10, 10, ui_hwnd, 0, ui_inst, 0);
-  return UiCtlNew(UI_ENTRY, h);
+  // WS_EX_CLIENTEDGE, ES_AUTOHSCROLL
+  return UiCtlNew(UI_ENTRY, UiW32Child(0x200, "EDIT", text, 0x80, 10, 10));
 }
 
 U8 *UiEntryText(UiCtl *e)
@@ -419,8 +408,7 @@ U0 UiEntrySetText(UiCtl *e, U8 *text)
 
 UiCtl *UiCheckboxNew(U8 *text, Bool checked=FALSE)
 {
-  I64 h = CreateWindowExA(0, "BUTTON", text,
-    WS_CHILD_VISIBLE | BS_AUTOCHECKBOX, 0, 0, 10, 10, ui_hwnd, 0, ui_inst, 0);
+  I64 h = UiW32Child(0, "BUTTON", text, BS_AUTOCHECKBOX, 10, 10);
   SendMessageA(h, BM_SETCHECK, checked, 0);
   return UiCtlNew(UI_CHECKBOX, h);
 }
@@ -432,8 +420,7 @@ Bool UiCheckboxChecked(UiCtl *c)
 
 UiCtl *UiSliderNew(I64 min=0, I64 max=100)
 {
-  I64 h = CreateWindowExA(0, "msctls_trackbar32", "", WS_CHILD_VISIBLE,
-    0, 0, 10, 10, ui_hwnd, 0, ui_inst, 0);
+  I64 h = UiW32Child(0, "msctls_trackbar32", "", 0, 10, 10);
   SendMessageA(h, TBM_SETRANGEMIN, 1, min);
   SendMessageA(h, TBM_SETRANGEMAX, 1, max);
   return UiCtlNew(UI_SLIDER, h);
@@ -446,8 +433,7 @@ I64 UiSliderValue(UiCtl *s)
 
 UiCtl *UiProgressNew()
 {
-  I64 h = CreateWindowExA(0, "msctls_progress32", "", WS_CHILD_VISIBLE,
-    0, 0, 10, 10, ui_hwnd, 0, ui_inst, 0);
+  I64 h = UiW32Child(0, "msctls_progress32", "", 0, 10, 10);
   SendMessageA(h, PBM_SETRANGE32, 0, 100);
   return UiCtlNew(UI_PROGRESS, h);
 }
@@ -459,16 +445,12 @@ U0 UiProgressSet(UiCtl *p, I64 percent)
 
 UiCtl *UiSeparatorNew()
 {
-  I64 h = CreateWindowExA(0, "STATIC", "", WS_CHILD_VISIBLE | 0x10, // SS_ETCHEDHORZ
-    0, 0, 10, 2, ui_hwnd, 0, ui_inst, 0);
-  return UiCtlNew(UI_SEP, h);
+  return UiCtlNew(UI_SEP, UiW32Child(0, "STATIC", "", 0x10, 10, 2));  // SS_ETCHEDHORZ
 }
 
 UiCtl *UiCanvasNew(I64 w, I64 h, UiCallback *drawfn, U0 *data=NULL)
 {
-  I64 hw = CreateWindowExA(0, "UiCanvasC", "", WS_CHILD_VISIBLE,
-    0, 0, w, h, ui_hwnd, 0, ui_inst, 0);
-  UiCtl *c = UiCtlNew(UI_CANVAS, hw);
+  UiCtl *c = UiCtlNew(UI_CANVAS, UiW32Child(0, "UiCanvasC", "", 0, w, h));
   c->w = w;
   c->h = h;
   UiOnClick(c, drawfn, data);
@@ -549,10 +531,8 @@ U0 UiContextMenu(UiCtl *c, UiCtl *menu)
 
 UiCtl *UiComboNew()
 {
-  I64 h = CreateWindowExA(0, "COMBOBOX", "",
-    WS_CHILD_VISIBLE | 3 | 0x200000,  // CBS_DROPDOWNLIST | WS_VSCROLL
-    0, 0, 10, 200, ui_hwnd, 0, ui_inst, 0);
-  return UiCtlNew(UI_COMBO, h);
+  // CBS_DROPDOWNLIST | WS_VSCROLL
+  return UiCtlNew(UI_COMBO, UiW32Child(0, "COMBOBOX", "", 0x200003, 10, 200));
 }
 
 U0 UiComboAdd(UiCtl *c, U8 *text)
@@ -577,18 +557,15 @@ U0 UiComboClear(UiCtl *c)
 
 UiCtl *UiRadioNew()
 {
-  UiCtl *c = UiCtlNew(UI_RADIO, 0);
-  return c;
+  return UiCtlNew(UI_RADIO, 0);
 }
 
 U0 UiRadioAdd(UiCtl *r, U8 *text)
 {
-  I64 style = WS_CHILD_VISIBLE | 9;  // BS_AUTORADIOBUTTON
+  I64 style = 9;  // BS_AUTORADIOBUTTON
   if (!r->kids)
     style |= 0x20000;  // WS_GROUP on the first button
-  I64 h = CreateWindowExA(0, "BUTTON", text, style,
-    0, 0, 10, 22, ui_hwnd, 0, ui_inst, 0);
-  UiKidAdd(r, UiCtlNew(UI_BUTTON, h));
+  UiKidAdd(r, UiCtlNew(UI_BUTTON, UiW32Child(0, "BUTTON", text, style, 10, 22)));
 }
 
 I64 UiRadioSelected(UiCtl *r)
@@ -606,11 +583,8 @@ I64 UiRadioSelected(UiCtl *r)
 
 UiCtl *UiSpinNew(I64 min=0, I64 max=100)
 {
-  I64 ed = CreateWindowExA(0x200, "EDIT", "0", WS_CHILD_VISIBLE | 0x2000, // ES_NUMBER
-    0, 0, 10, 24, ui_hwnd, 0, ui_inst, 0);
-  I64 ud = CreateWindowExA(0, "msctls_updown32", "",
-    WS_CHILD_VISIBLE | 0x28,  // UDS_SETBUDDYINT | UDS_ALIGNRIGHT
-    0, 0, 0, 0, ui_hwnd, 0, ui_inst, 0);
+  I64 ed = UiW32Child(0x200, "EDIT", "0", 0x2000, 10, 24);  // ES_NUMBER
+  I64 ud = UiW32Child(0, "msctls_updown32", "", 0x28, 0, 0);  // UDS_SETBUDDYINT | UDS_ALIGNRIGHT
   SendMessageA(ud, 0x469, ed, 0);          // UDM_SETBUDDY
   SendMessageA(ud, 0x467, 0, max << 16 | min & 0xFFFF);  // UDM_SETRANGE
   UiCtl *c = UiCtlNew(UI_SPIN, ud);
@@ -630,10 +604,8 @@ U0 UiSpinSetValue(UiCtl *s, I64 value)
 
 UiCtl *UiMultilineNew(U8 *text="")
 {
-  I64 h = CreateWindowExA(0x200, "EDIT", text,
-    WS_CHILD_VISIBLE | 0x2000C4,  // WS_VSCROLL | ES_WANTRETURN | ES_AUTOVSCROLL | ES_MULTILINE
-    0, 0, 10, 80, ui_hwnd, 0, ui_inst, 0);
-  return UiCtlNew(UI_MULTILINE, h);
+  // WS_VSCROLL | ES_WANTRETURN | ES_AUTOVSCROLL | ES_MULTILINE
+  return UiCtlNew(UI_MULTILINE, UiW32Child(0x200, "EDIT", text, 0x2000C4, 10, 80));
 }
 
 U0 UiMultilineSetText(UiCtl *m, U8 *text)
@@ -655,17 +627,12 @@ U0 UiMultilineSetEditable(UiCtl *m, Bool on)
 
 UiCtl *UiPasswordNew(U8 *text="")
 {
-  I64 h = CreateWindowExA(0x200, "EDIT", text,
-    WS_CHILD_VISIBLE | 0x20,  // ES_PASSWORD
-    0, 0, 10, 24, ui_hwnd, 0, ui_inst, 0);
-  return UiCtlNew(UI_ENTRY, h);
+  return UiCtlNew(UI_ENTRY, UiW32Child(0x200, "EDIT", text, 0x20, 10, 24));  // ES_PASSWORD
 }
 
 UiCtl *UiGroupNew(U8 *title)
 {
-  I64 h = CreateWindowExA(0, "BUTTON", title, WS_CHILD_VISIBLE | 7,  // BS_GROUPBOX
-    0, 0, 10, 60, ui_hwnd, 0, ui_inst, 0);
-  return UiCtlNew(UI_GROUP, h);
+  return UiCtlNew(UI_GROUP, UiW32Child(0, "BUTTON", title, 7, 10, 60));  // BS_GROUPBOX
 }
 
 U0 UiGroupSetChild(UiCtl *g, UiCtl *child)
@@ -675,9 +642,7 @@ U0 UiGroupSetChild(UiCtl *g, UiCtl *child)
 
 UiCtl *UiTabNew()
 {
-  I64 h = CreateWindowExA(0, "SysTabControl32", "", WS_CHILD_VISIBLE,
-    0, 0, 10, 200, ui_hwnd, 0, ui_inst, 0);
-  return UiCtlNew(UI_TAB, h);
+  return UiCtlNew(UI_TAB, UiW32Child(0, "SysTabControl32", "", 0, 10, 200));
 }
 
 U0 UiTabAdd(UiCtl *t, U8 *label, UiCtl *child)
@@ -715,15 +680,13 @@ U0 UiExpand(UiCtl *c, Bool on)
 
 U0 UiTimer(I64 ms, UiCallback *fn, U0 *data=NULL)
 {
-  UiCtl *t = UiCtlNew(UI_TIMER, ++ui_timerid);
-  UiOnClick(t, fn, data);
+  UiTimerCtl(fn, data, ++ui_timerid);
   SetTimer(ui_hwnd, ui_timerid, ms, 0);
 }
 
 U0 UiQueueMain(UiCallback *fn, U0 *data=NULL)
 {
-  UiCtl *t = UiCtlNew(UI_TIMER, ++ui_onceid);
-  UiOnClick(t, fn, data);
+  UiTimerCtl(fn, data, ++ui_onceid);
   SetTimer(ui_hwnd, ui_onceid, 0, 0);
 }
 
@@ -734,18 +697,14 @@ UiCtl *UiToolbarNew()
 
 U0 UiToolAdd(UiCtl *tb, U8 *label, UiCallback *fn, U0 *data=NULL)
 {
-  I64 h = CreateWindowExA(0, "BUTTON", label, WS_CHILD_VISIBLE,
-    0, 0, 10, 10, ui_hwnd, 0, ui_inst, 0);
-  UiCtl *c = UiCtlNew(UI_BUTTON, h);
+  UiCtl *c = UiButtonNew(label);
   UiOnClick(c, fn, data);
   UiKidAdd(tb, c);
 }
 
 UiCtl *UiStatusbarNew(U8 *text="")
 {
-  I64 h = CreateWindowExA(0, "msctls_statusbar32", text, WS_CHILD_VISIBLE,
-    0, 0, 0, 0, ui_hwnd, 0, ui_inst, 0);
-  return UiCtlNew(UI_STATUS, h);
+  return UiCtlNew(UI_STATUS, UiW32Child(0, "msctls_statusbar32", text, 0, 0, 0));
 }
 
 U0 UiStatusSet(UiCtl *sb, U8 *text)
@@ -790,9 +749,7 @@ UiCtl *UiScrollNew(UiCtl *child)
 
 UiCtl *UiTableNew(UiCellCallback *cellfn, U0 *data=NULL)
 {
-  I64 h = CreateWindowExA(0, "SysListView32", "",
-    WS_CHILD_VISIBLE | 0x1 | 0xC000,  // LVS_REPORT | WS_BORDER-ish
-    0, 0, 10, 200, ui_hwnd, 0, ui_inst, 0);
+  I64 h = UiW32Child(0, "SysListView32", "", 0xC001, 10, 200);  // LVS_REPORT | WS_BORDER-ish
   SendMessageA(h, 0x1036, 0, 0x20 | 0x1);  // LVM_SETEXTENDEDLISTVIEWSTYLE: FULLROWSELECT|GRIDLINES
   UiCtl *c = UiCtlNew(UI_TABLE, h);
   c->cellfn = cellfn;
@@ -858,11 +815,8 @@ I64 UiTableSelected(UiCtl *t)
 
 UiCtl *UiTreeNew()
 {
-  I64 h = CreateWindowExA(0, "SysTreeView32", "",
-    WS_CHILD_VISIBLE | 0x1 | 0x20 | 0x4,  // TVS_HASBUTTONS|TVS_HASLINES|TVS_LINESATROOT
-    0, 0, 10, 200, ui_hwnd, 0, ui_inst, 0);
-  UiCtl *c = UiCtlNew(UI_TREE, h);
-  return c;
+  // TVS_HASBUTTONS | TVS_HASLINES | TVS_LINESATROOT
+  return UiCtlNew(UI_TREE, UiW32Child(0, "SysTreeView32", "", 0x25, 10, 200));
 }
 
 UiCtl *UiTreeAdd(UiCtl *t, UiCtl *parent, U8 *label)
@@ -886,13 +840,7 @@ UiCtl *UiTreeSelected(UiCtl *t)
   I64 h = SendMessageA(t->native, 0x100A, 9, 0);  // TVM_GETNEXTITEM, TVGN_CARET
   if (!h)
     return NULL;
-  UiCtl *c = ui_ctls;
-  while (c) {
-    if (c->kind == UI_TREENODE && c->native == h)
-      return c;
-    c = c->reg;
-  }
-  return NULL;
+  return UiCtlFind(h, UI_TREENODE);
 }
 
 U0 UiBoxAdd(UiCtl *box, UiCtl *c)

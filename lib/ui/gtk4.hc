@@ -12,6 +12,7 @@ extern U0 gtk_box_append(I64 box, I64 child);
 extern U0 gtk_box_prepend(I64 box, I64 child);
 extern I64 gtk_grid_new();
 extern U0 gtk_grid_attach(I64 g, I64 c, I64 col, I64 row, I64 cs, I64 rs);
+extern U0 gtk_grid_remove_row(I64 g, I64 pos);
 extern U0 gtk_grid_set_row_spacing(I64 g, I64 px);
 extern U0 gtk_grid_set_column_spacing(I64 g, I64 px);
 extern I64 gtk_label_new(U8 *text);
@@ -590,10 +591,8 @@ U0 UiMultilineSetEditable(UiCtl *m, Bool on)
 
 UiCtl *UiPasswordNew(U8 *text="")
 {
-  UiCtl *c = UiCtlNew(UI_ENTRY, gtk_entry_new);
+  UiCtl *c = UiEntryNew(text);
   gtk_entry_set_visibility(c->native, 0);
-  gtk_editable_set_text(c->native, text);
-  g_signal_connect_data(c->native, "changed", &UiGtkClicked, c, 0, 0);
   return c;
 }
 
@@ -648,16 +647,12 @@ I64 UiGtkOnce(I64 data)
 
 U0 UiTimer(I64 ms, UiCallback *fn, U0 *data=NULL)
 {
-  UiCtl *t = UiCtlNew(UI_TIMER, 0);
-  UiOnClick(t, fn, data);
-  g_timeout_add(ms, &UiGtkTimer, t);
+  g_timeout_add(ms, &UiGtkTimer, UiTimerCtl(fn, data));
 }
 
 U0 UiQueueMain(UiCallback *fn, U0 *data=NULL)
 {
-  UiCtl *t = UiCtlNew(UI_TIMER, 0);
-  UiOnClick(t, fn, data);
-  g_idle_add(&UiGtkOnce, t);
+  g_idle_add(&UiGtkOnce, UiTimerCtl(fn, data));
 }
 
 UiCtl *UiToolbarNew()
@@ -672,9 +667,8 @@ UiCtl *UiToolbarNew()
 
 U0 UiToolAdd(UiCtl *tb, U8 *label, UiCallback *fn, U0 *data=NULL)
 {
-  UiCtl *c = UiCtlNew(UI_BUTTON, gtk_button_new_with_label(label));
+  UiCtl *c = UiButtonNew(label);
   UiOnClick(c, fn, data);
-  g_signal_connect_data(c->native, "clicked", &UiGtkClicked, c, 0, 0);
   gtk_box_append(tb->native, c->native);
 }
 
@@ -709,11 +703,18 @@ U0 UiSplitAdd(UiCtl *sp, UiCtl *child)
   }
 }
 
-UiCtl *UiScrollNew(UiCtl *child)
+// A vertically expanding scrolled window around a widget.
+I64 UiGtkScroll(I64 child)
 {
   I64 s = gtk_scrolled_window_new;
-  gtk_scrolled_window_set_child(s, child->native);
+  gtk_scrolled_window_set_child(s, child);
   gtk_widget_set_vexpand(s, 1);
+  return s;
+}
+
+UiCtl *UiScrollNew(UiCtl *child)
+{
+  I64 s = UiGtkScroll(child->native);
   gtk_widget_set_hexpand(s, 1);
   return UiCtlNew(UI_SCROLL, s);
 }
@@ -728,10 +729,7 @@ UiCtl *UiTableNew(UiCellCallback *cellfn, U0 *data=NULL)
   gtk_grid_set_column_spacing(grid, 16);
   gtk_widget_set_margin_top(grid, 6);
   gtk_widget_set_margin_start(grid, 6);
-  I64 s = gtk_scrolled_window_new;
-  gtk_scrolled_window_set_child(s, grid);
-  gtk_widget_set_vexpand(s, 1);
-  UiCtl *c = UiCtlNew(UI_TABLE, s);
+  UiCtl *c = UiCtlNew(UI_TABLE, UiGtkScroll(grid));
   c->col = grid;
   c->cellfn = cellfn;
   c->celldata = data;
@@ -749,6 +747,10 @@ U0 UiTableColumn(UiCtl *t, U8 *title)
 U0 UiTableSetRows(UiCtl *t, I64 nrows)
 {
   I64 r = 0, c;
+  while (t->row > 0) {  // drop the previous load, the heading row stays
+    gtk_grid_remove_row(t->col, 1);
+    t->row--;
+  }
   t->row = nrows;
   while (r < nrows) {
     c = 0;
@@ -782,10 +784,7 @@ UiCtl *UiTreeNew()
   gtk_tree_view_column_pack_start(col, rend, 1);
   gtk_tree_view_column_add_attribute(col, rend, "text", 0);
   gtk_tree_view_append_column(tv, col);
-  I64 s = gtk_scrolled_window_new;
-  gtk_scrolled_window_set_child(s, tv);
-  gtk_widget_set_vexpand(s, 1);
-  UiCtl *c = UiCtlNew(UI_TREE, s);
+  UiCtl *c = UiCtlNew(UI_TREE, UiGtkScroll(tv));
   c->col = store;
   c->row = tv;
   g_signal_connect_data(gtk_tree_view_get_selection(tv), "changed",
@@ -872,6 +871,16 @@ U0 UiWarnBox(U8 *title, U8 *body)
   Free(t);
 }
 
+// Spin the main context until a dialog callback sets ui_dlg_done.
+U0 UiGtkWait()
+{
+  ui_dlg_done = 0;
+  ui_dlg_text = 0;
+  ui_dlg_gone = 0;
+  while (!ui_dlg_done)
+    g_main_context_iteration(0, 1);
+}
+
 U0 UiGtkFileDone(I64 src, I64 res, I64 data)
 {
   I64 f = gtk_file_dialog_open_finish(src, res, 0);
@@ -887,10 +896,8 @@ U0 UiGtkFileDone(I64 src, I64 res, I64 data)
 
 U8 *UiOpenFile()
 {
-  ui_dlg_done = 0;
   gtk_file_dialog_open(gtk_file_dialog_new, ui_gtk_win, 0, &UiGtkFileDone, 0);
-  while (!ui_dlg_done)
-    g_main_context_iteration(0, 1);
+  UiGtkWait;
   return ui_dlg_text;
 }
 
@@ -927,11 +934,7 @@ U8 *UiPrompt(U8 *title, U8 *body, U8 *init="")
   gtk_window_set_child(win, box);
   g_signal_connect_data(win, "destroy", &UiGtkPromptGone, 0, 0, 0);
   gtk_window_present(win);
-  ui_dlg_done = 0;
-  ui_dlg_text = 0;
-  ui_dlg_gone = 0;
-  while (!ui_dlg_done)
-    g_main_context_iteration(0, 1);
+  UiGtkWait;
   if (!ui_dlg_gone)
     gtk_window_destroy(win);
   return ui_dlg_text;
@@ -956,11 +959,7 @@ I64 UiPickColor(U8 *title, I64 rgb=0x808080)
   g_signal_connect_data(dialog, "response", &UiGtkColorResponse, 0, 0, 0);
   g_signal_connect_data(dialog, "destroy", &UiGtkPromptGone, 0, 0, 0);
   gtk_window_present(dialog);
-  ui_dlg_done = 0;
-  ui_dlg_text = 0;
-  ui_dlg_gone = 0;
-  while (!ui_dlg_done)
-    g_main_context_iteration(0, 1);
+  UiGtkWait;
   rgb = -1;
   if (!ui_dlg_gone) {
     if (ui_dlg_text == -5) {

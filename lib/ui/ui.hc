@@ -153,15 +153,15 @@ class UiCtl
   I64 cb, cb_data;   // event callback + user data
   I64 submitfn, submitdata; // entry Enter callback + user data
   I64 popup;         // context menu handle (backend specific)
-  I64 kind;          // UI_*
-  I64 w, h;          // window/canvas size
-  I64 col, row;      // grid cell (table: ncols, nrows)
+  I64 col, row;      // grid cell (table: nrows); backends stash handles here
   I64 cellfn, celldata;  // table pull-model cell callback
   I64 mousefn, mousedata; // canvas mouse callback + user data
-  I64 mouse_x, mouse_y, mouse_button;
-  Bool mouse_pressed, mouse_motion;
   UiCtl *reg;        // registry chain
   UiCtl *kids, *sib; // container children, for backends without containers
+  I32 w, h;          // window/canvas size (table: w = ncols)
+  I32 mouse_x, mouse_y, mouse_button;
+  U8 kind;           // UI_*
+  Bool mouse_pressed, mouse_motion;
 };
 
 UiCtl *ui_ctls = NULL;
@@ -176,11 +176,12 @@ UiCtl *UiCtlNew(I64 kind, I64 native)
   return c;
 }
 
-UiCtl *UiCtlFind(I64 native)
+// Registered control by toolkit handle, optionally of one kind only.
+UiCtl *UiCtlFind(I64 native, I64 kind=-1)
 {
   UiCtl *c = ui_ctls;
   while (c) {
-    if (c->native == native)
+    if (c->native == native && (kind < 0 || c->kind == kind))
       return c;
     c = c->reg;
   }
@@ -211,9 +212,15 @@ U0 UiOnClick(UiCtl *c, UiCallback *fn, U0 *data=NULL)
   c->cb_data = data;
 }
 
-U0 UiOnChange(UiCtl *c, UiCallback *fn, U0 *data=NULL)
+#define UiOnChange UiOnClick
+
+// Callback holder for timers and queued calls (native = backend timer id).
+UiCtl *UiTimerCtl(UiCallback *fn, U0 *data, I64 native=0)
 {
-  UiOnClick(c, fn, data);
+  UiCtl *t = UiCtlNew(UI_TIMER, native);
+
+  UiOnClick(t, fn, data);
+  return t;
 }
 
 U0 UiFireSubmit(UiCtl *c)

@@ -61,7 +61,7 @@ U0 HtkMsgBox(U8 *title, U8 *body)
 }
 
 // MAlloc'd entry text, or NULL when cancelled.
-U8 *HtkPrompt(U8 *title, U8 *body, U8 *init)
+U8 *HtkPrompt(U8 *title, U8 *body, U8 *init="")
 {
   HtkCtl *box = HtkDialogBody(body);
   HtkCtl *entry = HtkEntryNew(init);

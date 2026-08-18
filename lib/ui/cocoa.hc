@@ -32,6 +32,47 @@ I64 UiStr(U8 *s)
   return ui_msg(UiCls("NSString"), UiSel("stringWithUTF8String:"), s, 0, 0);
 }
 
+// [[cls alloc] init]
+I64 UiNewCls(I64 cls)
+{
+  return ui_msg(ui_msg(cls, UiSel("alloc"), 0, 0, 0), UiSel("init"), 0, 0, 0);
+}
+
+I64 UiNew(U8 *cls)
+{
+  return UiNewCls(UiCls(cls));
+}
+
+// [[Cls alloc] initWithX:arg]
+I64 UiNewWith(U8 *cls, U8 *initsel, I64 arg)
+{
+  return ui_msg(ui_msg(UiCls(cls), UiSel("alloc"), 0, 0, 0), UiSel(initsel), arg, 0, 0);
+}
+
+// objc setter taking one CGFloat
+U0 UiSetF(I64 obj, U8 *sel, F64 value)
+{
+  ui_msgf(obj, UiSel(sel), value, 0.0, 0.0, 0.0, 0, 0, 0);
+}
+
+// NSStackView: orientation 0 horizontal, 1 vertical
+I64 UiStack(I64 vertical, F64 spacing)
+{
+  I64 sv = UiNew("NSStackView");
+  ui_msg(sv, UiSel("setOrientation:"), vertical, 0, 0);
+  UiSetF(sv, "setSpacing:", spacing);
+  return sv;
+}
+
+// NSScrollView with a vertical scroller around a document view
+I64 UiScrollView(I64 doc)
+{
+  I64 s = UiNew("NSScrollView");
+  ui_msg(s, UiSel("setHasVerticalScroller:"), 1, 0, 0);
+  ui_msg(s, UiSel("setDocumentView:"), doc, 0, 0);
+  return s;
+}
+
 U0 UiFrame(I64 view, F64 x, F64 y, F64 w, F64 h)
 {
   ui_msg(view, UiSel("setTranslatesAutoresizingMaskIntoConstraints:"), 1, 0, 0);
@@ -217,11 +258,6 @@ I64 UiCocoaTreeValue(I64 self, I64 cmd, I64 ov, I64 column, I64 item)
   return UiStr(UiUnbox(item)->celldata);
 }
 
-U0 UiCocoaTreeSel(I64 self, I64 cmd, I64 notif)
-{
-  UiFireClick(UiByCol(ui_msg(notif, UiSel("object"), 0, 0, 0)));
-}
-
 I64 UiCocoaRowCount(I64 self, I64 cmd, I64 tv)
 {
   UiCtl *t = UiByCol(tv);
@@ -249,8 +285,7 @@ U0 UiInit()
   ui_msgf = dlsym(-2, "objc_msgSend");
   ui_msg4 = dlsym(-2, "objc_msgSend");
   ui_msgt = dlsym(-2, "objc_msgSend");
-  ui_msg(ui_msg(UiCls("NSAutoreleasePool"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
+  UiNew("NSAutoreleasePool");
   ui_app = ui_msg(UiCls("NSApplication"), UiSel("sharedApplication"), 0, 0, 0);
   ui_msg(ui_app, UiSel("setActivationPolicy:"), 0, 0, 0);
   I64 dcls = objc_allocateClassPair(UiCls("NSObject"), "UiDelegate", 0);
@@ -258,17 +293,17 @@ U0 UiInit()
     &UiCocoaLastClose, "c@:@");
   objc_registerClassPair(dcls);
   ui_msg(ui_app, UiSel("setDelegate:"),
-    ui_msg(ui_msg(dcls, UiSel("alloc"), 0, 0, 0), UiSel("init"), 0, 0, 0), 0, 0);
+    UiNewCls(dcls), 0, 0);
   I64 tcls = objc_allocateClassPair(UiCls("NSObject"), "UiTarget", 0);
   class_addMethod(tcls, UiSel("clicked:"), &UiCocoaClick, "v@:@");
   class_addMethod(tcls, UiSel("controlTextDidChange:"), &UiCocoaTextChange, "v@:@");
   class_addMethod(tcls, UiSel("submitted:"), &UiCocoaSubmit, "v@:@");
   objc_registerClassPair(tcls);
-  ui_target = ui_msg(ui_msg(tcls, UiSel("alloc"), 0, 0, 0), UiSel("init"), 0, 0, 0);
+  ui_target = UiNewCls(tcls);
   I64 tmcls = objc_allocateClassPair(UiCls("NSObject"), "UiTimerTgt", 0);
   class_addMethod(tmcls, UiSel("tick:"), &UiCocoaTick, "v@:@");
   objc_registerClassPair(tmcls);
-  ui_timer_tgt = ui_msg(ui_msg(tmcls, UiSel("alloc"), 0, 0, 0), UiSel("init"), 0, 0, 0);
+  ui_timer_tgt = UiNewCls(tmcls);
   I64 ccls = objc_allocateClassPair(UiCls("NSView"), "UiCanvasV", 0);
   class_addMethod(ccls, UiSel("drawRect:"), &UiCocoaDraw,
     "v@:{CGRect={CGPoint=dd}{CGSize=dd}}");
@@ -289,7 +324,7 @@ U0 UiInit()
   class_addMethod(scls, UiSel("tableViewSelectionDidChange:"),
     &UiCocoaSelChanged, "v@:@");
   objc_registerClassPair(scls);
-  ui_tbl_src = ui_msg(ui_msg(scls, UiSel("alloc"), 0, 0, 0), UiSel("init"), 0, 0, 0);
+  ui_tbl_src = UiNewCls(scls);
   // NSOutlineView data source + delegate (tree pull model)
   I64 ocls = objc_allocateClassPair(UiCls("NSObject"), "UiTreeSrc", 0);
   class_addMethod(ocls, UiSel("outlineView:numberOfChildrenOfItem:"),
@@ -301,9 +336,9 @@ U0 UiInit()
   class_addMethod(ocls, UiSel("outlineView:objectValueForTableColumn:byItem:"),
     &UiCocoaTreeValue, "@@:@@@");
   class_addMethod(ocls, UiSel("outlineViewSelectionDidChange:"),
-    &UiCocoaTreeSel, "v@:@");
+    &UiCocoaSelChanged, "v@:@");
   objc_registerClassPair(ocls);
-  ui_tree_src = ui_msg(ui_msg(ocls, UiSel("alloc"), 0, 0, 0), UiSel("init"), 0, 0, 0);
+  ui_tree_src = UiNewCls(ocls);
 }
 
 U0 UiQuit()
@@ -326,22 +361,14 @@ UiCtl *UiWindowNew(U8 *title, I64 w=480, I64 h=320)
 
 UiCtl *UiBoxNew(Bool vertical=TRUE)
 {
-  I64 sv = ui_msg(ui_msg(UiCls("NSStackView"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
-  ui_msg(sv, UiSel("setOrientation:"), vertical, 0, 0);
-  ui_msgf(sv, UiSel("setSpacing:"), 16.0, 0.0, 0.0, 0.0, 0, 0, 0);
-  return UiCtlNew(UI_BOX, sv);
+  return UiCtlNew(UI_BOX, UiStack(vertical, 16.0));
 }
 
 // a grid emulated as a vertical stack of horizontal row stacks; add cells
 // in increasing row order, the column index only orders within its row
 UiCtl *UiGridNew()
 {
-  I64 sv = ui_msg(ui_msg(UiCls("NSStackView"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
-  ui_msg(sv, UiSel("setOrientation:"), 1, 0, 0);
-  ui_msgf(sv, UiSel("setSpacing:"), 10.0, 0.0, 0.0, 0.0, 0, 0, 0);
-  return UiCtlNew(UI_GRID, sv);
+  return UiCtlNew(UI_GRID, UiStack(1, 10.0));
 }
 
 U0 UiGridAdd(UiCtl *g, UiCtl *c, I64 col, I64 row)
@@ -350,10 +377,7 @@ U0 UiGridAdd(UiCtl *g, UiCtl *c, I64 col, I64 row)
   while (r && r->row != row)
     r = r->sib;
   if (!r) {
-    I64 sv = ui_msg(ui_msg(UiCls("NSStackView"), UiSel("alloc"), 0, 0, 0),
-      UiSel("init"), 0, 0, 0);
-    ui_msg(sv, UiSel("setOrientation:"), 0, 0, 0);
-    ui_msgf(sv, UiSel("setSpacing:"), 10.0, 0.0, 0.0, 0.0, 0, 0, 0);
+    I64 sv = UiStack(0, 10.0);
     ui_msg(g->native, UiSel("addArrangedSubview:"), sv, 0, 0);
     r = UiCtlNew(UI_BOX, sv);
     r->row = row;
@@ -434,12 +458,11 @@ I64 UiSliderValue(UiCtl *s)
 
 UiCtl *UiProgressNew()
 {
-  I64 p = ui_msg(ui_msg(UiCls("NSProgressIndicator"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
+  I64 p = UiNew("NSProgressIndicator");
   ui_msg(p, UiSel("setStyle:"), 0, 0, 0);
   ui_msg(p, UiSel("setIndeterminate:"), 0, 0, 0);
-  ui_msgf(p, UiSel("setMinValue:"), 0.0, 0.0, 0.0, 0.0, 0, 0, 0);
-  ui_msgf(p, UiSel("setMaxValue:"), 100.0, 0.0, 0.0, 0.0, 0, 0, 0);
+  UiSetF(p, "setMinValue:", 0.0);
+  UiSetF(p, "setMaxValue:", 100.0);
   UiPin(p, "widthAnchor", 240);
   return UiCtlNew(UI_PROGRESS, p);
 }
@@ -447,13 +470,12 @@ UiCtl *UiProgressNew()
 U0 UiProgressSet(UiCtl *p, I64 percent)
 {
   F64 f = percent;
-  ui_msgf(p->native, UiSel("setDoubleValue:"), f, 0.0, 0.0, 0.0, 0, 0, 0);
+  UiSetF(p->native, "setDoubleValue:", f);
 }
 
 UiCtl *UiSeparatorNew()
 {
-  I64 b = ui_msg(ui_msg(UiCls("NSBox"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
+  I64 b = UiNew("NSBox");
   ui_msg(b, UiSel("setBoxType:"), 2, 0, 0);
   UiPin(b, "widthAnchor", 400);
   return UiCtlNew(UI_SEP, b);
@@ -502,28 +524,30 @@ U0 UiLine(F64 x1, F64 y1, F64 x2, F64 y2)
   CGContextStrokePath(ui_cg);
 }
 
+// Append a titled item carrying a new submenu; returns the submenu.
+I64 UiCocoaSubmenu(I64 menu, U8 *title)
+{
+  I64 item = UiNew("NSMenuItem");
+  I64 sub = UiNewWith("NSMenu", "initWithTitle:", UiStr(title));
+  ui_msg(item, UiSel("setTitle:"), UiStr(title), 0, 0);
+  ui_msg(menu, UiSel("addItem:"), item, 0, 0);
+  ui_msg(item, UiSel("setSubmenu:"), sub, 0, 0);
+  return sub;
+}
+
 UiCtl *UiMenuNew(U8 *title)
 {
   if (!ui_mainmenu) {
-    ui_mainmenu = ui_msg(ui_msg(UiCls("NSMenu"), UiSel("alloc"), 0, 0, 0),
-      UiSel("init"), 0, 0, 0);
+    ui_mainmenu = UiNew("NSMenu");
     ui_msg(ui_app, UiSel("setMainMenu:"), ui_mainmenu, 0, 0);
     // slot 0 is the application menu; park an empty one there so user
     // menus land after the app name, like every mac app
-    I64 appitem = ui_msg(ui_msg(UiCls("NSMenuItem"), UiSel("alloc"), 0, 0, 0),
-      UiSel("init"), 0, 0, 0);
+    I64 appitem = UiNew("NSMenuItem");
     ui_msg(ui_mainmenu, UiSel("addItem:"), appitem, 0, 0);
     ui_msg(appitem, UiSel("setSubmenu:"),
-      ui_msg(ui_msg(UiCls("NSMenu"), UiSel("alloc"), 0, 0, 0),
-        UiSel("init"), 0, 0, 0), 0, 0);
+      UiNew("NSMenu"), 0, 0);
   }
-  I64 item = ui_msg(ui_msg(UiCls("NSMenuItem"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
-  I64 sub = ui_msg(ui_msg(UiCls("NSMenu"), UiSel("alloc"), 0, 0, 0),
-    UiSel("initWithTitle:"), UiStr(title), 0, 0);
-  ui_msg(ui_mainmenu, UiSel("addItem:"), item, 0, 0);
-  ui_msg(item, UiSel("setSubmenu:"), sub, 0, 0);
-  return UiCtlNew(UI_MENU, sub);
+  return UiCtlNew(UI_MENU, UiCocoaSubmenu(ui_mainmenu, title));
 }
 
 UiCtl *UiMenuItem(UiCtl *m, U8 *label, UiCallback *fn, U0 *data=NULL)
@@ -540,20 +564,12 @@ UiCtl *UiMenuItem(UiCtl *m, U8 *label, UiCallback *fn, U0 *data=NULL)
 
 UiCtl *UiSubMenu(UiCtl *m, U8 *title)
 {
-  I64 item = ui_msg(ui_msg(UiCls("NSMenuItem"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
-  I64 sub = ui_msg(ui_msg(UiCls("NSMenu"), UiSel("alloc"), 0, 0, 0),
-    UiSel("initWithTitle:"), UiStr(title), 0, 0);
-  ui_msg(item, UiSel("setTitle:"), UiStr(title), 0, 0);
-  ui_msg(m->native, UiSel("addItem:"), item, 0, 0);
-  ui_msg(item, UiSel("setSubmenu:"), sub, 0, 0);
-  return UiCtlNew(UI_MENU, sub);
+  return UiCtlNew(UI_MENU, UiCocoaSubmenu(m->native, title));
 }
 
 UiCtl *UiPopupMenuNew()
 {
-  return UiCtlNew(UI_MENU, ui_msg(ui_msg(UiCls("NSMenu"), UiSel("alloc"),
-    0, 0, 0), UiSel("init"), 0, 0, 0));
+  return UiCtlNew(UI_MENU, UiNew("NSMenu"));
 }
 
 // NSView.menu: AppKit pops it on right click by itself.
@@ -568,8 +584,7 @@ U0 UiContextMenu(UiCtl *c, UiCtl *menu)
 
 I64 UiCocoaAlert(U8 *title, U8 *body, I64 style)
 {
-  I64 a = ui_msg(ui_msg(UiCls("NSAlert"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
+  I64 a = UiNew("NSAlert");
   ui_msg(a, UiSel("setMessageText:"), UiStr(title), 0, 0);
   ui_msg(a, UiSel("setInformativeText:"), UiStr(body), 0, 0);
   ui_msg(a, UiSel("setAlertStyle:"), style, 0, 0);
@@ -623,8 +638,7 @@ I64 UiPickColor(U8 *title, I64 rgb=0x808080)
   F64 b = (rgb & 0xFF) / 255.0, alpha = 1.0;
   ui_msg(a, UiSel("addButtonWithTitle:"), UiStr("OK"), 0, 0);
   ui_msg(a, UiSel("addButtonWithTitle:"), UiStr("Cancel"), 0, 0);
-  I64 well = ui_msg(ui_msg(UiCls("NSColorWell"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
+  I64 well = UiNew("NSColorWell");
   UiFrame(well, 0.0, 0.0, 220.0, 40.0);
   I64 color = ui_msgf(UiCls("NSColor"),
     UiSel("colorWithSRGBRed:green:blue:alpha:"), r, g, b, alpha, 0, 0, 0);
@@ -644,8 +658,7 @@ I64 UiPickColor(U8 *title, I64 rgb=0x808080)
 
 UiCtl *UiComboNew()
 {
-  I64 p = ui_msg(ui_msg(UiCls("NSPopUpButton"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
+  I64 p = UiNew("NSPopUpButton");
   ui_msg(p, UiSel("setTarget:"), ui_target, 0, 0);
   ui_msg(p, UiSel("setAction:"), UiSel("clicked:"), 0, 0);
   UiPin(p, "widthAnchor", 200);
@@ -674,11 +687,8 @@ U0 UiComboClear(UiCtl *c)
 
 UiCtl *UiRadioNew()
 {
-  I64 sv = ui_msg(ui_msg(UiCls("NSStackView"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
-  ui_msg(sv, UiSel("setOrientation:"), 1, 0, 0);
+  I64 sv = UiStack(1, 4.0);
   ui_msg(sv, UiSel("setAlignment:"), 1, 0, 0);  // NSLayoutAttributeLeft
-  ui_msgf(sv, UiSel("setSpacing:"), 4.0, 0.0, 0.0, 0.0, 0, 0, 0);
   return UiCtlNew(UI_RADIO, sv);
 }
 
@@ -708,15 +718,13 @@ UiCtl *UiSpinNew(I64 min=0, I64 max=100)
 {
   I64 tf = ui_msg(UiCls("NSTextField"), UiSel("textFieldWithString:"),
     UiStr("0"), 0, 0);
-  I64 st = ui_msg(ui_msg(UiCls("NSStepper"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
+  I64 st = UiNew("NSStepper");
   F64 fmin = min, fmax = max;
-  ui_msgf(st, UiSel("setMinValue:"), fmin, 0.0, 0.0, 0.0, 0, 0, 0);
-  ui_msgf(st, UiSel("setMaxValue:"), fmax, 0.0, 0.0, 0.0, 0, 0, 0);
+  UiSetF(st, "setMinValue:", fmin);
+  UiSetF(st, "setMaxValue:", fmax);
   ui_msg(st, UiSel("setTarget:"), ui_target, 0, 0);
   ui_msg(st, UiSel("setAction:"), UiSel("clicked:"), 0, 0);
-  I64 sv = ui_msg(ui_msg(UiCls("NSStackView"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
+  I64 sv = UiStack(0, 8.0);
   ui_msg(sv, UiSel("addArrangedSubview:"), tf, 0, 0);
   ui_msg(sv, UiSel("addArrangedSubview:"), st, 0, 0);
   UiPin(tf, "widthAnchor", 60);
@@ -741,14 +749,17 @@ U0 UiSpinSetValue(UiCtl *s, I64 value)
   UiSpinValue(s);  // refresh the mirrored field
 }
 
-UiCtl *UiMultilineNew(U8 *text="")
+U0 UiCocoaSetTextView(I64 tv, U8 *text)
 {
-  I64 tv = ui_msg(ui_msg(UiCls("NSTextView"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
   ui_msg(ui_msg(tv, UiSel("textStorage"), 0, 0, 0),
     UiSel("setAttributedString:"),
-    ui_msg(ui_msg(UiCls("NSAttributedString"), UiSel("alloc"), 0, 0, 0),
-      UiSel("initWithString:"), UiStr(text), 0, 0), 0, 0);
+    UiNewWith("NSAttributedString", "initWithString:", UiStr(text)), 0, 0);
+}
+
+UiCtl *UiMultilineNew(U8 *text="")
+{
+  I64 tv = UiNew("NSTextView");
+  UiCocoaSetTextView(tv, text);
   UiPin(tv, "heightAnchor", 80);
   UiPin(tv, "widthAnchor", 240);
   return UiCtlNew(UI_MULTILINE, tv);
@@ -756,10 +767,7 @@ UiCtl *UiMultilineNew(U8 *text="")
 
 U0 UiMultilineSetText(UiCtl *m, U8 *text)
 {
-  ui_msg(ui_msg(m->native, UiSel("textStorage"), 0, 0, 0),
-    UiSel("setAttributedString:"),
-    ui_msg(ui_msg(UiCls("NSAttributedString"), UiSel("alloc"), 0, 0, 0),
-      UiSel("initWithString:"), UiStr(text), 0, 0), 0, 0);
+  UiCocoaSetTextView(m->native, text);
   ui_msg(m->native, UiSel("scrollToEndOfDocument:"), 0, 0, 0);
 }
 
@@ -777,8 +785,7 @@ U0 UiMultilineSetEditable(UiCtl *m, Bool on)
 
 UiCtl *UiPasswordNew(U8 *text="")
 {
-  I64 e = ui_msg(ui_msg(UiCls("NSSecureTextField"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
+  I64 e = UiNew("NSSecureTextField");
   ui_msg(e, UiSel("setStringValue:"), UiStr(text), 0, 0);
   ui_msg(e, UiSel("setDelegate:"), ui_target, 0, 0);
   UiPin(e, "widthAnchor", 200);
@@ -787,8 +794,7 @@ UiCtl *UiPasswordNew(U8 *text="")
 
 UiCtl *UiGroupNew(U8 *title)
 {
-  I64 b = ui_msg(ui_msg(UiCls("NSBox"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
+  I64 b = UiNew("NSBox");
   ui_msg(b, UiSel("setTitle:"), UiStr(title), 0, 0);
   return UiCtlNew(UI_GROUP, b);
 }
@@ -800,15 +806,13 @@ U0 UiGroupSetChild(UiCtl *g, UiCtl *child)
 
 UiCtl *UiTabNew()
 {
-  I64 tv = ui_msg(ui_msg(UiCls("NSTabView"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
+  I64 tv = UiNew("NSTabView");
   return UiCtlNew(UI_TAB, tv);
 }
 
 U0 UiTabAdd(UiCtl *t, U8 *label, UiCtl *child)
 {
-  I64 it = ui_msg(ui_msg(UiCls("NSTabViewItem"), UiSel("alloc"), 0, 0, 0),
-    UiSel("initWithIdentifier:"), 0, 0, 0);
+  I64 it = UiNewWith("NSTabViewItem", "initWithIdentifier:", 0);
   ui_msg(it, UiSel("setLabel:"), UiStr(label), 0, 0);
   ui_msg(it, UiSel("setView:"), child->native, 0, 0);
   ui_msg(t->native, UiSel("addTabViewItem:"), it, 0, 0);
@@ -838,9 +842,8 @@ U0 UiExpand(UiCtl *c, Bool on)
 
 U0 UiCocoaSchedule(F64 secs, UiCallback *fn, U0 *data, I64 repeats)
 {
-  UiCtl *t = UiCtlNew(UI_TIMER, 0);
-  UiOnClick(t, fn, data);
-  I64 box = ui_msg(UiCls("NSValue"), UiSel("valueWithPointer:"), t, 0, 0);
+  I64 box = ui_msg(UiCls("NSValue"), UiSel("valueWithPointer:"),
+    UiTimerCtl(fn, data), 0, 0);
   ui_msgt(UiCls("NSTimer"),
     UiSel("scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:"),
     secs, ui_timer_tgt, UiSel("tick:"), box, repeats);
@@ -859,27 +862,21 @@ U0 UiQueueMain(UiCallback *fn, U0 *data=NULL)
 
 UiCtl *UiToolbarNew()
 {
-  I64 sv = ui_msg(ui_msg(UiCls("NSStackView"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
-  ui_msg(sv, UiSel("setOrientation:"), 0, 0, 0);
-  ui_msgf(sv, UiSel("setSpacing:"), 8.0, 0.0, 0.0, 0.0, 0, 0, 0);
-  return UiCtlNew(UI_TOOLBAR, sv);
+  return UiCtlNew(UI_TOOLBAR, UiStack(0, 8.0));
 }
 
 U0 UiToolAdd(UiCtl *tb, U8 *label, UiCallback *fn, U0 *data=NULL)
 {
-  I64 b = ui_msg(UiCls("NSButton"), UiSel("buttonWithTitle:target:action:"),
-    UiStr(label), ui_target, UiSel("clicked:"));
-  UiCtl *c = UiCtlNew(UI_BUTTON, b);
+  UiCtl *c = UiButtonNew(label);
   UiOnClick(c, fn, data);
-  ui_msg(tb->native, UiSel("addArrangedSubview:"), b, 0, 0);
+  ui_msg(tb->native, UiSel("addArrangedSubview:"), c->native, 0, 0);
 }
 
 UiCtl *UiStatusbarNew(U8 *text="")
 {
-  I64 l = ui_msg(UiCls("NSTextField"), UiSel("labelWithString:"),
-    UiStr(text), 0, 0);
-  return UiCtlNew(UI_STATUS, l);
+  UiCtl *c = UiLabelNew(text);
+  c->kind = UI_STATUS;
+  return c;
 }
 
 U0 UiStatusSet(UiCtl *sb, U8 *text)
@@ -889,8 +886,7 @@ U0 UiStatusSet(UiCtl *sb, U8 *text)
 
 UiCtl *UiSplitNew(Bool vertical=FALSE)
 {
-  I64 sv = ui_msg(ui_msg(UiCls("NSSplitView"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
+  I64 sv = UiNew("NSSplitView");
   ui_msg(sv, UiSel("setVertical:"), !vertical, 0, 0);  // NSSplitView vertical = side-by-side
   ui_msg(sv, UiSel("setDividerStyle:"), 2, 0, 0);
   UiPin(sv, "heightAnchor", 300);
@@ -904,24 +900,16 @@ U0 UiSplitAdd(UiCtl *sp, UiCtl *child)
 
 UiCtl *UiScrollNew(UiCtl *child)
 {
-  I64 s = ui_msg(ui_msg(UiCls("NSScrollView"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
-  ui_msg(s, UiSel("setHasVerticalScroller:"), 1, 0, 0);
-  ui_msg(s, UiSel("setDocumentView:"), child->native, 0, 0);
-  return UiCtlNew(UI_SCROLL, s);
+  return UiCtlNew(UI_SCROLL, UiScrollView(child->native));
 }
 
 UiCtl *UiTableNew(UiCellCallback *cellfn, U0 *data=NULL)
 {
-  I64 tv = ui_msg(ui_msg(UiCls("NSTableView"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
+  I64 tv = UiNew("NSTableView");
   ui_msg(tv, UiSel("setDataSource:"), ui_tbl_src, 0, 0);
   ui_msg(tv, UiSel("setDelegate:"), ui_tbl_src, 0, 0);
   ui_msg(tv, UiSel("setUsesAlternatingRowBackgroundColors:"), 1, 0, 0);
-  I64 scroll = ui_msg(ui_msg(UiCls("NSScrollView"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
-  ui_msg(scroll, UiSel("setHasVerticalScroller:"), 1, 0, 0);
-  ui_msg(scroll, UiSel("setDocumentView:"), tv, 0, 0);
+  I64 scroll = UiScrollView(tv);
   UiPin(scroll, "heightAnchor", 200);
   UiPin(scroll, "widthAnchor", 360);
   UiCtl *c = UiCtlNew(UI_TABLE, scroll);
@@ -934,11 +922,10 @@ UiCtl *UiTableNew(UiCellCallback *cellfn, U0 *data=NULL)
 U0 UiTableColumn(UiCtl *t, U8 *title)
 {
   U8 *ident = MStrPrint("%d", t->w);
-  I64 col = ui_msg(ui_msg(UiCls("NSTableColumn"), UiSel("alloc"), 0, 0, 0),
-    UiSel("initWithIdentifier:"), UiStr(ident), 0, 0);
+  I64 col = UiNewWith("NSTableColumn", "initWithIdentifier:", UiStr(ident));
   ui_msg(ui_msg(col, UiSel("headerCell"), 0, 0, 0),
     UiSel("setStringValue:"), UiStr(title), 0, 0);
-  ui_msgf(col, UiSel("setWidth:"), 120.0, 0.0, 0.0, 0.0, 0, 0, 0);
+  UiSetF(col, "setWidth:", 120.0);
   ui_msg(t->col, UiSel("addTableColumn:"), col, 0, 0);
   t->w++;
   Free(ident);
@@ -957,20 +944,15 @@ I64 UiTableSelected(UiCtl *t)
 
 UiCtl *UiTreeNew()
 {
-  I64 ov = ui_msg(ui_msg(UiCls("NSOutlineView"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
-  I64 col = ui_msg(ui_msg(UiCls("NSTableColumn"), UiSel("alloc"), 0, 0, 0),
-    UiSel("initWithIdentifier:"), UiStr("t"), 0, 0);
-  ui_msgf(col, UiSel("setWidth:"), 320.0, 0.0, 0.0, 0.0, 0, 0, 0);
+  I64 ov = UiNew("NSOutlineView");
+  I64 col = UiNewWith("NSTableColumn", "initWithIdentifier:", UiStr("t"));
+  UiSetF(col, "setWidth:", 320.0);
   ui_msg(ov, UiSel("addTableColumn:"), col, 0, 0);
   ui_msg(ov, UiSel("setOutlineTableColumn:"), col, 0, 0);
   ui_msg(ov, UiSel("setDataSource:"), ui_tree_src, 0, 0);
   ui_msg(ov, UiSel("setDelegate:"), ui_tree_src, 0, 0);
   ui_msg(ov, UiSel("setHeaderView:"), 0, 0, 0);
-  I64 scroll = ui_msg(ui_msg(UiCls("NSScrollView"), UiSel("alloc"), 0, 0, 0),
-    UiSel("init"), 0, 0, 0);
-  ui_msg(scroll, UiSel("setHasVerticalScroller:"), 1, 0, 0);
-  ui_msg(scroll, UiSel("setDocumentView:"), ov, 0, 0);
+  I64 scroll = UiScrollView(ov);
   UiPin(scroll, "heightAnchor", 220);
   UiPin(scroll, "widthAnchor", 340);
   UiCtl *c = UiCtlNew(UI_TREE, scroll);
