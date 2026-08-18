@@ -10,7 +10,9 @@
 // `logrotate copytruncate` is followed cleanly.
 
 extern I64 write(I64 fd, U8 *buffer, I64 count);
-extern I64 open(U8 *path, I64 flags, I64 mode);
+// open is variadic in libc: on arm64 Darwin variadic arguments travel on
+// the stack, so a fixed prototype loses the creation mode.
+extern I64 open(U8 *path, I64 flags, ...);
 extern I64 close(I64 fd);
 extern I64 lseek(I64 fd, I64 offset, I64 whence);
 extern I64 rename(U8 *from, U8 *to);

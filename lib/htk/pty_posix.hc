@@ -5,7 +5,9 @@ extern I64 posix_openpt(I64 flags);
 extern I64 grantpt(I64 fd);
 extern I64 unlockpt(I64 fd);
 extern U8 *ptsname(I64 fd);
-extern I64 open(U8 *path, I64 flags, I64 mode);
+// open and fcntl are variadic in libc: on arm64 Darwin variadic arguments
+// travel on the stack, so a fixed prototype loses the third one.
+extern I64 open(U8 *path, I64 flags, ...);
 extern I64 close(I64 fd);
 extern I64 fork();
 extern I64 setsid();
@@ -13,7 +15,7 @@ extern I64 dup2(I64 from, I64 to);
 extern I64 execv(U8 *path, U8 **argv);
 extern I64 waitpid(I64 pid, I64 *status, I64 options);
 extern I64 kill(I64 pid, I64 signal);
-extern I64 fcntl(I64 fd, I64 command, I64 argument);
+extern I64 fcntl(I64 fd, I64 command, ...);
 extern I64 setenv(U8 *name, U8 *value, I64 overwrite);
 extern U0 _exit(I64 code);
 

@@ -10,7 +10,9 @@
 // -1 into a large positive value.  read and write return ssize_t.
 extern I64 read(I64 fd, U8 *buffer, I64 count);
 extern I64 write(I64 fd, U8 *buffer, I64 count);
-extern I64 ioctl(I64 fd, U64 request, U8 *argument);
+// ioctl is variadic in libc: on arm64 Darwin variadic arguments travel on
+// the stack, so a fixed prototype loses the argument pointer.
+extern I64 ioctl(I64 fd, U64 request, ...);
 extern I64 tcgetattr(I64 fd, U8 *state);
 extern I64 tcsetattr(I64 fd, I64 actions, U8 *state);
 U0 TermPosixHandler(I64 number); // signal handler shape

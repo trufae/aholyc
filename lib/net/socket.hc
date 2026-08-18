@@ -345,7 +345,9 @@ extern I64 setsockopt(I64 socket, I64 level, I64 option,
   U8 *value, I64 value_size);
 extern I64 getsockopt(I64 socket, I64 level, I64 option,
   U8 *value, U64 *value_size);
-extern I64 fcntl(I64 descriptor, I64 command, I64 value);
+// fcntl, like open and ioctl, is variadic in libc: on arm64 Darwin variadic
+// arguments travel on the stack, so a fixed prototype loses the third one.
+extern I64 fcntl(I64 descriptor, I64 command, ...);
 extern I64 poll(U8 *fds, U64 count, I64 timeout);
 extern I64 getaddrinfo(U8 *host, U8 *service, CSocketAddrInfo *hints,
   CSocketAddrInfo **result);
