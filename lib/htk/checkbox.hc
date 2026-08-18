@@ -19,11 +19,8 @@ U0 HtkCheckboxMeasure(HtkCtl *c)
 
 U0 HtkCheckboxDraw(HtkCtl *c)
 {
-  I64 bg = HTK_C_BG;
+  I64 bg = HtkBg(c, HTK_C_BG);
   U8 *mark = "[ ]";
-
-  if (HtkFocused(c))
-    bg = HTK_C_FOCUS_BG;
   if (c->value)
     mark = "[x]";
   HtkRect(c->x, c->y, c->w, 1, ' ', HTK_C_FG, bg);
@@ -50,28 +47,12 @@ HtkCtl *HtkRadioNew()
   return c;
 }
 
-U0 HtkRadioAdd(HtkCtl *c, U8 *text)
-{
-  HtkCtl *item = HtkNew(HTK_ITEM);
-
-  HtkSetText(item, text);
-  HtkAdd(c, item);
-  if (c->value < 0)
-    c->value = 0;
-}
+#define HtkRadioAdd HtkAddItem
 
 U0 HtkRadioMeasure(HtkCtl *c)
 {
-  HtkCtl *k = c->kids;
-
-  c->pw = 0;
-  c->ph = 0;
-  while (k) {
-    if (HtkRunes(k->text) + 4 > c->pw)
-      c->pw = HtkRunes(k->text) + 4;
-    c->ph++;
-    k = k->sib;
-  }
+  c->pw = HtkItemsWidth(c);
+  c->ph = HtkKidCount(c);
 }
 
 U0 HtkRadioDraw(HtkCtl *c)
@@ -81,8 +62,8 @@ U0 HtkRadioDraw(HtkCtl *c)
 
   while (k && i < c->h) {
     bg = HTK_C_BG;
-    if (HtkFocused(c) && i == c->value)
-      bg = HTK_C_FOCUS_BG;
+    if (i == c->value)
+      bg = HtkBg(c, bg);
     HtkRect(c->x, c->y + i, c->w, 1, ' ', HTK_C_FG, bg);
     HtkStr(c->x, c->y + i, "( )", HtkInk(c, HTK_C_FG), bg);
     if (i == c->value)

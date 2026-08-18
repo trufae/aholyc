@@ -580,77 +580,42 @@ U0 HtkTermDraw(HtkCtl *c)
   }
 }
 
+// Escape sequences for TERM_KEY_UP..TERM_KEY_F12, indexed by key - TERM_KEY_UP.
+U8 *htk_term_keys[28] = {
+  "\x1B[A", "\x1B[B", "\x1B[C", "\x1B[D", "\x1B[H", "\x1B[F",  // arrows, home, end
+  "\x1B[5~", "\x1B[6~", "\x1B[2~", "\x1B[3~",  // pgup, pgdn, insert, delete
+  NULL, NULL, NULL, NULL, NULL, NULL,  // 0x11000B..0x110010 unassigned
+  "\x1BOP", "\x1BOQ", "\x1BOR", "\x1BOS", "\x1B[15~", "\x1B[17~",  // F1..F6
+  "\x1B[18~", "\x1B[19~", "\x1B[20~", "\x1B[21~", "\x1B[23~", "\x1B[24~"};
+
 // Translate a lib/term key event into what a terminal would receive.
 Bool HtkTermKey(HtkCtl *c, CTermEvent *e)
 {
   CHtkTerm *t = HtkTermOf(c);
-  U8 out[16];
+  U8 out[16], *seq = NULL;
   I64 n = 0, key = e->key;
 
   if (t->exited)
     return FALSE;
-  if (key >= TERM_KEY_F1 && key <= TERM_KEY_F12) {
-    U8 *fkeys[12] = {"\x1BOP", "\x1BOQ", "\x1BOR", "\x1BOS", "\x1B[15~",
-        "\x1B[17~", "\x1B[18~", "\x1B[19~", "\x1B[20~", "\x1B[21~", "\x1B[23~",
-      "\x1B[24~"};
-    HtkTermSend(t, fkeys[key - TERM_KEY_F1], StrLen(fkeys[key - TERM_KEY_F1]));
+  if (key >= TERM_KEY_UP && key <= TERM_KEY_F12)
+    seq = htk_term_keys[key - TERM_KEY_UP];
+  if (seq) {
+    HtkTermSend(t, seq, StrLen(seq));
     return TRUE;
   }
-  switch (key) {
-    case TERM_KEY_UP:
-      HtkTermSend(t, "\x1B[A", 3);
-      break;
-    case TERM_KEY_DOWN:
-      HtkTermSend(t, "\x1B[B", 3);
-      break;
-    case TERM_KEY_RIGHT:
-      HtkTermSend(t, "\x1B[C", 3);
-      break;
-    case TERM_KEY_LEFT:
-      HtkTermSend(t, "\x1B[D", 3);
-      break;
-    case TERM_KEY_HOME:
-      HtkTermSend(t, "\x1B[H", 3);
-      break;
-    case TERM_KEY_END:
-      HtkTermSend(t, "\x1B[F", 3);
-      break;
-    case TERM_KEY_PGUP:
-      HtkTermSend(t, "\x1B[5~", 4);
-      break;
-    case TERM_KEY_PGDN:
-      HtkTermSend(t, "\x1B[6~", 4);
-      break;
-    case TERM_KEY_INSERT:
-      HtkTermSend(t, "\x1B[2~", 4);
-      break;
-    case TERM_KEY_DELETE:
-      HtkTermSend(t, "\x1B[3~", 4);
-      break;
-    case TERM_KEY_ENTER:
-      HtkTermSend(t, "\r", 1);
-      break;
-    case TERM_KEY_BACKSPACE:
-      HtkTermSend(t, "\x7F", 1);
-      break;
-    case TERM_KEY_TAB:
-      HtkTermSend(t, "\t", 1);
-      break;
-    case TERM_KEY_ESCAPE:
-      HtkTermSend(t, "\x1B", 1);
-      break;
-    default:
-      if (key < 0x20 || key >= 0x110000)
-        return FALSE;
-      if (e->mods & TERM_MOD_CTRL && key < 0x80)
-        out[n++] = key & 0x1F;
-      else {
-        if (e->mods & TERM_MOD_ALT)
-          out[n++] = 0x1B;
-        n += Utf8EncodeRune(key, out + n);
-      }
-      HtkTermSend(t, out, n);
+  // Tab, Enter (\r) and Escape go through as themselves.
+  if (key == TERM_KEY_TAB || key == TERM_KEY_ENTER || key == TERM_KEY_ESCAPE)
+    out[n++] = key;
+  else if (key < 0x20 || key >= 0x110000)
+    return FALSE;
+  else if (e->mods & TERM_MOD_CTRL && key < 0x80)
+    out[n++] = key & 0x1F;
+  else {
+    if (e->mods & TERM_MOD_ALT)
+      out[n++] = 0x1B;
+    n += Utf8EncodeRune(key, out + n);
   }
+  HtkTermSend(t, out, n);
   return TRUE;
 }
 

@@ -15,28 +15,20 @@ HtkCtl *HtkCanvasNew(I64 w, I64 h, I64 drawfn, I64 data)
   return c;
 }
 
-U0 HtkCanvasMeasure(HtkCtl *c)
-{
-  // pw/ph fixed at creation.
-}
-
 U0 HtkCanvasDraw(HtkCtl *c)
 {
   I64 paint = c->fn;
-  I64 ox = htk_clip_x, oy = htk_clip_y, ox2 = htk_clip_x2, oy2 = htk_clip_y2;
 
   HtkRect(c->x, c->y, c->w, c->h, ' ', TERM_WHITE, TERM_BLACK);
   if (!paint)
     return;
+  HtkClipPush;
   HtkClipSet(c->x, c->y, c->w, c->h);
   htk_canvas = c;
   htk_canvas_fg = TERM_WHITE;
   paint(c);
   htk_canvas = NULL;
-  htk_clip_x = ox;
-  htk_clip_y = oy;
-  htk_clip_x2 = ox2;
-  htk_clip_y2 = oy2;
+  HtkClipPop;
 }
 
 // Map 0.0..1.0 RGB onto the 16-color palette: threshold each channel and

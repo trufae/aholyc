@@ -59,10 +59,8 @@ U0 HtkTableDraw(HtkCtl *c)
     k = k->sib;
   }
   // Keep the selection visible.
-  if (c->value >= 0 && c->value < c->top)
-    c->top = c->value;
-  if (c->value >= c->top + c->h - 1)
-    c->top = c->value - c->h + 2;
+  if (c->value >= 0)
+    HtkScrollIntoView(c, c->value, c->h - 1);
   for (row = c->top; row < c->high && row - c->top < c->h - 1; row++) {
     fg = HTK_C_FG;
     bg = HTK_C_BG;

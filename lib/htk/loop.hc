@@ -1,233 +1,86 @@
 // Dispatch and the event loop: kind switches for measure/layout/draw/keys,
 // focus traversal, mouse routing, timers, and the modal helper.
 
+// Per-kind behavior, one row per HTK_* kind: measure into pw/ph, lay out
+// the kids, draw, handle a key.  A zero entry leaves pw/ph alone (a canvas
+// keeps its creation size), draws nothing, or declines the key.
+#define HTK_KINDS 30
+I64 htk_measure[HTK_KINDS], htk_layout[HTK_KINDS];
+I64 htk_draw[HTK_KINDS], htk_key[HTK_KINDS];
+
+U0 HtkOps(I64 kind, I64 measure, I64 layout, I64 draw, I64 key)
+{
+  htk_measure[kind] = measure;
+  htk_layout[kind] = layout;
+  htk_draw[kind] = draw;
+  htk_key[kind] = key;
+}
+
+U0 HtkOpsInit()
+{
+  HtkOps(HTK_BOX, &HtkBoxMeasure, &HtkBoxLayout, &HtkKidsDraw, 0);
+  HtkOps(HTK_TOOLBAR, &HtkBoxMeasure, &HtkBoxLayout, &HtkToolbarDraw, 0);
+  HtkOps(HTK_GRID, &HtkGridMeasure, &HtkGridLayout, &HtkKidsDraw, 0);
+  HtkOps(HTK_SPLIT, &HtkSplitMeasure, &HtkSplitLayout, &HtkSplitDraw, 0);
+  HtkOps(HTK_SCROLL, &HtkScrollMeasure, &HtkScrollLayout, &HtkScrollDraw,
+    &HtkScrollKey);
+  HtkOps(HTK_GROUP, &HtkGroupMeasure, &HtkGroupLayout, &HtkGroupDraw, 0);
+  HtkOps(HTK_TAB, &HtkTabMeasure, &HtkTabLayout, &HtkTabDraw, &HtkTabKey);
+  HtkOps(HTK_LABEL, &HtkLabelMeasure, 0, &HtkLabelDraw, 0);
+  HtkOps(HTK_STATUS, &HtkStatusMeasure, 0, &HtkLabelDraw, 0);
+  HtkOps(HTK_SEP, &HtkSepMeasure, 0, &HtkSepDraw, 0);
+  HtkOps(HTK_BUTTON, &HtkButtonMeasure, 0, &HtkButtonDraw, &HtkButtonKey);
+  HtkOps(HTK_MENUITEM, &HtkButtonMeasure, 0, 0, 0);
+  HtkOps(HTK_ENTRY, &HtkEntryMeasure, 0, &HtkEntryDraw, &HtkEntryKey);
+  HtkOps(HTK_MULTILINE, &HtkMultilineMeasure, 0, &HtkMultilineDraw,
+    &HtkMultilineKey);
+  HtkOps(HTK_CHECKBOX, &HtkCheckboxMeasure, 0, &HtkCheckboxDraw,
+    &HtkCheckboxKey);
+  HtkOps(HTK_RADIO, &HtkRadioMeasure, 0, &HtkRadioDraw, &HtkRadioKey);
+  HtkOps(HTK_SLIDER, &HtkSliderMeasure, 0, &HtkSliderDraw, &HtkSliderKey);
+  HtkOps(HTK_PROGRESS, &HtkSliderMeasure, 0, &HtkProgressDraw, 0);
+  HtkOps(HTK_SPIN, &HtkSpinMeasure, 0, &HtkSpinDraw, &HtkSpinKey);
+  HtkOps(HTK_COMBO, &HtkComboMeasure, 0, &HtkComboDraw, &HtkComboKey);
+  HtkOps(HTK_TABLE, &HtkTableMeasure, 0, &HtkTableDraw, &HtkTableKey);
+  HtkOps(HTK_TREE, &HtkTreeMeasure, 0, &HtkTreeDraw, &HtkTreeKey);
+  HtkOps(HTK_CANVAS, 0, 0, &HtkCanvasDraw, 0);
+  HtkOps(HTK_TERM, &HtkTermMeasure, 0, &HtkTermDraw, &HtkTermKey);
+}
+
 U0 HtkMeasureCtl(HtkCtl *c)
 {
+  U0 (*measure)(HtkCtl *c) = htk_measure[c->kind];
+
   if (c->hidden) {
     c->pw = 0;
     c->ph = 0;
-    return;
-  }
-  switch (c->kind) {
-  case HTK_BOX:
-  case HTK_TOOLBAR:
-    HtkBoxMeasure(c);
-    break;
-  case HTK_GRID:
-    HtkGridMeasure(c);
-    break;
-  case HTK_SPLIT:
-    HtkSplitMeasure(c);
-    break;
-  case HTK_SCROLL:
-    HtkScrollMeasure(c);
-    break;
-  case HTK_GROUP:
-    HtkGroupMeasure(c);
-    break;
-  case HTK_TAB:
-    HtkTabMeasure(c);
-    break;
-  case HTK_LABEL:
-    HtkLabelMeasure(c);
-    break;
-  case HTK_STATUS:
-    HtkLabelMeasure(c);
-    c->pw += 2;
-    break;
-  case HTK_BUTTON:
-  case HTK_MENUITEM:
-    HtkButtonMeasure(c);
-    break;
-  case HTK_ENTRY:
-    HtkEntryMeasure(c);
-    break;
-  case HTK_MULTILINE:
-    HtkMultilineMeasure(c);
-    break;
-  case HTK_CHECKBOX:
-    HtkCheckboxMeasure(c);
-    break;
-  case HTK_RADIO:
-    HtkRadioMeasure(c);
-    break;
-  case HTK_SLIDER:
-  case HTK_PROGRESS:
-    HtkSliderMeasure(c);
-    break;
-  case HTK_SPIN:
-    HtkSpinMeasure(c);
-    break;
-  case HTK_COMBO:
-    HtkComboMeasure(c);
-    break;
-  case HTK_TABLE:
-    HtkTableMeasure(c);
-    break;
-  case HTK_TREE:
-    HtkTreeMeasure(c);
-    break;
-  case HTK_CANVAS:
-    HtkCanvasMeasure(c);
-    break;
-  case HTK_SEP:
-    c->pw = 1;
-    c->ph = 1;
-    break;
-  case HTK_TERM:
-    HtkTermMeasure(c);
-    break;
-  default:
-    c->pw = 0;
-    c->ph = 0;
-  }
+  } else if (measure)
+    measure(c);
 }
 
 U0 HtkLayoutCtl(HtkCtl *c)
 {
-  if (c->hidden)
-    return;
-  switch (c->kind) {
-  case HTK_BOX:
-  case HTK_TOOLBAR:
-    HtkBoxLayout(c);
-    break;
-  case HTK_GRID:
-    HtkGridLayout(c);
-    break;
-  case HTK_SPLIT:
-    HtkSplitLayout(c);
-    break;
-  case HTK_SCROLL:
-    HtkScrollLayout(c);
-    break;
-  case HTK_GROUP:
-    HtkGroupLayout(c);
-    break;
-  case HTK_TAB:
-    HtkTabPages(c);
-    HtkTabLayout(c);
-    break;
-  }
+  U0 (*layout)(HtkCtl *c) = htk_layout[c->kind];
+
+  if (!c->hidden && layout)
+    layout(c);
 }
 
 U0 HtkDrawCtl(HtkCtl *c)
 {
-  HtkCtl *k;
+  U0 (*draw)(HtkCtl *c) = htk_draw[c->kind];
 
-  if (c->hidden)
-    return;
-  switch (c->kind) {
-  case HTK_BOX:
-  case HTK_GRID:
-    k = c->kids;
-    while (k) {
-      HtkDrawCtl(k);
-      k = k->sib;
-    }
-    break;
-  case HTK_TOOLBAR:
-    HtkToolbarDraw(c);
-    break;
-  case HTK_SPLIT:
-    HtkSplitDraw(c);
-    k = c->kids;
-    while (k) {
-      HtkDrawCtl(k);
-      k = k->sib;
-    }
-    break;
-  case HTK_SCROLL:
-    HtkScrollDraw(c);
-    break;
-  case HTK_GROUP:
-    HtkGroupDraw(c);
-    break;
-  case HTK_TAB:
-    HtkTabDraw(c);
-    break;
-  case HTK_LABEL:
-  case HTK_STATUS:
-    HtkLabelDraw(c);
-    break;
-  case HTK_SEP:
-    HtkSepDraw(c);
-    break;
-  case HTK_TERM:
-    HtkTermDraw(c);
-    break;
-  case HTK_BUTTON:
-    HtkButtonDraw(c);
-    break;
-  case HTK_ENTRY:
-    HtkEntryDraw(c);
-    break;
-  case HTK_MULTILINE:
-    HtkMultilineDraw(c);
-    break;
-  case HTK_CHECKBOX:
-    HtkCheckboxDraw(c);
-    break;
-  case HTK_RADIO:
-    HtkRadioDraw(c);
-    break;
-  case HTK_SLIDER:
-    HtkSliderDraw(c);
-    break;
-  case HTK_PROGRESS:
-    HtkProgressDraw(c);
-    break;
-  case HTK_SPIN:
-    HtkSpinDraw(c);
-    break;
-  case HTK_COMBO:
-    HtkComboDraw(c);
-    break;
-  case HTK_TABLE:
-    HtkTableDraw(c);
-    break;
-  case HTK_TREE:
-    HtkTreeDraw(c);
-    break;
-  case HTK_CANVAS:
-    HtkCanvasDraw(c);
-    break;
-  }
+  if (!c->hidden && draw)
+    draw(c);
 }
 
 Bool HtkKeyCtl(HtkCtl *c, CTermEvent *e)
 {
-  if (c->disabled)
+  Bool (*key)(HtkCtl *c, CTermEvent *e) = htk_key[c->kind];
+
+  if (c->disabled || !key)
     return FALSE;
-  switch (c->kind) {
-  case HTK_BUTTON:
-    return HtkButtonKey(c, e);
-  case HTK_ENTRY:
-    return HtkEntryKey(c, e);
-  case HTK_MULTILINE:
-    return HtkMultilineKey(c, e);
-  case HTK_CHECKBOX:
-    return HtkCheckboxKey(c, e);
-  case HTK_RADIO:
-    return HtkRadioKey(c, e);
-  case HTK_SLIDER:
-    return HtkSliderKey(c, e);
-  case HTK_SPIN:
-    return HtkSpinKey(c, e);
-  case HTK_COMBO:
-    return HtkComboKey(c, e);
-  case HTK_TABLE:
-    return HtkTableKey(c, e);
-  case HTK_TREE:
-    return HtkTreeKey(c, e);
-  case HTK_TAB:
-    return HtkTabKey(c, e);
-  case HTK_SCROLL:
-    return HtkScrollKey(c, e);
-  case HTK_TERM:
-    return HtkTermKey(c, e);
-  }
-  return FALSE;
+  return key(c, e);
 }
 
 // Deepest visible control containing the point; later siblings win.

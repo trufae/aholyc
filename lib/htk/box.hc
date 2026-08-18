@@ -4,6 +4,16 @@
 
 #define HTK_GRID_MAX 64
 
+U0 HtkKidsDraw(HtkCtl *c)
+{
+  HtkCtl *k = c->kids;
+
+  while (k) {
+    HtkDrawCtl(k);
+    k = k->sib;
+  }
+}
+
 U0 HtkBoxMeasure(HtkCtl *c)
 {
   HtkCtl *k = c->kids;
@@ -89,29 +99,44 @@ U0 HtkBoxLayout(HtkCtl *c)
   }
 }
 
-U0 HtkGridMeasure(HtkCtl *c)
+// Column widths and row heights from the kids' preferred sizes; grow marks
+// columns holding an expanding kid.  Returns the column count.
+I64 HtkGridDims(HtkCtl *c, Bool measure, I64 *cols, I64 *rows, Bool *grow,
+  I64 *nrows)
 {
   HtkCtl *k = c->kids;
-  I64 cols[HTK_GRID_MAX];
-  I64 rows[HTK_GRID_MAX];
-  I64 i, ncols = 0, nrows = 0;
+  I64 ncols = 0;
 
-  MemSet(cols, 0, sizeof(cols));
-  MemSet(rows, 0, sizeof(rows));
+  *nrows = 0;
+  MemSet(cols, 0, HTK_GRID_MAX * sizeof(I64));
+  MemSet(rows, 0, HTK_GRID_MAX * sizeof(I64));
+  MemSet(grow, 0, HTK_GRID_MAX);
   while (k) {
-    HtkMeasureCtl(k);
+    if (measure)
+      HtkMeasureCtl(k);
     if (!k->hidden && k->col < HTK_GRID_MAX && k->row < HTK_GRID_MAX) {
       if (k->pw > cols[k->col])
         cols[k->col] = k->pw;
       if (k->ph > rows[k->row])
         rows[k->row] = k->ph;
+      if (k->expand)
+        grow[k->col] = TRUE;
       if (k->col >= ncols)
         ncols = k->col + 1;
-      if (k->row >= nrows)
-        nrows = k->row + 1;
+      if (k->row >= *nrows)
+        *nrows = k->row + 1;
     }
     k = k->sib;
   }
+  return ncols;
+}
+
+U0 HtkGridMeasure(HtkCtl *c)
+{
+  I64 cols[HTK_GRID_MAX], rows[HTK_GRID_MAX];
+  Bool grow[HTK_GRID_MAX];
+  I64 i, nrows, ncols = HtkGridDims(c, TRUE, cols, rows, grow, &nrows);
+
   c->pw = 0;
   c->ph = 0;
   for (i = 0; i < ncols; i++)
@@ -125,28 +150,11 @@ U0 HtkGridMeasure(HtkCtl *c)
 U0 HtkGridLayout(HtkCtl *c)
 {
   HtkCtl *k = c->kids;
-  I64 cols[HTK_GRID_MAX];
-  I64 rows[HTK_GRID_MAX];
-  I64 i, x, y;
+  I64 cols[HTK_GRID_MAX], rows[HTK_GRID_MAX];
   Bool grow[HTK_GRID_MAX];
-  I64 ncols = 0, used = 0, stretchy = 0;
+  I64 i, x, y, nrows, used = 0, stretchy = 0;
+  I64 ncols = HtkGridDims(c, FALSE, cols, rows, grow, &nrows);
 
-  MemSet(cols, 0, sizeof(cols));
-  MemSet(rows, 0, sizeof(rows));
-  MemSet(grow, 0, sizeof(grow));
-  while (k) {
-    if (!k->hidden && k->col < HTK_GRID_MAX && k->row < HTK_GRID_MAX) {
-      if (k->pw > cols[k->col])
-        cols[k->col] = k->pw;
-      if (k->ph > rows[k->row])
-        rows[k->row] = k->ph;
-      if (k->expand)
-        grow[k->col] = TRUE;
-      if (k->col >= ncols)
-        ncols = k->col + 1;
-    }
-    k = k->sib;
-  }
   // Columns holding an expanding kid share the spare width.
   for (i = 0; i < ncols; i++) {
     used += cols[i] + 1;
@@ -158,7 +166,6 @@ U0 HtkGridLayout(HtkCtl *c)
   for (i = 0; i < ncols && stretchy && used < c->w; i++)
     if (grow[i])
       cols[i] += (c->w - used) / stretchy;
-  k = c->kids;
   while (k) {
     if (!k->hidden) {
       x = c->x;
@@ -241,6 +248,7 @@ U0 HtkSplitDraw(HtkCtl *c)
   else
     for (i = c->y; i < c->y + c->h; i++)
       HtkChr(c->x + one->w, i, HTK_R_V, HTK_C_DIM, HTK_C_BG);
+  HtkKidsDraw(c);
 }
 
 U0 HtkScrollMeasure(HtkCtl *c)
@@ -276,16 +284,13 @@ U0 HtkScrollDraw(HtkCtl *c)
 {
   HtkCtl *k = c->kids;
   I64 i, at, bar;
-  I64 ox = htk_clip_x, oy = htk_clip_y, ox2 = htk_clip_x2, oy2 = htk_clip_y2;
 
   if (!k)
     return;
+  HtkClipPush;
   HtkClipSet(c->x, c->y, c->w - 1, c->h);
   HtkDrawCtl(k);
-  htk_clip_x = ox;
-  htk_clip_y = oy;
-  htk_clip_x2 = ox2;
-  htk_clip_y2 = oy2;
+  HtkClipPop;
   for (i = 0; i < c->h; i++)
     HtkChr(c->x + c->w - 1, c->y + i, HTK_R_LIGHT, HTK_C_DIM, HTK_C_BG);
   if (k->ph > c->h) {
@@ -300,7 +305,6 @@ U0 HtkScrollDraw(HtkCtl *c)
 
 Bool HtkScrollKey(HtkCtl *c, CTermEvent *e)
 {
-  I64 was = c->top;
   I64 page = c->h - 1;
 
   if (e->key == TERM_KEY_UP)
@@ -318,5 +322,5 @@ Bool HtkScrollKey(HtkCtl *c, CTermEvent *e)
   if (c->top < 0)
     c->top = 0;
   htk_dirty = TRUE;
-  return c->top != was || TRUE;
+  return TRUE;
 }

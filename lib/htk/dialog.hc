@@ -2,16 +2,31 @@
 
 Bool htk_dialog_ok;
 
-U0 HtkDialogYes(HtkCtl *b)
+// Button handler: the button's value is the verdict.
+U0 HtkDialogEnd(HtkCtl *b)
 {
-  htk_dialog_ok = TRUE;
+  htk_dialog_ok = b->value;
   HtkWindowClose(HtkOwnerWindow(b));
 }
 
-U0 HtkDialogNo(HtkCtl *b)
+HtkCtl *HtkDialogButton(U8 *text, Bool ok)
 {
-  htk_dialog_ok = FALSE;
-  HtkWindowClose(HtkOwnerWindow(b));
+  HtkCtl *b = HtkButtonNew(text);
+
+  b->value = ok;
+  b->changed = &HtkDialogEnd;
+  return b;
+}
+
+// Vertical box holding the body text.
+HtkCtl *HtkDialogBody(U8 *body)
+{
+  HtkCtl *box = HtkNew(HTK_BOX);
+
+  box->vertical = TRUE;
+  HtkAdd(box, HtkNew(HTK_LABEL));
+  HtkSetText(box->kids, body);
+  return box;
 }
 
 // A dismissable window sized to its content, centered on screen.
@@ -33,15 +48,11 @@ HtkCtl *HtkDialogNew(U8 *title, HtkCtl *content)
 
 U0 HtkMsgBox(U8 *title, U8 *body)
 {
-  HtkCtl *box = HtkNew(HTK_BOX);
-  HtkCtl *ok = HtkButtonNew("  OK  ");
+  HtkCtl *box = HtkDialogBody(body);
+  HtkCtl *ok = HtkDialogButton("  OK  ", TRUE);
   HtkCtl *w;
 
-  box->vertical = TRUE;
-  HtkAdd(box, HtkNew(HTK_LABEL));
-  HtkSetText(box->kids, body);
   HtkAdd(box, HtkNew(HTK_SEP));
-  ok->changed = &HtkDialogYes;
   HtkAdd(box, ok);
   w = HtkDialogNew(title, box);
   w->link = ok;
@@ -52,23 +63,17 @@ U0 HtkMsgBox(U8 *title, U8 *body)
 // MAlloc'd entry text, or NULL when cancelled.
 U8 *HtkPrompt(U8 *title, U8 *body, U8 *init)
 {
-  HtkCtl *box = HtkNew(HTK_BOX);
+  HtkCtl *box = HtkDialogBody(body);
   HtkCtl *entry = HtkEntryNew(init);
   HtkCtl *row = HtkNew(HTK_BOX);
-  HtkCtl *ok = HtkButtonNew("  OK  ");
-  HtkCtl *cancel = HtkButtonNew("Cancel");
+  HtkCtl *ok = HtkDialogButton("  OK  ", TRUE);
   HtkCtl *w;
   U8 *result = NULL;
 
-  box->vertical = TRUE;
-  HtkAdd(box, HtkNew(HTK_LABEL));
-  HtkSetText(box->kids, body);
   entry->low = 30;
   HtkAdd(box, entry);
-  ok->changed = &HtkDialogYes;
-  cancel->changed = &HtkDialogNo;
   HtkAdd(row, ok);
-  HtkAdd(row, cancel);
+  HtkAdd(row, HtkDialogButton("Cancel", FALSE));
   HtkAdd(box, row);
   w = HtkDialogNew(title, box);
   w->link = ok;

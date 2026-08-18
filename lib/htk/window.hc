@@ -39,14 +39,7 @@ HtkCtl *HtkWindowNew(U8 *title, I64 w, I64 h)
     win->x = TermWidth - w;
   if (win->y + h > TermHeight)
     win->y = TermHeight - h;
-  if (!htk_windows)
-    htk_windows = win;
-  else {
-    prior = htk_windows;
-    while (prior->sib)
-      prior = prior->sib;
-    prior->sib = win;
-  }
+  HtkListAppend(&htk_windows, win);
   htk_dirty = TRUE;
   return win;
 }
@@ -69,50 +62,22 @@ HtkCtl *HtkOwnerWindow(HtkCtl *c)
 
 U0 HtkWindowRaise(HtkCtl *w)
 {
-  HtkCtl *k = htk_windows;
-
   if (!w || w == HtkTop)
     return;
-  if (htk_windows == w)
-    htk_windows = w->sib;
-  else {
-    while (k && k->sib != w)
-      k = k->sib;
-    if (!k)
-      return;
-    k->sib = w->sib;
-  }
-  k = htk_windows;
-  if (!k)
-    htk_windows = w;
-  else {
-    while (k->sib)
-      k = k->sib;
-    k->sib = w;
-  }
-  w->sib = NULL;
+  HtkListUnlink(&htk_windows, w);
+  HtkListAppend(&htk_windows, w);
   htk_dirty = TRUE;
 }
 
 U0 HtkWindowClose(HtkCtl *w)
 {
-  HtkCtl *k = htk_windows;
-
   if (!w || w->closed)
     return;
   if (htk_popup && HtkOwnerWindow(HtkPopupRoot->link) == w)
     HtkPopupClose;
   w->closed = TRUE;
   HtkTermClosed(w);
-  if (htk_windows == w)
-    htk_windows = w->sib;
-  else {
-    while (k && k->sib != w)
-      k = k->sib;
-    if (k)
-      k->sib = w->sib;
-  }
-  w->sib = NULL;
+  HtkListUnlink(&htk_windows, w);
   if (htk_focus && HtkOwnerWindow(htk_focus) == w)
     htk_focus = NULL;
   htk_dirty = TRUE;

@@ -40,6 +40,12 @@ U0 HtkLabelDraw(HtkCtl *c)
   }
 }
 
+U0 HtkSepMeasure(HtkCtl *c)
+{
+  c->pw = 1;
+  c->ph = 1;
+}
+
 U0 HtkSepDraw(HtkCtl *c)
 {
   I64 i;

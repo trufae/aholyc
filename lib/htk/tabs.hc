@@ -61,6 +61,7 @@ U0 HtkTabLayout(HtkCtl *c)
 {
   HtkCtl *page = HtkKidAt(c, c->value);
 
+  HtkTabPages(c);
   if (!page || !page->kids)
     return;
   page->kids->x = c->x + 1;

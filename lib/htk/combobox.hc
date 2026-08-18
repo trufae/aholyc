@@ -10,34 +10,20 @@ HtkCtl *HtkComboNew()
   return c;
 }
 
-U0 HtkComboAdd(HtkCtl *c, U8 *text)
-{
-  HtkCtl *item = HtkNew(HTK_ITEM);
-
-  HtkSetText(item, text);
-  HtkAdd(c, item);
-}
+#define HtkComboAdd HtkAddItem
 
 U0 HtkComboMeasure(HtkCtl *c)
 {
-  HtkCtl *k = c->kids;
-
-  c->pw = 8;
-  while (k) {
-    if (HtkRunes(k->text) + 4 > c->pw)
-      c->pw = HtkRunes(k->text) + 4;
-    k = k->sib;
-  }
+  c->pw = HtkItemsWidth(c);
+  if (c->pw < 8)
+    c->pw = 8;
   c->ph = 1;
 }
 
 U0 HtkComboDraw(HtkCtl *c)
 {
   HtkCtl *item = HtkKidAt(c, c->value);
-  I64 bg = HTK_C_FIELD_BG;
-
-  if (HtkFocused(c))
-    bg = HTK_C_FOCUS_BG;
+  I64 bg = HtkBg(c, HTK_C_FIELD_BG);
   HtkRect(c->x, c->y, c->w, 1, ' ', HTK_C_FIELD_FG, bg);
   if (item)
     HtkStr(c->x + 1, c->y, item->text, HtkInk(c, HTK_C_FIELD_FG), bg);

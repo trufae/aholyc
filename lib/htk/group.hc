@@ -43,22 +43,18 @@ U0 HtkGroupDraw(HtkCtl *c)
     HtkDrawCtl(c->kids);
 }
 
-HtkCtl *HtkToolbarNew()
-{
-  HtkCtl *c = HtkNew(HTK_TOOLBAR);
-
-  return c;
-}
+#define HtkToolbarNew HtkNew(HTK_TOOLBAR)
 
 U0 HtkToolbarDraw(HtkCtl *c)
 {
-  HtkCtl *k = c->kids;
-
   HtkRect(c->x, c->y, c->w, c->h, ' ', HTK_C_FG, HTK_C_BG);
-  while (k) {
-    HtkDrawCtl(k);
-    k = k->sib;
-  }
+  HtkKidsDraw(c);
+}
+
+U0 HtkStatusMeasure(HtkCtl *c)
+{
+  HtkLabelMeasure(c);
+  c->pw += 2;
 }
 
 HtkCtl *HtkStatusbarNew(U8 *text)

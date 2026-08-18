@@ -86,10 +86,8 @@ U0 HtkTreeDraw(HtkCtl *c)
   I64 sel = HtkTreeIndexOf(c, c->link);
   HtkCtl *node;
 
-  if (sel >= 0 && sel < c->top)
-    c->top = sel;
-  if (sel >= c->top + c->h)
-    c->top = sel - c->h + 1;
+  if (sel >= 0)
+    HtkScrollIntoView(c, sel, c->h);
   for (i = c->top; i < total && i - c->top < c->h; i++) {
     probe = 0;
     depth = 0;

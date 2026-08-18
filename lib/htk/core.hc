@@ -123,27 +123,29 @@ U0 HtkThemeDefault()
 
 class HtkCtl
 {
-  I64 kind;
   HtkCtl *parent;
   HtkCtl *kids;
   HtkCtl *sib;
   HtkCtl *link;       // popup owner, tree selection, tabpage payload
   HtkCtl *menu;       // context menu (an unattached HTK_MENU), right click
-  I64 x, y, w, h;    // laid-out rect, absolute cells
-  I64 pw, ph;        // preferred size from measure
-  U8 *text;
-  I64 value;         // state: checked, position, selection, tab index
-  I64 low, high;     // bounds; table: high = row count; window: low=dismissable
-  I64 top;           // first visible row / scroll offset
-  I64 cursor;        // entry/multiline cursor, byte index
-  I64 anchor;        // selection anchor (byte index), -1 when nothing selected
-  I64 col, row;      // grid placement
-  I64 fn, data;      // canvas draw callback / table cell callback + data
-  I64 mouse_x, mouse_y, mouse_button;
-  Bool mouse_pressed, mouse_motion;
-  I64 user;          // adapter's UiCtl
+  U8 *text;           // htk_empty until HtkSetText, never freed while shared
   U0 (*changed)(HtkCtl *c);
   U0 (*submit)(HtkCtl *c);   // entry: Enter pressed
+  I64 fn, data;      // canvas draw callback / table cell callback + data
+  I64 user;          // adapter's UiCtl
+  I64 value;         // state: checked, position, selection, tab index
+  I64 low, high;     // bounds; table: high = row count; window: low=dismissable
+  I32 top;           // first visible row / scroll offset
+  I32 cursor;        // entry/multiline cursor, byte index
+  I32 anchor;        // selection anchor (byte index), -1 when nothing selected
+  I32 x, y, w, h;    // laid-out rect, absolute cells
+  I32 pw, ph;        // preferred size from measure
+  I32 rx, ry, rw, rh; // window rect saved while maximized
+  I32 col, row;      // grid placement
+  I32 mouse_x, mouse_y;
+  U8 kind;
+  U8 mouse_button;
+  Bool mouse_pressed, mouse_motion;
   Bool vertical;
   Bool expand;
   Bool focusable;
@@ -154,7 +156,6 @@ class HtkCtl
   Bool closed;       // window dismissed
   Bool minimized;    // window parked on the taskbar
   Bool maximized;    // window covers the desktop; rx.. keeps the old rect
-  I64 rx, ry, rw, rh;
 };
 
 // Deferred call: due timestamp, repeating interval (0 = one shot).
@@ -175,6 +176,7 @@ HtkHook *htk_hooks;
 Bool htk_dirty;
 Bool htk_running;
 Bool htk_started;
+U8 *htk_empty = "";    // shared empty text, never freed
 I64 htk_clip_x, htk_clip_y, htk_clip_x2, htk_clip_y2;
 
 // Cross-file dispatch, defined in loop.hc.
@@ -195,37 +197,83 @@ U0 HtkPopupPop();
 U0 HtkPopupClose();
 HtkCtl *HtkPopupRoot();
 U0 HtkWindowClose(HtkCtl *w);
+U0 HtkOpsInit();                 // fills the per-kind tables (loop.hc)
+Bool htk_ops_ready;
 
 HtkCtl *HtkNew(I64 kind)
 {
   HtkCtl *c = CAlloc(sizeof(HtkCtl));
 
+  if (!htk_ops_ready) {
+    HtkOpsInit;
+    htk_ops_ready = TRUE;
+  }
   c->kind = kind;
-  c->text = StrNew("");
+  c->text = htk_empty;
   c->anchor = -1;
   return c;
 }
 
-U0 HtkAdd(HtkCtl *parent, HtkCtl *kid)
+// Unlink a node from a singly-linked sibling list.
+U0 HtkListUnlink(HtkCtl **list, HtkCtl *node)
 {
-  HtkCtl *k = parent->kids;
+  HtkCtl *k = *list;
 
-  kid->parent = parent;
-  kid->sib = NULL;
+  if (k == node) {
+    *list = node->sib;
+  } else {
+    while (k && k->sib != node)
+      k = k->sib;
+    if (k)
+      k->sib = node->sib;
+  }
+  node->sib = NULL;
+}
+
+// Append a node at the tail of a sibling list.
+U0 HtkListAppend(HtkCtl **list, HtkCtl *node)
+{
+  HtkCtl *k = *list;
+
+  node->sib = NULL;
   if (!k) {
-    parent->kids = kid;
+    *list = node;
     return;
   }
   while (k->sib)
     k = k->sib;
-  k->sib = kid;
+  k->sib = node;
+}
+
+U0 HtkAdd(HtkCtl *parent, HtkCtl *kid)
+{
+  kid->parent = parent;
+  HtkListAppend(&parent->kids, kid);
+}
+
+U0 HtkFreeText(HtkCtl *c)
+{
+  if (c->text != htk_empty)
+    Free(c->text);
+  c->text = htk_empty;
 }
 
 U0 HtkSetText(HtkCtl *c, U8 *text)
 {
-  Free(c->text);
+  HtkFreeText(c);
   c->text = StrNew(text);
   htk_dirty = TRUE;
+}
+
+// Append an HTK_ITEM kid (combo/radio choices, pick lists).
+U0 HtkAddItem(HtkCtl *c, U8 *text)
+{
+  HtkCtl *item = HtkNew(HTK_ITEM);
+
+  HtkSetText(item, text);
+  HtkAdd(c, item);
+  if (c->kind == HTK_RADIO && c->value < 0)
+    c->value = 0;
 }
 
 U0 HtkFire(HtkCtl *c)
@@ -312,6 +360,21 @@ I64 HtkRunes(U8 *text)
     n++;
   }
   return n;
+}
+
+// Widest kid text plus room for its marker.
+I64 HtkItemsWidth(HtkCtl *c)
+{
+  HtkCtl *k = c->kids;
+  I64 w, best = 0;
+
+  while (k) {
+    w = HtkRunes(k->text) + 4;
+    if (w > best)
+      best = w;
+    k = k->sib;
+  }
+  return best;
 }
 
 // Narrow the clip: the request intersects whatever is already in force,
@@ -446,4 +509,53 @@ I64 HtkInk(HtkCtl *c, I64 normal)
   if (c->disabled)
     return HTK_C_DIM;
   return normal;
+}
+
+// Background color honoring focus state.
+I64 HtkBg(HtkCtl *c, I64 normal)
+{
+  if (HtkFocused(c))
+    return HTK_C_FOCUS_BG;
+  return normal;
+}
+
+// Clip save/restore around a nested paint (scroll viewports, canvases).
+#define HTK_CLIP_DEPTH 8
+I64 htk_clip_stack[HTK_CLIP_DEPTH * 4];
+I64 htk_clip_sp;
+
+U0 HtkClipPush()
+{
+  I64 *at = htk_clip_stack + htk_clip_sp * 4;
+
+  htk_clip_sp++;
+  if (htk_clip_sp > HTK_CLIP_DEPTH)
+    return;
+  at[0] = htk_clip_x;
+  at[1] = htk_clip_y;
+  at[2] = htk_clip_x2;
+  at[3] = htk_clip_y2;
+}
+
+U0 HtkClipPop()
+{
+  I64 *at;
+
+  htk_clip_sp--;
+  if (htk_clip_sp >= HTK_CLIP_DEPTH)
+    return;
+  at = htk_clip_stack + htk_clip_sp * 4;
+  htk_clip_x = at[0];
+  htk_clip_y = at[1];
+  htk_clip_x2 = at[2];
+  htk_clip_y2 = at[3];
+}
+
+// Keep a selection index visible inside a scrolled viewport.
+U0 HtkScrollIntoView(HtkCtl *c, I64 sel, I64 visible_height)
+{
+  if (sel < c->top)
+    c->top = sel;
+  if (sel >= c->top + visible_height)
+    c->top = sel - visible_height + 1;
 }

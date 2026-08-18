@@ -126,10 +126,7 @@ U0 HtkSpinMeasure(HtkCtl *c)
 U0 HtkSpinDraw(HtkCtl *c)
 {
   U8 num[24];
-  I64 bg = HTK_C_FIELD_BG;
-
-  if (HtkFocused(c))
-    bg = HTK_C_FOCUS_BG;
+  I64 bg = HtkBg(c, HTK_C_FIELD_BG);
   HtkRect(c->x, c->y, c->w, 1, ' ', HTK_C_FIELD_FG, bg);
   HtkChr(c->x, c->y, 0x25C4, HtkInk(c, HTK_C_FIELD_FG), bg);
   HtkChr(c->x + c->w - 1, c->y, 0x25BA, HtkInk(c, HTK_C_FIELD_FG), bg);

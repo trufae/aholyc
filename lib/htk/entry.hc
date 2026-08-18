@@ -32,7 +32,7 @@ U0 HtkTextInsert(HtkCtl *c, I64 rune)
   MemCpy(grown, c->text, c->cursor);
   MemCpy(grown + c->cursor, bytes, count);
   StrCpy(grown + c->cursor + count, c->text + c->cursor);
-  Free(c->text);
+  HtkFreeText(c);
   c->text = grown;
   c->cursor += count;
   HtkFire(c);
@@ -271,10 +271,7 @@ U0 HtkMultilineDraw(HtkCtl *c)
       ccol++;
     }
   }
-  if (crow < c->top)
-    c->top = crow;
-  if (crow >= c->top + c->h)
-    c->top = crow - c->h + 1;
+  HtkScrollIntoView(c, crow, c->h);
   HtkRect(c->x, c->y, c->w, c->h, ' ', HTK_C_FIELD_FG, HTK_C_FIELD_BG);
   i = 0;
   row = 0;

@@ -23,8 +23,7 @@ U0 HtkButtonDraw(HtkCtl *c)
 
   if (c->parent && c->parent->kind == HTK_TOOLBAR)
     bg = HTK_C_BG;
-  if (HtkFocused(c))
-    bg = HTK_C_FOCUS_BG;
+  bg = HtkBg(c, bg);
   HtkRect(c->x, c->y, c->w, 1, ' ', fg, bg);
   pad = (c->w - HtkRunes(c->text)) / 2;
   if (pad < 0)
