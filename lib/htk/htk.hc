@@ -45,6 +45,22 @@
 #include "loop.hc"
 #include "dialog.hc"
 #include "colorpick.hc"
+// The terminal control's pty backend: HTK_PTY_WINDOWS/HTK_PTY_POSIX let
+// cross-builds override the compiler host.
+#include "terminal.hc"
+#ifdef HTK_PTY_WINDOWS
+#include "pty_windows.hc"
+#else
+#ifdef HTK_PTY_POSIX
+#include "pty_posix.hc"
+#else
+#ifdef IS_WINDOWS
+#include "pty_windows.hc"
+#else
+#include "pty_posix.hc"
+#endif
+#endif
+#endif
 #ifdef HTK_NODESK
 U0 HtkAppMenuOpen(I64 x, I64 y)
 {

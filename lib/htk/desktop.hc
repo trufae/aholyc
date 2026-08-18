@@ -206,11 +206,17 @@ U0 HtkAppQuit(HtkCtl *item)
   HtkQuit;
 }
 
+U0 HtkAppTerminal(HtkCtl *item)
+{
+  HtkTerminalWindow;
+}
+
 U0 HtkAppMenuOpen(I64 x, I64 y)
 {
   if (!htk_app_menu) {
     htk_app_menu = HtkContextMenuNew;
     HtkMenuItem(htk_app_menu, "Refresh")->changed = &HtkAppRefresh;
+    HtkMenuItem(htk_app_menu, "Terminal")->changed = &HtkAppTerminal;
     HtkMenuItem(htk_app_menu, "Settings...")->changed = &HtkAppSettings;
     HtkMenuItem(htk_app_menu, "Quit")->changed = &HtkAppQuit;
   }

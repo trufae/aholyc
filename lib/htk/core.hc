@@ -31,6 +31,7 @@
 #define HTK_TREENODE  26
 #define HTK_ITEM      27
 #define HTK_POPUP     28
+#define HTK_TERM      29
 
 // The theme: every color the widgets use, changeable at runtime.  The
 // defaults are the Borland palette; assign any htk_theme field (then touch
@@ -184,6 +185,11 @@ Bool HtkKeyCtl(HtkCtl *c, CTermEvent *e);
 U0 HtkSetFocus(HtkCtl *c);
 U0 HtkPopupOpen(HtkCtl *popup);
 U0 HtkAppMenuOpen(I64 x, I64 y);
+U0 HtkTermInterrupt();           // ^C to a focused terminal (terminal.hc)
+U0 HtkTermClosed(HtkCtl *w);     // shells of a closing window
+U0 HtkTermMeasure(HtkCtl *c);
+U0 HtkTermDraw(HtkCtl *c);
+Bool HtkTermKey(HtkCtl *c, CTermEvent *e);
 U0 HtkPopupPush(HtkCtl *popup);
 U0 HtkPopupPop();
 U0 HtkPopupClose();

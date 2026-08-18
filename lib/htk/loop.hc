@@ -74,6 +74,9 @@ U0 HtkMeasureCtl(HtkCtl *c)
     c->pw = 1;
     c->ph = 1;
     break;
+  case HTK_TERM:
+    HtkTermMeasure(c);
+    break;
   default:
     c->pw = 0;
     c->ph = 0;
@@ -150,6 +153,9 @@ U0 HtkDrawCtl(HtkCtl *c)
   case HTK_SEP:
     HtkSepDraw(c);
     break;
+  case HTK_TERM:
+    HtkTermDraw(c);
+    break;
   case HTK_BUTTON:
     HtkButtonDraw(c);
     break;
@@ -218,6 +224,8 @@ Bool HtkKeyCtl(HtkCtl *c, CTermEvent *e)
     return HtkTabKey(c, e);
   case HTK_SCROLL:
     return HtkScrollKey(c, e);
+  case HTK_TERM:
+    return HtkTermKey(c, e);
   }
   return FALSE;
 }
@@ -390,14 +398,18 @@ U0 HtkRunHooks()
   while (h) {
     if (h->due <= now) {
       call = h->fn;
-      if (call)
-        call(h->a, h->b);
       if (h->ms) {
         h->due = now + h->ms;
+        if (call)
+          call(h->a, h->b);
         prev = &h->next;
         h = h->next;
       } else {
+        // Unlink before the call: the callback may HtkHookAdd (re-arm),
+        // which prepends to the list this node may head.
         *prev = h->next;
+        if (call)
+          call(h->a, h->b);
         Free(h);
         h = *prev;
       }
@@ -705,12 +717,40 @@ U0 HtkMouse(CTermEvent *e)
       HtkPopupClose;
     return;
   }
+  // Window bar: [App] opens the menu, a click on a button restores that
+  // window, a right click opens its window menu, dragging scrolls the strip.
+  if (htk_bar_dragging) {
+    if (e->pressed && e->motion) {
+      if (e->x != htk_bar_drag_x) {
+        HtkTaskbarScroll(htk_bar_drag_x - e->x);
+        htk_bar_drag_x = e->x;
+        htk_bar_drag_moved = TRUE;
+      }
+      return;
+    }
+    if (!e->pressed) {
+      htk_bar_dragging = FALSE;
+      if (!htk_bar_drag_moved)
+        HtkWindowRestore(HtkTaskbar(e->x, FALSE));  // it was a plain click
+      return;
+    }
+  }
   if (e->pressed && !e->motion && HtkTaskbarHeight &&
     e->y == TermHeight - 1) {
       if (HTK_BAR_APP && e->x < HTK_BAR_APP)
         HtkAppMenuOpen(0, TermHeight - 1);
-      else
-        HtkWindowRestore(HtkTaskbar(e->x, FALSE));
+      else if (e->button == TERM_MOUSE_RIGHT) {
+        w = HtkTaskbar(e->x, FALSE);
+        if (w)
+          HtkWindowMenuOpen(w, e->x, TermHeight - 1);
+      } else if (e->button == TERM_MOUSE_LEFT) {
+        htk_bar_dragging = TRUE;
+        htk_bar_drag_x = e->x;
+        htk_bar_drag_moved = FALSE;
+      } else if (e->button == TERM_MOUSE_WHEEL_UP)
+        HtkTaskbarScroll(-4);
+      else if (e->button == TERM_MOUSE_WHEEL_DOWN)
+        HtkTaskbarScroll(4);
       return;
     }
   w = htk_windows;
@@ -740,13 +780,14 @@ U0 HtkKey(CTermEvent *e)
     HtkPickKey(htk_popup, e);
     return;
   }
-  if (e->key == TERM_KEY_TAB) {
-    if (e->mods & TERM_MOD_SHIFT)
-      HtkFocusMove(-1);
-    else
-      HtkFocusMove(1);
-    return;
-  }
+  if (e->key == TERM_KEY_TAB &&
+    !(htk_focus && htk_focus->kind == HTK_TERM && !(e->mods & TERM_MOD_SHIFT))) {
+      if (e->mods & TERM_MOD_SHIFT)  // a terminal keeps plain Tab
+        HtkFocusMove(-1);
+      else
+        HtkFocusMove(1);
+      return;
+    }
   if (e->key == TERM_KEY_F10 && top) {
     HtkCtl *m = top->kids;
     while (m && m->kind != HTK_MENU)
@@ -824,10 +865,17 @@ I64 HtkStepTimeout()
   return wait;
 }
 
+// ^C ends the loop unless a terminal control has focus and takes it.
+Bool HtkInterrupted()
+{
+  HtkTermInterrupt;
+  return TermInterrupted(FALSE);
+}
+
 U0 HtkMain()
 {
   htk_running = TRUE;
-  while (htk_running && htk_windows && !TermInterrupted(FALSE))
+  while (htk_running && htk_windows && !HtkInterrupted)
     HtkStep(HtkStepTimeout);
   htk_running = FALSE;
 }
@@ -835,6 +883,6 @@ U0 HtkMain()
 // Nested loop for dialogs: runs until the window is dismissed.
 U0 HtkModal(HtkCtl *w)
 {
-  while (!w->closed && htk_windows && !TermInterrupted(FALSE))
+  while (!w->closed && htk_windows && !HtkInterrupted)
     HtkStep(HtkStepTimeout);
 }

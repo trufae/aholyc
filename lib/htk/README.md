@@ -48,6 +48,14 @@ or remove the selected range (`anchor`/`cursor` byte indices).
 terminal: 16 swatches, the 256-color palette, or palette plus R/G/B sliders
 on true-color terminals (via `TermColorRgb`/`TermColor256`; lib/ui exposes it
 as `UiPickColor`).
+When many windows are minimized the bar's button strip scrolls: drag it
+left/right (or use the wheel); `[App]` stays fixed at the left, a right
+click on a button opens that window's menu.
+`HtkTerminalNew(cols, rows)` is a terminal emulator control (`HTK_TERM`):
+a pty with `$SHELL` on Unix, ConPTY with `%COMSPEC%` on Windows, an xterm
+subset with 16/256/true colors, Tab and ^C forwarded while focused;
+`HtkTerminalWindow()` wraps one in a window and the desktop layer offers it
+as App > Terminal.
 A right click on a title bar opens the window menu (Minimize, Maximize or
 Restore, Tile ▸ Left/Right/Top/Bottom, Close).  Any control can carry its
 own context menu: build one with `HtkContextMenuNew` (+ `HtkMenuItem`,

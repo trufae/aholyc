@@ -103,6 +103,7 @@ U0 HtkWindowClose(HtkCtl *w)
   if (htk_popup && HtkOwnerWindow(HtkPopupRoot->link) == w)
     HtkPopupClose;
   w->closed = TRUE;
+  HtkTermClosed(w);
   if (htk_windows == w)
     htk_windows = w->sib;
   else {
@@ -184,11 +185,16 @@ U0 HtkWindowTile(HtkCtl *w, I64 side)
 // Title bar context menu, shared by every window: the items carry the
 // target window in ->link while the popup is open.
 HtkCtl *htk_wm_menu;
-HtkCtl *htk_wm_maximize;
+HtkCtl *htk_wm_minimize, *htk_wm_maximize;
 
 U0 HtkWmMinimize(HtkCtl *item)
 {
-  HtkWindowMinimize(item->link);
+  HtkCtl *w = item->link;
+
+  if (w->minimized)  // from the window bar the same entry restores
+    HtkWindowRestore(w);
+  else
+    HtkWindowMinimize(w);
 }
 
 U0 HtkWmMaximize(HtkCtl *item)
@@ -221,7 +227,7 @@ U0 HtkWindowMenuOpen(HtkCtl *w, I64 x, I64 y)
 
   if (!htk_wm_menu) {
     htk_wm_menu = HtkContextMenuNew;
-    HtkWmItem(htk_wm_menu, "Minimize", &HtkWmMinimize);
+    htk_wm_minimize = HtkWmItem(htk_wm_menu, "Minimize", &HtkWmMinimize);
     htk_wm_maximize = HtkWmItem(htk_wm_menu, "Maximize", &HtkWmMaximize);
     tile = HtkSubMenu(htk_wm_menu, "Tile");
     HtkWmItem(tile, "Left", &HtkWmTile, HTK_TILE_LEFT);
@@ -234,6 +240,10 @@ U0 HtkWindowMenuOpen(HtkCtl *w, I64 x, I64 y)
     HtkSetText(htk_wm_maximize, "Restore");
   else
     HtkSetText(htk_wm_maximize, "Maximize");
+  if (w->minimized)
+    HtkSetText(htk_wm_minimize, "Restore");
+  else
+    HtkSetText(htk_wm_minimize, "Minimize");
   k = htk_wm_menu->kids;
   while (k) {
     k->link = w;
@@ -363,33 +373,39 @@ U0 HtkDesktopDraw()
 #define HTK_BAR_APP 6  // "[App] " at the left of the window bar
 #endif
 
-// Bottom row: [App], one [ title ] button per minimized window, and the
-// clock at the right. Returns the window under column x when hit-testing
-// (x >= 0), NULL when only drawing or when x is on [App]/clock.
+I64 htk_bar_scroll;     // first hidden columns of the button strip
+I64 htk_bar_total;      // width of the whole strip, from the last draw
+Bool htk_bar_dragging;  // pointer held on the bar (scrolls the strip)
+I64 htk_bar_drag_x;
+Bool htk_bar_drag_moved;
+
+// Bottom row: [App], one [ title ] button per minimized window (a strip
+// that scrolls by dragging), and the clock at the right. Returns the window
+// under column x when hit-testing (x >= 0), NULL when only drawing or when
+// x is on [App]/clock.
 HtkCtl *HtkTaskbar(I64 x, Bool draw)
 {
   HtkCtl *w = htk_windows;
-  I64 at = HTK_BAR_APP, y = TermHeight - 1, width;
+  I64 at = HTK_BAR_APP - htk_bar_scroll, y = TermHeight - 1, width;
+  I64 right = TermWidth;
   U8 clock[8];
 
   if (!HtkTaskbarHeight)
     return NULL;
+  if (htk_bar_clock)
+    right = TermWidth - 7;
   if (draw) {
     HtkRect(0, y, TermWidth, 1, ' ', HTK_C_FG, HTK_C_BG);
-    if (HTK_BAR_APP) {
-      HtkStr(0, y, "[", HTK_C_DIM, HTK_C_BG);
-      HtkStr(1, y, "App", HTK_C_ACCENT, HTK_C_BG, TERM_BOLD);
-      HtkStr(4, y, "]", HTK_C_DIM, HTK_C_BG);
-    }
     if (htk_bar_clock) {
       HtkClockText(clock);
       HtkStr(TermWidth - 6, y, clock, HTK_C_FG, HTK_C_BG, TERM_BOLD);
     }
+    HtkClipSet(HTK_BAR_APP, y, right - HTK_BAR_APP, 1);
   }
   while (w) {
     if (w->minimized) {
       width = HtkRunes(w->text) + 4;
-      if (x >= at && x < at + width)
+      if (x >= HTK_BAR_APP && x < right && x >= at && x < at + width)
         return w;
       if (draw) {
         HtkStr(at, y, "[ ", HTK_C_DIM, HTK_C_BG);
@@ -400,7 +416,34 @@ HtkCtl *HtkTaskbar(I64 x, Bool draw)
     }
     w = w->sib;
   }
+  if (draw) {
+    htk_bar_total = at + htk_bar_scroll - HTK_BAR_APP;
+    HtkClipAll;
+    if (HTK_BAR_APP) {  // drawn last: the strip scrolls underneath
+      HtkStr(0, y, "[", HTK_C_DIM, HTK_C_BG);
+      HtkStr(1, y, "App", HTK_C_ACCENT, HTK_C_BG, TERM_BOLD);
+      HtkStr(4, y, "] ", HTK_C_DIM, HTK_C_BG);
+    }
+  }
   return NULL;
+}
+
+// Scroll the button strip by delta columns, within its bounds.
+U0 HtkTaskbarScroll(I64 delta)
+{
+  I64 visible = TermWidth - HTK_BAR_APP, limit;
+
+  if (htk_bar_clock)
+    visible -= 7;
+  limit = htk_bar_total - visible;
+  if (limit < 0)
+    limit = 0;
+  htk_bar_scroll += delta;
+  if (htk_bar_scroll > limit)
+    htk_bar_scroll = limit;
+  if (htk_bar_scroll < 0)
+    htk_bar_scroll = 0;
+  htk_dirty = TRUE;
 }
 
 // Arrange every window edge to edge in a near-square grid.
