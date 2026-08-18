@@ -246,23 +246,23 @@ HC_API void *MemMem(void *data, hc_i64 length, void *needle,
 
 /* --------------------------------------------------------------- strings */
 
-HC_API hc_i64 StrLen(char *s) {
+HC_API inline hc_i64 StrLen(char *s) {
 	return s? (hc_i64)strlen (s): 0;
 }
 
-HC_API char *StrCpy(char *dst, char *src) {
+HC_API inline char *StrCpy(char *dst, char *src) {
 	return strcpy (dst, src? src: "");
 }
 
-HC_API char *StrCat(char *dst, char *src) {
+HC_API inline char *StrCat(char *dst, char *src) {
 	return strcat (dst, src? src: "");
 }
 
-HC_API hc_i64 StrCmp(char *a, char *b) {
+HC_API inline hc_i64 StrCmp(char *a, char *b) {
 	return strcmp (a? a: "", b? b: "");
 }
 
-HC_API char *StrNew(char *s) {
+HC_API inline char *StrNew(char *s) {
 	if (!s) {
 		s = "";
 	}
@@ -414,7 +414,7 @@ static void hc_format(HcOut *o, char *fmt, hc_i64 argc, hc_i64 *argv) {
 	}
 }
 
-HC_API void Print(char *fmt, hc_i64 argc, hc_i64 *argv) {
+HC_API inline void Print(char *fmt, hc_i64 argc, hc_i64 *argv) {
 	HcOut o = {0};
 	hc_format (&o, fmt, argc, argv);
 	fflush (stdout);
