@@ -1,0 +1,14 @@
+2: [] top = 'level'
+5: [ user ] name = 'Ada Lovelace'
+7: [ user ] empty = ''
+8: [ user ] flag
+10: [last] key = 'value=more'
+parse: 1 count: 5 err: 0
+missing bracket: 0 err: 2 line: 1
+trailing: 0 err: 4
+no name: 0 err: 3 line: 3
+1: [] a = '1'
+2: [] stop = '2'
+stopped: 0 err: 5 line: 2
+empty: 1 err: 0
+no handler: 0
