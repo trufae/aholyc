@@ -25,7 +25,7 @@ SocketFini;
 
 The main entry points are:
 
-- `TcpListen`, `TcpAccept`, and `TcpConnect`
+- `TcpListen`, `TcpAccept`, `TcpConnect`, and `TcpConnectTimeout`
 - `UdpBind`, `UdpConnect`, `UdpSendTo`, and `UdpRecv`
 - `UdpRecvFrom` plus `UdpSendAddress` to receive a datagram and reply to its
   opaque portable source address
@@ -36,6 +36,9 @@ The main entry points are:
 Handles use `SOCKET_INVALID` (`-1`) on failure. Buffers always have explicit
 byte lengths, so binary data is safe. On Windows, `SocketInit` dynamically
 loads Winsock; all high-level constructors call it automatically.
+
+`TcpConnectTimeout(host, port, milliseconds)` bounds a blocking connection
+attempt; use it for probing hosts that may silently drop packets.
 
 ## TLS
 

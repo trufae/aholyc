@@ -396,6 +396,27 @@ for b in $backends; do
 	fi
 done
 
+# A timed connect temporarily enables nonblocking mode, then restores blocking
+# mode before returning its socket to the caller.
+for b in $backends; do
+	[ "$b" = js ] && continue
+	if ./aholyc -b "$b" tests/socket.HC -o "tests/out/socket-$b" \
+		2>"tests/out/socket-$b.err"; then
+		"tests/out/socket-$b" >"tests/out/socket-$b.txt" 2>&1
+		if cmp -s tests/expected/socket.out "tests/out/socket-$b.txt"; then
+			echo "ok   $b/socket-timeout"
+		else
+			echo "FAIL $b/socket-timeout"
+			diff tests/expected/socket.out "tests/out/socket-$b.txt" | head -10
+			fail=1
+		fi
+	else
+		echo "FAIL build $b/socket-timeout"
+		head -5 "tests/out/socket-$b.err"
+		fail=1
+	fi
+done
+
 # lib/llm builds requests and parses replies without a server, but includes
 # the native lib/net transport, so it is a native-only fixture as well.
 for b in $backends; do

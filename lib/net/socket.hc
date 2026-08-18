@@ -9,6 +9,7 @@
 //   I64  TcpListen(port, host=NULL, backlog=128);
 //   I64  TcpAccept(server);
 //   I64  TcpConnect(host, port);
+//   I64  TcpConnectTimeout(host, port, milliseconds);
 //   I64  UdpBind(port, host=NULL);
 //   I64  UdpConnect(host, port);
 //   I64  UdpSendTo(socket, host, port, bytes, size);
@@ -33,22 +34,28 @@
 #define SOCKET_AF_INET6       23
 #define SOCKET_SOL_SOCKET     0xFFFF
 #define SOCKET_SO_REUSEADDR   4
+#define SOCKET_SO_ERROR       0x1007
 #define SOCKET_MSG_NOSIGNAL   0
 #define SOCKET_AI_PASSIVE     1
+#define SOCKET_CONNECT_TIMEOUT 10060
 #else
 #ifdef IS_MACOS
 #define SOCKET_AF_INET6       30
 #define SOCKET_SOL_SOCKET     0xFFFF
 #define SOCKET_SO_REUSEADDR   4
+#define SOCKET_SO_ERROR       0x1007
 #define SOCKET_SO_NOSIGPIPE   0x1022
 #define SOCKET_MSG_NOSIGNAL   0
 #define SOCKET_AI_PASSIVE     1
+#define SOCKET_CONNECT_TIMEOUT 60
 #else
 #define SOCKET_AF_INET6       10
 #define SOCKET_SOL_SOCKET     1
 #define SOCKET_SO_REUSEADDR   2
+#define SOCKET_SO_ERROR       4
 #define SOCKET_MSG_NOSIGNAL   0x4000
 #define SOCKET_AI_PASSIVE     1
+#define SOCKET_CONNECT_TIMEOUT 110
 #endif
 #endif
 
@@ -116,9 +123,20 @@ I64 (*socket_shutdown)(I64 socket, I64 how);
 I64 (*socket_closesocket)(I64 socket);
 I64 (*socket_setsockopt)(I64 socket, I64 level, I64 option,
   U8 *value, I64 value_size);
+I64 (*socket_getsockopt)(I64 socket, I64 level, I64 option,
+  U8 *value, I32 *value_size);
+I64 (*socket_ioctlsocket)(I64 socket, U64 command, U32 *value);
+I64 (*socket_WSAPoll)(U8 *fds, U64 count, I32 timeout);
 I64 (*socket_getaddrinfo)(U8 *host, U8 *service, CSocketAddrInfo *hints,
   CSocketAddrInfo **result);
 U0 (*socket_freeaddrinfo)(CSocketAddrInfo *result);
+
+class CSocketPollFD
+{
+  U64 handle;
+  I16 events;
+  I16 revents;
+};
 
 Bool SocketInit()
 {
@@ -148,6 +166,9 @@ Bool SocketInit()
   socket_shutdown = GetProcAddress(socket_winsock_library, "shutdown");
   socket_closesocket = GetProcAddress(socket_winsock_library, "closesocket");
   socket_setsockopt = GetProcAddress(socket_winsock_library, "setsockopt");
+  socket_getsockopt = GetProcAddress(socket_winsock_library, "getsockopt");
+  socket_ioctlsocket = GetProcAddress(socket_winsock_library, "ioctlsocket");
+  socket_WSAPoll = GetProcAddress(socket_winsock_library, "WSAPoll");
   socket_getaddrinfo = GetProcAddress(socket_winsock_library, "getaddrinfo");
   socket_freeaddrinfo =
     GetProcAddress(socket_winsock_library, "freeaddrinfo");
@@ -157,6 +178,7 @@ Bool SocketInit()
     !socket_listen || !socket_accept || !socket_connect ||
     !socket_send || !socket_recv || !socket_recvfrom || !socket_sendto ||
     !socket_shutdown || !socket_closesocket || !socket_setsockopt ||
+    !socket_getsockopt || !socket_ioctlsocket || !socket_WSAPoll ||
     !socket_getaddrinfo || !socket_freeaddrinfo) {
       FreeLibrary(socket_winsock_library);
       socket_winsock_library = NULL;
@@ -246,6 +268,39 @@ I64 SocketNativeSetOption(I64 handle, I64 level, I64 option,
   return socket_setsockopt(handle, level, option, value, value_size)(I32);
 }
 
+Bool SocketNativeSetNonBlocking(I64 handle, Bool enabled)
+{
+  U32 value = enabled;
+
+  return !socket_ioctlsocket(handle, 0x8004667e, &value);
+}
+
+I64 SocketNativeWaitConnect(I64 handle, I64 milliseconds)
+{
+  CSocketPollFD pollfd;
+
+  pollfd.handle = handle;
+  pollfd.events = 0x10;
+  pollfd.revents = 0;
+  return socket_WSAPoll(&pollfd, 1, milliseconds)(I32);
+}
+
+I64 SocketNativeConnectError(I64 handle)
+{
+  I32 error = 0;
+  I32 size = sizeof(error);
+
+  if (socket_getsockopt(handle, SOCKET_SOL_SOCKET, SOCKET_SO_ERROR,
+      &error, &size))
+    return SocketNativeError;
+  return error;
+}
+
+Bool SocketNativeConnectPending(I64 error)
+{
+  return error == 10035 || error == 10036 || error == 10037;
+}
+
 I64 SocketNativeGetAddrInfo(U8 *host, U8 *service,
   CSocketAddrInfo *hints, CSocketAddrInfo **result)
 {
@@ -284,6 +339,10 @@ extern I64 shutdown(I64 socket, I64 how);
 extern I64 close(I64 socket);
 extern I64 setsockopt(I64 socket, I64 level, I64 option,
   U8 *value, I64 value_size);
+extern I64 getsockopt(I64 socket, I64 level, I64 option,
+  U8 *value, U64 *value_size);
+extern I64 fcntl(I64 descriptor, I64 command, I64 value);
+extern I64 poll(U8 *fds, U64 count, I64 timeout);
 extern I64 getaddrinfo(U8 *host, U8 *service, CSocketAddrInfo *hints,
   CSocketAddrInfo **result);
 extern U0 freeaddrinfo(CSocketAddrInfo *result);
@@ -385,6 +444,63 @@ U0 SocketNativeShutdown(I64 handle)
 U0 SocketNativeClose(I64 handle)
 {
   close(handle);
+}
+
+class CSocketPollFD
+{
+  I32 handle;
+  I16 events;
+  I16 revents;
+};
+
+Bool SocketNativeSetNonBlocking(I64 handle, Bool enabled)
+{
+  I64 flags = fcntl(handle, 3, 0);
+
+  if (flags < 0)
+    return FALSE;
+  #ifdef IS_MACOS
+  if (enabled)
+    flags |= 4;
+  else
+    flags &= ~4;
+  #else
+  if (enabled)
+    flags |= 0x800;
+  else
+    flags &= ~0x800;
+  #endif
+  return !fcntl(handle, 4, flags);
+}
+
+I64 SocketNativeWaitConnect(I64 handle, I64 milliseconds)
+{
+  CSocketPollFD pollfd;
+
+  pollfd.handle = handle;
+  pollfd.events = 4;
+  pollfd.revents = 0;
+  return poll(&pollfd, 1, milliseconds)(I32);
+}
+
+I64 SocketNativeConnectError(I64 handle)
+{
+  I32 error = 0;
+  U64 size = sizeof(error);
+
+  if (getsockopt(handle, SOCKET_SOL_SOCKET, SOCKET_SO_ERROR,
+      &error, &size))
+    return SocketNativeError;
+  return error;
+}
+
+Bool SocketNativeConnectPending(I64 error)
+{
+  #ifdef IS_MACOS
+  return error == 35 || error == 36 || error == 37;
+  #else
+  return error == 11 || error == 114 || error == 115;
+  #endif
 }
 
 #endif
@@ -524,11 +640,15 @@ I64 TcpAccept(I64 server)
   return SocketAccept(server);
 }
 
-I64 SocketConnect(U8 *host, I64 port, I64 type=SOCKET_TCP)
+I64 SocketConnectTimeout(U8 *host, I64 port, I64 milliseconds,
+  I64 type=SOCKET_TCP)
 {
   CSocketAddrInfo *addresses;
   CSocketAddrInfo *address;
   I64 handle = SOCKET_INVALID;
+  I64 result;
+  I64 wait;
+  I64 error;
 
   if (!host || !*host) {
     socket_last_error = -1;
@@ -543,8 +663,36 @@ I64 SocketConnect(U8 *host, I64 port, I64 type=SOCKET_TCP)
       address->protocol);
     if (handle != SOCKET_INVALID) {
       SocketConfigure(handle);
-      if (SocketNativeConnect(handle, address->address,
-          address->address_length) < 0) {
+      if (milliseconds >= 0) {
+        if (!SocketNativeSetNonBlocking(handle, TRUE)) {
+          SocketRememberNativeError;
+          SocketNativeClose(handle);
+          handle = SOCKET_INVALID;
+        }
+      }
+      if (handle != SOCKET_INVALID) {
+        result = SocketNativeConnect(handle, address->address,
+          address->address_length);
+        if (result < 0) {
+          error = SocketNativeError;
+          if (milliseconds >= 0 && SocketNativeConnectPending(error)) {
+            wait = SocketNativeWaitConnect(handle, milliseconds);
+            if (!wait)
+              error = SOCKET_CONNECT_TIMEOUT;
+            else if (wait < 0)
+              error = SocketNativeError;
+            else
+              error = SocketNativeConnectError(handle);
+          }
+          if (error) {
+            socket_last_error = error;
+            SocketNativeClose(handle);
+            handle = SOCKET_INVALID;
+          }
+        }
+      }
+      if (handle != SOCKET_INVALID && milliseconds >= 0 &&
+          !SocketNativeSetNonBlocking(handle, FALSE)) {
             SocketRememberNativeError;
             SocketNativeClose(handle);
             handle = SOCKET_INVALID;
@@ -558,9 +706,19 @@ I64 SocketConnect(U8 *host, I64 port, I64 type=SOCKET_TCP)
   return handle;
 }
 
+I64 SocketConnect(U8 *host, I64 port, I64 type=SOCKET_TCP)
+{
+  return SocketConnectTimeout(host, port, -1, type);
+}
+
 I64 TcpConnect(U8 *host, I64 port)
 {
   return SocketConnect(host, port, SOCKET_TCP);
+}
+
+I64 TcpConnectTimeout(U8 *host, I64 port, I64 milliseconds)
+{
+  return SocketConnectTimeout(host, port, milliseconds, SOCKET_TCP);
 }
 
 I64 UdpConnect(U8 *host, I64 port)
