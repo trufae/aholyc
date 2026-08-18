@@ -156,7 +156,8 @@ Bool term_started;
 Bool term_alt_screen;
 Bool term_raw;
 Bool term_mouse;
-U0 (*term_resize_callback)(I64 width, I64 height);
+U0 TermResizeCallback(I64 width, I64 height); // ran after a resize
+TermResizeCallback *term_resize_callback;
 U8 *term_out;
 I64 term_out_length;
 I64 term_out_capacity;
@@ -574,7 +575,7 @@ public Bool TermGetSize(I64 *width, I64 *height)
 
 // callback: U0 (*)(I64 width, I64 height), ran during TermCommit or
 // TermPollEvent after the buffers have been resized.
-public U0 TermOnResize(U8 *callback)
+public U0 TermOnResize(TermResizeCallback *callback)
 {
   term_resize_callback = callback;
 }

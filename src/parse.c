@@ -630,6 +630,26 @@ static bool same_type(Type *a, Type *b) {
 	return false;
 }
 
+static bool is_fnptr(Type *t) {
+	return t && t->kind == TY_PTR && t->base && t->base->kind == TY_FUNC;
+}
+
+/* Function pointers only convert to function pointers of the same signature
+ * (and never implicitly to or from data pointers), unless -fno-strict-fnptr.
+ * Integer constants such as NULL are still accepted. */
+static void require_fnptr_compat(Parser *ps, Type *dst, Node *v, Token *tok) {
+	if (!ps->cc->strict_fnptr || (!is_fnptr (dst) && !is_fnptr (v->ty))) {
+		return;
+	}
+	if (is_fnptr (dst) && is_fnptr (v->ty)) {
+		if (!same_type (dst->base, v->ty->base)) {
+			error_tok (ps->cc, tok, "incompatible function-pointer signature");
+		}
+	} else if (dst->kind == TY_PTR && v->ty->kind == TY_PTR) {
+		error_tok (ps->cc, tok, "implicit conversion between function and data pointer");
+	}
+}
+
 static Node *new_assign(Parser *ps, Node *lhs, Node *rhs, Token *tok) {
 	if (!is_lvalue (lhs)) {
 		error_tok (ps->cc, tok, "not an assignable expression");
@@ -639,12 +659,7 @@ static Node *new_assign(Parser *ps, Node *lhs, Node *rhs, Token *tok) {
 	}
 	rhs = rvalize (rhs);
 	require_nonnull (ps, lhs->ty, rhs, tok, "assignment");
-	if (lhs->ty->kind == TY_PTR && lhs->ty->base &&
-			lhs->ty->base->kind == TY_FUNC && rhs->ty->kind == TY_PTR &&
-			rhs->ty->base && rhs->ty->base->kind == TY_FUNC &&
-			!same_type (lhs->ty->base, rhs->ty->base)) {
-		error_tok (ps->cc, tok, "incompatible function-pointer signature");
-	}
+	require_fnptr_compat (ps, lhs->ty, rhs, tok);
 	/* implicit conversion to stored type */
 	if (lhs->ty->kind == TY_F64 && rhs->ty->kind != TY_F64) {
 		rhs = new_cast (rhs, ty_f64);
@@ -674,19 +689,40 @@ static Type *builtin_type(const char *s) {
 	return NULL;
 }
 
+/* A declared function's name followed by '*' names a pointer to that
+ * function's type: `Bool Handler(I64 x); Handler *cb = &Fn;` is HolyC's
+ * spelling of a function-pointer typedef. */
+static Type *find_func_type(Parser *ps, Token *t) {
+	if (t->kind != TK_ID || !t->next || t->next->kind != TK_PUNCT ||
+			strcmp (t->next->str, "*") || find_var (ps, t->str)) {
+		return NULL;
+	}
+	Obj *fn = find_func (ps, t->str);
+	return fn? fn->ty: NULL;
+}
+
+/* builtin, class, or function-name type at token t; NULL if none */
+static Type *type_at(Parser *ps, Token *t) {
+	Type *ty = builtin_type (t->str);
+	if (!ty) {
+		ty = find_class (ps, t->str);
+	}
+	if (!ty) {
+		ty = find_func_type (ps, t);
+	}
+	return ty;
+}
+
 static bool is_type_start(Parser *ps, Token *t) {
 	if (t->kind == TK_TYPE) {
 		return builtin_type (t->str) != NULL;
 	}
-	return t->kind == TK_ID && find_class (ps, t->str);
+	return t->kind == TK_ID && type_at (ps, t) != NULL;
 }
 
 /* parse base type + leading stars */
 static Type *parse_typespec(Parser *ps) {
-	Type *ty = builtin_type (ps->tk->str);
-	if (!ty) {
-		ty = find_class (ps, ps->tk->str);
-	}
+	Type *ty = type_at (ps, ps->tk);
 	if (!ty) {
 		error_tok (ps->cc, ps->tk, "unknown type '%s'", ps->tk->str);
 	}
@@ -707,10 +743,19 @@ static Node *expr(Parser *ps);
 static Type *parse_funcptr_declarator(Parser *ps, Type *ret, char **name,
 		bool require_name, const char *what);
 
+/* Class values are returned through a hidden first parameter: the caller
+ * passes the address of a temporary and the callee copies into it. */
+static bool returns_class(Type *fnty) {
+	return fnty && fnty->base && fnty->base->kind == TY_CLASS;
+}
+
 static void parse_funcptr_params(Parser *ps, Type *fnty) {
 	Type *params[256];
 	int n = 0;
 	bool first = true;
+	if (returns_class (fnty)) {
+		params[n++] = ptr_to (ps->cc, fnty->base);
+	}
 	while (!is_punct (ps, ")")) {
 		if (!first) {
 			expect (ps, ",");
@@ -905,10 +950,31 @@ static Node *call_named(Parser *ps, const char *name, Node *args, int nargs, Tok
 
 /* Fill default arguments, verify count, insert conversions. args is the
  * chain of provided args, NULL nodes mark holes from `f(,x)`. */
+/* For a class-returning call: prepend the address of a fresh temporary to
+ * the argument list. The call then evaluates to that address, and
+ * sret_result() turns it back into a class lvalue. */
+static Node *sret_args(Parser *ps, Type *cls, Node *args, Token *tok) {
+	Obj *tmp = new_temp (ps, cls);
+	Node *a = new_unary (ps, ND_ADDR, new_var_node (tmp, tok), tok);
+	a->ty = nonnull_ptr_to (ps->cc, cls);
+	a->next = args;
+	return a;
+}
+
+static Node *sret_result(Parser *ps, Node *call, Type *cls) {
+	call->ty = ptr_to (ps->cc, cls);
+	Node *d = new_unary (ps, ND_DEREF, call, call->tok);
+	d->ty = cls;
+	return d;
+}
+
 static Node *make_call(Parser *ps, Obj *fn, Node *args, int nargs, Token *tok) {
 	Node *n = new_node (ND_CALL, tok);
 	n->func = fn;
 	n->ty = value_type (ps->cc, fn->ty->base? fn->ty->base: ty_i64);
+	if (returns_class (fn->ty)) {
+		args = sret_args (ps, fn->ty->base, args, tok);
+	}
 	/* collect into array for easy manipulation */
 	Node *argv[256];
 	int i, argc = 0;
@@ -945,6 +1011,7 @@ static Node *make_call(Parser *ps, Obj *fn, Node *args, int nargs, Token *tok) {
 		}
 		a = rvalize (a);
 		require_nonnull (ps, p->ty, a, tok, "parameter");
+		require_fnptr_compat (ps, p->ty, a, tok);
 		prev_ty = a->ty; /* lastclass sees the arg's own type, pre-conversion */
 		/* convert to param type */
 		if (p->ty->kind == TY_F64 && a->ty->kind != TY_F64) {
@@ -979,6 +1046,9 @@ static Node *make_call(Parser *ps, Obj *fn, Node *args, int nargs, Token *tok) {
 	}
 	n->args = head.next;
 	n->nfixed = nfixed;
+	if (returns_class (fn->ty)) {
+		return sret_result (ps, n, fn->ty->base);
+	}
 	return n;
 }
 
@@ -991,6 +1061,9 @@ static Node *make_indirect_call(Parser *ps, Node *callee, Node *args, Token *tok
 		fnty = callee->ty->base;
 	}
 	n->ty = fnty && fnty->base? value_type (ps->cc, fnty->base): ty_i64;
+	if (returns_class (fnty)) {
+		args = sret_args (ps, fnty->base, args, tok);
+	}
 	Node *argv[256];
 	int argc = 0;
 	for (Node *a = args; a; a = a->next) {
@@ -1021,6 +1094,7 @@ static Node *make_indirect_call(Parser *ps, Node *callee, Node *args, Token *tok
 		Node *a = rvalize (argv[i]);
 		Type *pty = fnty->params[i];
 		require_nonnull (ps, pty, a, tok, "parameter");
+		require_fnptr_compat (ps, pty, a, tok);
 		if (pty->kind == TY_F64 && a->ty->kind != TY_F64) {
 			a = new_cast (a, ty_f64);
 		} else if (pty->kind != TY_F64 && pty->kind != TY_CLASS &&
@@ -1043,6 +1117,9 @@ static Node *make_indirect_call(Parser *ps, Node *callee, Node *args, Token *tok
 	}
 	n->args = head.next;
 	n->nfixed = fnty->nparams;
+	if (returns_class (fnty)) {
+		return sret_result (ps, n, fnty->base);
+	}
 	return n;
 }
 
@@ -1266,6 +1343,13 @@ static Node *postfix(Parser *ps) {
 			if (is_type_start (ps, ps->tk->next)) {
 				ps->tk = ps->tk->next;
 				Type *ty = parse_typespec (ps);
+				if (is_punct (ps, "(")) { /* x(U0 (*)(I64)) */
+					char *pname = NULL;
+					ty = parse_funcptr_declarator (ps, ty, &pname, false, "cast");
+					if (pname) {
+						error_tok (ps->cc, t, "function-pointer cast takes no name");
+					}
+				}
 				expect (ps, ")");
 				n = new_cast (rvalize (n), ty);
 				/* explicit I64<->F64 casts reinterpret the 8-byte slot,
@@ -1690,10 +1774,7 @@ static Node *local_decl(Parser *ps) {
 	Token *hint = NULL, *func_hint = NULL, *align_hint = NULL, *nonnull_hint = NULL;
 	collect_hints (ps, t, &hint, &func_hint, &align_hint, &nonnull_hint);
 	reject_func_hint (ps, func_hint);
-	Type *base = builtin_type (ps->tk->str);
-	if (!base) {
-		base = find_class (ps, ps->tk->str);
-	}
+	Type *base = type_at (ps, ps->tk);
 	ps->tk = ps->tk->next;
 	Node head = {0};
 	Node *cur = &head;
@@ -2166,6 +2247,9 @@ static Node *stmt(Parser *ps) {
 				e = to_int (e);
 			}
 			require_nonnull (ps, rt, e, t, "return value");
+			if (rt) {
+				require_fnptr_compat (ps, rt, e, t);
+			}
 			if (rt && rt->kind == TY_VOID) {
 				/* U0 fn: evaluate for side effects, discard */
 				n->lhs = NULL;
@@ -2173,6 +2257,26 @@ static Node *stmt(Parser *ps) {
 				Node *es = new_expr_stmt (e, t);
 				es->next = n;
 				blk->body = es;
+				expect (ps, ";");
+				return blk;
+			}
+			if (rt && rt->kind == TY_CLASS) {
+				/* copy the class value into the caller's temporary and
+				 * hand its address back */
+				if (e->ty != rt) {
+					error_tok (ps->cc, t, "return value must be a %s", rt->name);
+				}
+				Obj *sret = find_var (ps, "__sret");
+				Node *dst = rvalize (new_var_node (sret, t));
+				Node *src = new_unary (ps, ND_ADDR, e, t);
+				src->ty = ptr_to (ps->cc, rt);
+				dst->next = src;
+				src->next = new_num (rt->size, t);
+				Node *blk = new_node (ND_BLOCK, t);
+				Node *cp = new_expr_stmt (call_named (ps, "MemCpy", dst, 3, t), t);
+				n->lhs = rvalize (new_var_node (sret, t));
+				cp->next = n;
+				blk->body = cp;
 				expect (ps, ";");
 				return blk;
 			}
@@ -2311,6 +2415,11 @@ static void parse_params(Parser *ps, Obj *fn) {
 	Node *defaults[256];
 	int n = 0;
 	bool first = true;
+	if (returns_class (fn->ty)) {
+		cur->next = new_obj (ps, "__sret", ptr_to (ps->cc, fn->ty->base));
+		cur = cur->next;
+		defaults[n++] = NULL;
+	}
 	while (!is_punct (ps, ")")) {
 		if (!first) {
 			expect (ps, ",");
@@ -2560,6 +2669,10 @@ static void parse_func(Parser *ps, Type *ret, char *name, bool is_extern,
 	if (fresh) {
 		fn = new_obj (ps, name, NULL);
 		fn->is_func = true;
+	}
+	if (ret->kind == TY_CLASS && is_extern) {
+		error_tok (ps->cc, ps->tk,
+			"extern function %s cannot return a class value; return a pointer", name);
 	}
 	Type *fnty = new_type (ps->cc, TY_FUNC, 8, 8);
 	fnty->base = ret;
@@ -2822,10 +2935,7 @@ Program *parse(Aholyc *cc, Token *tok, bool align_hints) {
 		if (is_type_start (ps, ps->tk)) {
 			/* type [stars] ident '(' => function; else global var(s) */
 			Token *save = ps->tk;
-			Type *base = builtin_type (ps->tk->str);
-			if (!base) {
-				base = find_class (ps, ps->tk->str);
-			}
+			Type *base = type_at (ps, ps->tk);
 			ps->tk = ps->tk->next;
 			Type *ret = base;
 			while (eat (ps, "*")) {

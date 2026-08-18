@@ -279,7 +279,7 @@ struct Aholyc {
 	int ncleanups, pp_depth, pp_brace_depth, pp_paren_depth, pp_bracket_depth;
 	int exe_serial;
 	bool verbose, keep, shared, archive, use_hints, use_asm, use_pic;
-	bool use_exceptions, use_stack_protector, error_active;
+	bool use_exceptions, use_stack_protector, strict_fnptr, error_active;
 };
 
 /* ---------------------------------------------------------------- lexer */

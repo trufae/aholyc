@@ -55,6 +55,7 @@ static int usage(int code) {
 		"  -fno-pic      disable position-independent native code\n"
 		"  -fno-exceptions  disable exception handling and catch blocks\n"
 		"  -fno-stack-protector  disable native stack protection\n"
+		"  -fno-strict-fnptr  accept mismatched or untyped function pointers\n"
 		"  -k            keep intermediate files\n"
 		"  -V            verbose: show toolchain commands\n"
 		"  -h            show this help\n"
@@ -207,6 +208,8 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 				cc->use_exceptions = false;
 			} else if (!strcmp (go.arg, "no-stack-protector")) {
 				cc->use_stack_protector = false;
+			} else if (!strcmp (go.arg, "no-strict-fnptr")) {
+				cc->strict_fnptr = false;
 			} else {
 				error (cc, "unknown option '-f%s' (try -h)", go.arg);
 			}

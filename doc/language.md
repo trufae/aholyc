@@ -156,6 +156,27 @@ I64 (*apply)(I64 (*callback)(I64), I64 value) = &Apply;
   but has no signature to check. A typed variadic callback uses HolyC's
   `argc`/`argv` packing; taking the address of a bodiless variadic `extern`
   retains that function's native C-varargs ABI.
+* A declared function's name followed by `*` in type position is a pointer
+  to that function's type — HolyC's spelling of a function-pointer typedef.
+  A bodiless prototype works as a pure type name:
+
+```holyc
+Bool IniHandler(CIni *ini, CStrs *section, CStrs *name, CStrs *value);
+class CIni { IniHandler *handler; };
+U0 IniInit(CIni *ini, IniHandler *handler);
+IniHandler *h = &OnPair;   // OnPair must match IniHandler's signature
+```
+
+  Any function works, not just prototypes (`Add *op = &Add;`), and the name
+  doubles as a cast target: `raw(IniHandler *)`. Note that at statement
+  start `Fn *x;` is now a declaration rather than a call multiplied by `x`.
+* Function pointers are type checked: assigning, passing, or returning one
+  where the declared function-pointer type has a different signature is an
+  error, and so is an implicit conversion between a function pointer and a
+  data pointer such as `U8 *`. Integers (including `NULL`) still convert
+  freely, and a postfix cast to a nameless function-pointer type makes the
+  conversion explicit: `sym(U0 (*)(I64 x))`, `(&Fn)(U8 *)`. Pass
+  `-fno-strict-fnptr` to accept all of these silently.
 * Variadic functions declare `...` and read the extra args through the
   implicit `I64 argc` and `I64 argv[]`:
 
@@ -223,7 +244,8 @@ tighter than multiplication):
 * Comparisons chain: `5 < i < j + 1 < 20` means
   `5<i && i<j+1 && j+1<20`, with each middle term evaluated once.
 * There is **no** `?:` operator.
-* Type casting is **postfix**: `ptr(CDog *)`, `x(I64)`. `ToI64()`,
+* Type casting is **postfix**: `ptr(CDog *)`, `x(I64)`,
+  `p(U0 (*)(I64 x))`. `ToI64()`,
   `ToF64()` and `ToBool()` also exist and are clearer for numeric
   conversion.
 * A char constant can hold up to 8 characters packed little-endian:
@@ -269,6 +291,20 @@ class CDog : CAnimal { U8 name[32]; };
 
 CDog *d = MAlloc(sizeof(CDog));
 d->age = 3;
+```
+
+Class values are not passed by value: parameters must be pointers
+(`CDog *`). Functions and function pointers can *return* a class by value,
+which lowers to a hidden out-pointer: the caller supplies a temporary, the
+callee's `return v;` copies into it, and the call expression is that
+temporary as an lvalue, so `d = Make(3);`, `Make(3).age` and
+`return Make(3);` all work. `extern` functions cannot return classes, since
+the convention is not the C ABI. Assigning one class variable to another
+copies its bytes.
+
+```holyc
+CDog Make(I64 age) { CDog d; d.age = age; return d; }
+CDog rex = Make(3);
 ```
 
 `union` works the same way with overlapping members. `sizeof(type|expr)`

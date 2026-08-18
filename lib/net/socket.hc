@@ -105,6 +105,12 @@ extern I64 FreeLibrary(U8 *library);
 U8 *socket_winsock_library;
 Bool socket_winsock_started;
 
+// Store a winsock symbol into a typed function-pointer slot.
+U0 SocketLoad(U8 *name, U8 **slot)
+{
+  *slot = GetProcAddress(socket_winsock_library, name);
+}
+
 I64 (*socket_WSAStartup)(I64 version, U8 *data);
 I64 (*socket_WSACleanup)();
 I64 (*socket_WSAGetLastError)();
@@ -150,28 +156,26 @@ Bool SocketInit()
     return FALSE;
   }
 
-  socket_WSAStartup = GetProcAddress(socket_winsock_library, "WSAStartup");
-  socket_WSACleanup = GetProcAddress(socket_winsock_library, "WSACleanup");
-  socket_WSAGetLastError =
-    GetProcAddress(socket_winsock_library, "WSAGetLastError");
-  socket_socket = GetProcAddress(socket_winsock_library, "socket");
-  socket_bind = GetProcAddress(socket_winsock_library, "bind");
-  socket_listen = GetProcAddress(socket_winsock_library, "listen");
-  socket_accept = GetProcAddress(socket_winsock_library, "accept");
-  socket_connect = GetProcAddress(socket_winsock_library, "connect");
-  socket_send = GetProcAddress(socket_winsock_library, "send");
-  socket_recv = GetProcAddress(socket_winsock_library, "recv");
-  socket_recvfrom = GetProcAddress(socket_winsock_library, "recvfrom");
-  socket_sendto = GetProcAddress(socket_winsock_library, "sendto");
-  socket_shutdown = GetProcAddress(socket_winsock_library, "shutdown");
-  socket_closesocket = GetProcAddress(socket_winsock_library, "closesocket");
-  socket_setsockopt = GetProcAddress(socket_winsock_library, "setsockopt");
-  socket_getsockopt = GetProcAddress(socket_winsock_library, "getsockopt");
-  socket_ioctlsocket = GetProcAddress(socket_winsock_library, "ioctlsocket");
-  socket_WSAPoll = GetProcAddress(socket_winsock_library, "WSAPoll");
-  socket_getaddrinfo = GetProcAddress(socket_winsock_library, "getaddrinfo");
-  socket_freeaddrinfo =
-    GetProcAddress(socket_winsock_library, "freeaddrinfo");
+  SocketLoad("WSAStartup", &socket_WSAStartup);
+  SocketLoad("WSACleanup", &socket_WSACleanup);
+  SocketLoad("WSAGetLastError", &socket_WSAGetLastError);
+  SocketLoad("socket", &socket_socket);
+  SocketLoad("bind", &socket_bind);
+  SocketLoad("listen", &socket_listen);
+  SocketLoad("accept", &socket_accept);
+  SocketLoad("connect", &socket_connect);
+  SocketLoad("send", &socket_send);
+  SocketLoad("recv", &socket_recv);
+  SocketLoad("recvfrom", &socket_recvfrom);
+  SocketLoad("sendto", &socket_sendto);
+  SocketLoad("shutdown", &socket_shutdown);
+  SocketLoad("closesocket", &socket_closesocket);
+  SocketLoad("setsockopt", &socket_setsockopt);
+  SocketLoad("getsockopt", &socket_getsockopt);
+  SocketLoad("ioctlsocket", &socket_ioctlsocket);
+  SocketLoad("WSAPoll", &socket_WSAPoll);
+  SocketLoad("getaddrinfo", &socket_getaddrinfo);
+  SocketLoad("freeaddrinfo", &socket_freeaddrinfo);
 
   if (!socket_WSAStartup || !socket_WSACleanup ||
     !socket_WSAGetLastError || !socket_socket || !socket_bind ||

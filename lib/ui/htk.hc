@@ -207,7 +207,7 @@ U0 UiHtkPaint(HtkCtl *h)
     paint(c, c->celldata);
 }
 
-UiCtl *UiCanvasNew(I64 w, I64 h, U0 *drawfn, U0 *data=NULL)
+UiCtl *UiCanvasNew(I64 w, I64 h, UiCallback *drawfn, U0 *data=NULL)
 {
   HtkCtl *canvas = HtkCanvasNew(w / UI_HTK_CELL_W, h / UI_HTK_CELL_H,
     &UiHtkPaint, 0);
@@ -257,7 +257,7 @@ UiCtl *UiMenuNew(U8 *title)
   return UiHtkWrap(UI_MENU, HtkMenuNew(UiHtk(ui_htk_window), title));
 }
 
-UiCtl *UiMenuItem(UiCtl *m, U8 *label, U0 *fn, U0 *data=NULL)
+UiCtl *UiMenuItem(UiCtl *m, U8 *label, UiCallback *fn, U0 *data=NULL)
 {
   UiCtl *c = UiHtkWrap(UI_MENUITEM, HtkMenuItem(UiHtk(m), label));
 
@@ -412,7 +412,7 @@ U0 UiHtkTimerFire(I64 ctl, I64 unused)
   UiFireClick(ctl);
 }
 
-U0 UiTimer(I64 ms, U0 *fn, U0 *data=NULL)
+U0 UiTimer(I64 ms, UiCallback *fn, U0 *data=NULL)
 {
   UiCtl *t = UiCtlNew(UI_TIMER, 0);
 
@@ -420,7 +420,7 @@ U0 UiTimer(I64 ms, U0 *fn, U0 *data=NULL)
   HtkHookAdd(ms, ms, &UiHtkTimerFire, t, 0);
 }
 
-U0 UiQueueMain(U0 *fn, U0 *data=NULL)
+U0 UiQueueMain(UiCallback *fn, U0 *data=NULL)
 {
   UiCtl *t = UiCtlNew(UI_TIMER, 0);
 
@@ -433,7 +433,7 @@ UiCtl *UiToolbarNew()
   return UiHtkWrap(UI_TOOLBAR, HtkToolbarNew);
 }
 
-U0 UiToolAdd(UiCtl *tb, U8 *label, U0 *fn, U0 *data=NULL)
+U0 UiToolAdd(UiCtl *tb, U8 *label, UiCallback *fn, U0 *data=NULL)
 {
   UiCtl *c = UiHtkWrap(UI_BUTTON, HtkButtonNew(label));
 
@@ -482,7 +482,7 @@ U8 *UiHtkCell(HtkCtl *t, I64 row, I64 col, I64 data)
   return UiTableCell(t->user, row, col);
 }
 
-UiCtl *UiTableNew(U0 *cellfn, U0 *data=NULL)
+UiCtl *UiTableNew(UiCellCallback *cellfn, U0 *data=NULL)
 {
   HtkCtl *h = HtkTableNew(&UiHtkCell, 0);
   UiCtl *c = UiHtkWrap(UI_TABLE, h);

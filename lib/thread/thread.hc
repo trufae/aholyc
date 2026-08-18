@@ -15,9 +15,12 @@ class CThread
   Bool joinable;
 };
 
+U0 ThreadEntry(U8 *argument);   // thread body
+U0 ThreadDestructor(U8 *value); // TLS value destructor
+
 class CThreadStart
 {
-  U8 *entry;
+  ThreadEntry *entry;
   U8 *data;
 };
 
@@ -55,6 +58,8 @@ class CThreadTLS
   Bool valid;
 };
 
+I64 ThreadMain(CThreadStart *start); // native entry, defined below
+
 // THREAD_WINDOWS/THREAD_POSIX let cross-builds override the compiler host.
 #ifdef THREAD_WINDOWS
 #ifdef THREAD_POSIX
@@ -79,7 +84,7 @@ class CThreadTLS
 
 I64 ThreadMain(CThreadStart *start)
 {
-  U0 (*entry)(U8 *argument);
+  ThreadEntry *entry;
   U8 *data;
 
   entry = start->entry;
@@ -89,7 +94,7 @@ I64 ThreadMain(CThreadStart *start)
   return 0;
 }
 
-public Bool ThreadCreate(CThread *thread, U8 *entry, U8 *data = NULL)
+public Bool ThreadCreate(CThread *thread, ThreadEntry *entry, U8 *data = NULL)
 {
   CThreadStart *start;
 
@@ -132,7 +137,7 @@ public Bool ThreadDetach(CThread *thread)
 }
 
 // Names close to TempleOS's Spawn/TaskWait without claiming CTask semantics.
-public Bool ThreadSpawn(CThread *thread, U8 *entry, U8 *data = NULL)
+public Bool ThreadSpawn(CThread *thread, ThreadEntry *entry, U8 *data = NULL)
 {
   return ThreadCreate(thread, entry, data);
 }
@@ -366,7 +371,7 @@ public Bool ThreadLockUnlock(CThreadLock *spin)
   return LBtr(&spin->taken, 0);
 }
 
-public Bool ThreadTLSInit(CThreadTLS *tls, U8 *destructor = NULL)
+public Bool ThreadTLSInit(CThreadTLS *tls, ThreadDestructor *destructor = NULL)
 {
   if (!tls)
     return FALSE;

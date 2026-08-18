@@ -15,9 +15,9 @@
 //   UiCtl *UiSliderNew(I64 min=0, I64 max=100);
 //   UiCtl *UiProgressNew();
 //   UiCtl *UiSeparatorNew();
-//   UiCtl *UiCanvasNew(I64 w, I64 h, U0 *drawfn, U0 *data=NULL);
+//   UiCtl *UiCanvasNew(I64 w, I64 h, UiCallback *drawfn, U0 *data=NULL);
 //   UiCtl *UiMenuNew(U8 *title);                    // create the window first
-//   UiCtl *UiMenuItem(UiCtl *m, U8 *label, U0 *fn, U0 *data=NULL);
+//   UiCtl *UiMenuItem(UiCtl *m, U8 *label, UiCallback *fn, U0 *data=NULL);
 //   UiCtl *UiSubMenu(UiCtl *m, U8 *title);          // nested menu
 //   UiCtl *UiPopupMenuNew();                        // menu outside the bar
 //   U0 UiContextMenu(UiCtl *c, UiCtl *menu);        // pops on right click
@@ -27,9 +27,9 @@
 //   Bool UiCheckboxChecked(UiCtl *c);
 //   I64 UiSliderValue(UiCtl *s);
 //   U0 UiProgressSet(UiCtl *p, I64 percent);
-//   U0 UiOnClick(UiCtl *c, U0 *fn, U0 *data=NULL);  // fn: U0 (UiCtl*, U0*)
-//   U0 UiOnChange(UiCtl *c, U0 *fn, U0 *data=NULL); // entry/slider/checkbox
-//   U0 UiOnSubmit(UiCtl *e, U0 *fn, U0 *data=NULL); // Enter pressed in entry
+//   U0 UiOnClick(UiCtl *c, UiCallback *fn, U0 *data=NULL);
+//   U0 UiOnChange(UiCtl *c, UiCallback *fn, U0 *data=NULL); // entry/slider/checkbox
+//   U0 UiOnSubmit(UiCtl *e, UiCallback *fn, U0 *data=NULL); // Enter pressed in entry
 //   U0 UiBoxAdd(UiCtl *box, UiCtl *c);
 //   U0 UiGridAdd(UiCtl *g, UiCtl *c, I64 col, I64 row);
 //   U0 UiWindowSetChild(UiCtl *w, UiCtl *c);
@@ -38,7 +38,7 @@
 //   U0 UiMain();
 //   U0 UiQuit();
 //   U0 UiCanvasRedraw(UiCtl *c);
-//   U0 UiOnMouse(UiCtl *c, U0 *fn, U0 *data=NULL); // canvas pointer event
+//   U0 UiOnMouse(UiCtl *c, UiCallback *fn, U0 *data=NULL); // canvas pointer event
 //   I64 UiMouseX(UiCtl *c);
 //   I64 UiMouseY(UiCtl *c);
 //   I64 UiMouseButton(UiCtl *c);
@@ -77,16 +77,16 @@
 //   UiCtl *UiTabNew();
 //   U0 UiTabAdd(UiCtl *t, U8 *label, UiCtl *child);
 //
-// Lifecycle and timing (fn: U0 (UiCtl *ctl, U0 *data)):
+// Lifecycle and timing (fn: UiCallback):
 //   U0 UiEnable(UiCtl *c, Bool on);
 //   U0 UiExpand(UiCtl *c, Bool on);               // fill spare box space
 //   U0 UiSetVisible(UiCtl *c, Bool on);
-//   U0 UiTimer(I64 ms, U0 *fn, U0 *data=NULL);    // repeating
-//   U0 UiQueueMain(U0 *fn, U0 *data=NULL);        // run once on the UI thread
+//   U0 UiTimer(I64 ms, UiCallback *fn, U0 *data=NULL); // repeating
+//   U0 UiQueueMain(UiCallback *fn, U0 *data=NULL); // run once on the UI thread
 //
 // App-shell containers (each is a control you UiBoxAdd like any other):
 //   UiCtl *UiToolbarNew();
-//   U0 UiToolAdd(UiCtl *tb, U8 *label, U0 *fn, U0 *data=NULL);
+//   U0 UiToolAdd(UiCtl *tb, U8 *label, UiCallback *fn, U0 *data=NULL);
 //   UiCtl *UiStatusbarNew(U8 *text="");
 //   U0 UiStatusSet(UiCtl *sb, U8 *text);
 //   UiCtl *UiSplitNew(Bool vertical=FALSE);       // two-pane divider
@@ -96,7 +96,7 @@
 // Table — a pull model: you supply a cell callback and a row count, the
 // widget asks for the text of each visible cell (col: U8 *fn(UiCtl *t,
 // I64 row, I64 col, U0 *data)).
-//   UiCtl *UiTableNew(U0 *cellfn, U0 *data=NULL);
+//   UiCtl *UiTableNew(UiCellCallback *cellfn, U0 *data=NULL);
 //   U0 UiTableColumn(UiCtl *t, U8 *title);         // add columns in order
 //   U0 UiTableSetRows(UiCtl *t, I64 nrows);        // (re)load with N rows
 //   I64 UiTableSelected(UiCtl *t);                 // selected row, -1 if none
@@ -107,7 +107,7 @@
 //   UiCtl *UiTreeAdd(UiCtl *t, UiCtl *parent, U8 *label);  // parent=NULL: root
 //   UiCtl *UiTreeSelected(UiCtl *t);               // selected node, NULL if none
 //
-// Inside a canvas draw callback (U0 fn(UiCtl *c, U0 *data)) only:
+// Inside a canvas draw callback (a UiCallback) only:
 //   U0 UiSetColor(F64 r, F64 g, F64 b);             // 0.0 .. 1.0
 //   U0 UiFillRect(F64 x, F64 y, F64 w, F64 h);
 //   U0 UiLine(F64 x1, F64 y1, F64 x2, F64 y2);
@@ -140,6 +140,12 @@
 #define UI_COLUMN   25
 #define UI_TREE     26
 #define UI_TREENODE 27
+
+class UiCtl;
+// Click/change/submit/mouse/timer/draw callbacks all take the control and
+// the user data given at registration; table cells return the cell text.
+U0 UiCallback(UiCtl *c, U0 *data);
+U8 *UiCellCallback(UiCtl *t, I64 row, I64 col, U0 *data);
 
 class UiCtl
 {
@@ -199,13 +205,13 @@ U0 UiFireClick(UiCtl *c)
     c->cb(c, c->cb_data);
 }
 
-U0 UiOnClick(UiCtl *c, U0 *fn, U0 *data=NULL)
+U0 UiOnClick(UiCtl *c, UiCallback *fn, U0 *data=NULL)
 {
   c->cb = fn;
   c->cb_data = data;
 }
 
-U0 UiOnChange(UiCtl *c, U0 *fn, U0 *data=NULL)
+U0 UiOnChange(UiCtl *c, UiCallback *fn, U0 *data=NULL)
 {
   UiOnClick(c, fn, data);
 }
@@ -216,13 +222,13 @@ U0 UiFireSubmit(UiCtl *c)
     c->submitfn(c, c->submitdata);
 }
 
-U0 UiOnSubmit(UiCtl *c, U0 *fn, U0 *data=NULL)
+U0 UiOnSubmit(UiCtl *c, UiCallback *fn, U0 *data=NULL)
 {
   c->submitfn = fn;
   c->submitdata = data;
 }
 
-U0 UiOnMouse(UiCtl *c, U0 *fn, U0 *data=NULL)
+U0 UiOnMouse(UiCtl *c, UiCallback *fn, U0 *data=NULL)
 {
   c->mousefn = fn;
   c->mousedata = data;
@@ -266,14 +272,14 @@ Bool UiMouseMotion(UiCtl *c)
   return c->mouse_motion;
 }
 
-// pull one cell's text from the table's data-source callback (through the
-// raw pointer; typed fn-ptr declarators are rejected by the compiler)
+// pull one cell's text from the table's data-source callback
 U8 *UiTableCell(UiCtl *t, I64 row, I64 col)
 {
-  if (!t->cellfn)
+  UiCellCallback *fn = t->cellfn;
+
+  if (!fn)
     return "";
-  I64 fn = t->cellfn;
-  return fn(t, row, col, t->celldata)(U8 *);
+  return fn(t, row, col, t->celldata);
 }
 
 #include "backend.hc"

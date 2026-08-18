@@ -1,7 +1,8 @@
 // pthread backend shared by Linux and macOS.
 // @ldflags=-pthread
 
-extern I64 pthread_create(U8 **thread, U8 *attributes, U8 *entry, U8 *data);
+extern I64 pthread_create(U8 **thread, U8 *attributes,
+  ThreadMain *entry, U8 *data);
 extern I64 pthread_join(U8 *thread, U8 **value);
 extern I64 pthread_detach(U8 *thread);
 extern U64 pthread_self();
@@ -18,7 +19,7 @@ extern I64 pthread_cond_destroy(U8 *condition);
 extern I64 pthread_cond_wait(U8 *condition, U8 *mutex);
 extern I64 pthread_cond_signal(U8 *condition);
 
-extern I64 pthread_key_create(U32 *key, U8 *destructor);
+extern I64 pthread_key_create(U32 *key, ThreadDestructor *destructor);
 extern I64 pthread_key_delete(U32 key);
 extern U8 *pthread_getspecific(U32 key);
 extern I64 pthread_setspecific(U32 key, U8 *value);
@@ -26,7 +27,8 @@ extern I64 pthread_setspecific(U32 key, U8 *value);
 extern I64 sched_yield();
 extern I64 usleep(U32 microseconds);
 
-Bool ThreadNativeCreate(CThread *thread, U8 *entry, U8 *data)
+Bool ThreadNativeCreate(CThread *thread, ThreadMain *entry,
+  U8 *data)
 {
   return !pthread_create(&thread->handle, NULL, entry, data);
 }
@@ -111,7 +113,7 @@ Bool ThreadNativeConditionSignal(U64 *condition)
   return !pthread_cond_signal(condition);
 }
 
-Bool ThreadNativeTLSInit(CThreadTLS *tls, U8 *destructor)
+Bool ThreadNativeTLSInit(CThreadTLS *tls, ThreadDestructor *destructor)
 {
   return !pthread_key_create(&tls->key, destructor);
 }

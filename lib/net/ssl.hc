@@ -119,6 +119,12 @@ U0 SslSetCaLocations(U8 *file=NULL, U8 *directory=NULL)
     ssl_ca_path = StrNew(directory);
 }
 
+// Store a library symbol into a typed function-pointer slot.
+U0 SslLoad(U8 *library, U8 *name, U8 **slot)
+{
+  *slot = SslLibrarySymbol(library, name);
+}
+
 Bool SslInit()
 {
   if (ssl_state > 0)
@@ -135,37 +141,29 @@ Bool SslInit()
     return FALSE;
   }
 
-  ssl_OPENSSL_init_ssl =
-    SslLibrarySymbol(ssl_library, "OPENSSL_init_ssl");
-  ssl_TLS_client_method =
-    SslLibrarySymbol(ssl_library, "TLS_client_method");
-  ssl_SSL_CTX_new = SslLibrarySymbol(ssl_library, "SSL_CTX_new");
-  ssl_SSL_CTX_free = SslLibrarySymbol(ssl_library, "SSL_CTX_free");
-  ssl_SSL_CTX_set_default_verify_paths =
-    SslLibrarySymbol(ssl_library, "SSL_CTX_set_default_verify_paths");
-  ssl_SSL_CTX_load_verify_locations =
-    SslLibrarySymbol(ssl_library, "SSL_CTX_load_verify_locations");
-  ssl_SSL_CTX_set_verify =
-    SslLibrarySymbol(ssl_library, "SSL_CTX_set_verify");
-  ssl_SSL_CTX_ctrl = SslLibrarySymbol(ssl_library, "SSL_CTX_ctrl");
-  ssl_SSL_new = SslLibrarySymbol(ssl_library, "SSL_new");
-  ssl_SSL_free = SslLibrarySymbol(ssl_library, "SSL_free");
-  ssl_SSL_set_fd = SslLibrarySymbol(ssl_library, "SSL_set_fd");
-  ssl_SSL_ctrl = SslLibrarySymbol(ssl_library, "SSL_ctrl");
-  ssl_SSL_set1_host = SslLibrarySymbol(ssl_library, "SSL_set1_host");
-  ssl_SSL_connect = SslLibrarySymbol(ssl_library, "SSL_connect");
-  ssl_SSL_read = SslLibrarySymbol(ssl_library, "SSL_read");
-  ssl_SSL_write = SslLibrarySymbol(ssl_library, "SSL_write");
-  ssl_SSL_get_error = SslLibrarySymbol(ssl_library, "SSL_get_error");
-  ssl_SSL_get_verify_result =
-    SslLibrarySymbol(ssl_library, "SSL_get_verify_result");
-  ssl_SSL_shutdown = SslLibrarySymbol(ssl_library, "SSL_shutdown");
+  SslLoad(ssl_library, "OPENSSL_init_ssl", &ssl_OPENSSL_init_ssl);
+  SslLoad(ssl_library, "TLS_client_method", &ssl_TLS_client_method);
+  SslLoad(ssl_library, "SSL_CTX_new", &ssl_SSL_CTX_new);
+  SslLoad(ssl_library, "SSL_CTX_free", &ssl_SSL_CTX_free);
+  SslLoad(ssl_library, "SSL_CTX_set_default_verify_paths", &ssl_SSL_CTX_set_default_verify_paths);
+  SslLoad(ssl_library, "SSL_CTX_load_verify_locations", &ssl_SSL_CTX_load_verify_locations);
+  SslLoad(ssl_library, "SSL_CTX_set_verify", &ssl_SSL_CTX_set_verify);
+  SslLoad(ssl_library, "SSL_CTX_ctrl", &ssl_SSL_CTX_ctrl);
+  SslLoad(ssl_library, "SSL_new", &ssl_SSL_new);
+  SslLoad(ssl_library, "SSL_free", &ssl_SSL_free);
+  SslLoad(ssl_library, "SSL_set_fd", &ssl_SSL_set_fd);
+  SslLoad(ssl_library, "SSL_ctrl", &ssl_SSL_ctrl);
+  SslLoad(ssl_library, "SSL_set1_host", &ssl_SSL_set1_host);
+  SslLoad(ssl_library, "SSL_connect", &ssl_SSL_connect);
+  SslLoad(ssl_library, "SSL_read", &ssl_SSL_read);
+  SslLoad(ssl_library, "SSL_write", &ssl_SSL_write);
+  SslLoad(ssl_library, "SSL_get_error", &ssl_SSL_get_error);
+  SslLoad(ssl_library, "SSL_get_verify_result", &ssl_SSL_get_verify_result);
+  SslLoad(ssl_library, "SSL_shutdown", &ssl_SSL_shutdown);
 
   if (ssl_crypto_library) {
-    ssl_ERR_get_error =
-      SslLibrarySymbol(ssl_crypto_library, "ERR_get_error");
-    ssl_ERR_error_string_n =
-      SslLibrarySymbol(ssl_crypto_library, "ERR_error_string_n");
+    SslLoad(ssl_crypto_library, "ERR_get_error", &ssl_ERR_get_error);
+    SslLoad(ssl_crypto_library, "ERR_error_string_n", &ssl_ERR_error_string_n);
   }
 
   if (!ssl_TLS_client_method || !ssl_SSL_CTX_new || !ssl_SSL_CTX_free ||

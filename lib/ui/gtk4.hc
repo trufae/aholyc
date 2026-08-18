@@ -50,6 +50,8 @@ extern U0 gtk_color_chooser_get_rgba(I64 chooser, F64 *rgba);
 extern U0 gtk_popover_set_pointing_to(I64 popover, I32 *rect);
 extern U0 gtk_popover_set_has_arrow(I64 popover, I64 on);
 extern U0 gtk_popover_popup(I64 popover);
+extern U0 gtk_widget_unparent(I64 w);
+extern I64 gtk_widget_get_root(I64 w);
 extern U0 gtk_widget_set_parent(I64 widget, I64 parent);
 extern U0 gtk_event_controller_set_propagation_phase(I64 c, I64 phase);
 extern I64 g_menu_new();
@@ -193,6 +195,27 @@ U0 UiGtkDestroyed(I64 win, I64 data)
     UiQuit;
 }
 
+// Popovers parented to a text view must go before the view is disposed:
+// GtkTextView's dispose loops over leftover children it does not own and
+// never gets rid of them ("GtkPopoverMenu is not a child of GtkTextView"
+// forever). Drop the popups of every control under this window.
+U0 UiGtkDropPopups(I64 win)
+{
+  UiCtl *c;
+  for (c = ui_ctls; c; c = c->reg) {
+    if (c->popup && gtk_widget_get_root(c->popup) == win) {
+      gtk_widget_unparent(c->popup);
+      c->popup = 0;
+    }
+  }
+}
+
+Bool UiGtkCloseRequest(I64 win, I64 data)
+{
+  UiGtkDropPopups(win);
+  return FALSE;  // let the default handler destroy the window
+}
+
 U0 UiGtkDraw(I64 area, I64 cr, I64 w, I64 h, I64 data)
 {
   ui_cr = cr;
@@ -222,6 +245,7 @@ UiCtl *UiWindowNew(U8 *title, I64 w=480, I64 h=320)
   gtk_window_set_title(ui_gtk_win, title);
   gtk_window_set_default_size(ui_gtk_win, w, h);
   g_signal_connect_data(ui_gtk_win, "destroy", &UiGtkDestroyed, 0, 0, 0);
+  g_signal_connect_data(ui_gtk_win, "close-request", &UiGtkCloseRequest, 0, 0, 0);
   ui_gtk_outer = gtk_box_new(1, 0);
   gtk_window_set_child(ui_gtk_win, ui_gtk_outer);
   ui_gtk_bar = 0;  // each window gets its own menubar and action group
@@ -332,7 +356,7 @@ UiCtl *UiSeparatorNew()
   return UiCtlNew(UI_SEP, gtk_separator_new(0));
 }
 
-UiCtl *UiCanvasNew(I64 w, I64 h, U0 *drawfn, U0 *data=NULL)
+UiCtl *UiCanvasNew(I64 w, I64 h, UiCallback *drawfn, U0 *data=NULL)
 {
   I64 a = gtk_drawing_area_new;
   I64 motion, click;
@@ -389,7 +413,7 @@ UiCtl *UiMenuNew(U8 *title)
   return UiCtlNew(UI_MENU, m);
 }
 
-UiCtl *UiMenuItem(UiCtl *m, U8 *label, U0 *fn, U0 *data=NULL)
+UiCtl *UiMenuItem(UiCtl *m, U8 *label, UiCallback *fn, U0 *data=NULL)
 {
   U8 *name = MStrPrint("m%d", ++ui_gtk_nmenu);
   U8 *detailed = MStrPrint("ui.%s", name);
@@ -622,14 +646,14 @@ I64 UiGtkOnce(I64 data)
   return 0;  // G_SOURCE_REMOVE
 }
 
-U0 UiTimer(I64 ms, U0 *fn, U0 *data=NULL)
+U0 UiTimer(I64 ms, UiCallback *fn, U0 *data=NULL)
 {
   UiCtl *t = UiCtlNew(UI_TIMER, 0);
   UiOnClick(t, fn, data);
   g_timeout_add(ms, &UiGtkTimer, t);
 }
 
-U0 UiQueueMain(U0 *fn, U0 *data=NULL)
+U0 UiQueueMain(UiCallback *fn, U0 *data=NULL)
 {
   UiCtl *t = UiCtlNew(UI_TIMER, 0);
   UiOnClick(t, fn, data);
@@ -646,7 +670,7 @@ UiCtl *UiToolbarNew()
   return UiCtlNew(UI_TOOLBAR, box);
 }
 
-U0 UiToolAdd(UiCtl *tb, U8 *label, U0 *fn, U0 *data=NULL)
+U0 UiToolAdd(UiCtl *tb, U8 *label, UiCallback *fn, U0 *data=NULL)
 {
   UiCtl *c = UiCtlNew(UI_BUTTON, gtk_button_new_with_label(label));
   UiOnClick(c, fn, data);
@@ -697,7 +721,7 @@ UiCtl *UiScrollNew(UiCtl *child)
 // GTK4's native table (GtkColumnView) needs a factory/list-model dance and
 // some variadic calls; a grid of labels in a scroller is variadic-free and
 // fine for modest row counts. Selection is not tracked here (returns -1).
-UiCtl *UiTableNew(U0 *cellfn, U0 *data=NULL)
+UiCtl *UiTableNew(UiCellCallback *cellfn, U0 *data=NULL)
 {
   I64 grid = gtk_grid_new;
   gtk_grid_set_row_spacing(grid, 2);
@@ -956,6 +980,7 @@ U0 UiShow(UiCtl *w)
 
 U0 UiWindowClose(UiCtl *w)
 {
+  UiGtkDropPopups(w->native);
   gtk_window_destroy(w->native);  // "destroy" keeps the window count
 }
 

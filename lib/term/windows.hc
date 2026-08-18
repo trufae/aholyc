@@ -24,7 +24,8 @@
 extern U8 *GetStdHandle(I64 which);
 extern I64 GetConsoleMode(U8 *handle, U32 *mode);
 extern I64 SetConsoleMode(U8 *handle, U32 mode);
-extern I64 SetConsoleCtrlHandler(U8 *handler, I64 add);
+I64 TermWinCtrl(U32 kind); // console control handler, defined below
+extern I64 SetConsoleCtrlHandler(TermWinCtrl *handler, I64 add);
 extern I64 GetConsoleScreenBufferInfo(U8 *handle, U8 *info);
 extern I64 SetConsoleCursorPosition(U8 *handle, U32 position);
 extern I64 GetConsoleCursorInfo(U8 *handle, U8 *info);

@@ -459,7 +459,7 @@ UiCtl *UiSeparatorNew()
   return UiCtlNew(UI_SEP, b);
 }
 
-UiCtl *UiCanvasNew(I64 w, I64 h, U0 *drawfn, U0 *data=NULL)
+UiCtl *UiCanvasNew(I64 w, I64 h, UiCallback *drawfn, U0 *data=NULL)
 {
   F64 fw = w, fh = h;
   I64 v = ui_msgf(ui_msg(UiCls("UiCanvasV"), UiSel("alloc"), 0, 0, 0),
@@ -526,7 +526,7 @@ UiCtl *UiMenuNew(U8 *title)
   return UiCtlNew(UI_MENU, sub);
 }
 
-UiCtl *UiMenuItem(UiCtl *m, U8 *label, U0 *fn, U0 *data=NULL)
+UiCtl *UiMenuItem(UiCtl *m, U8 *label, UiCallback *fn, U0 *data=NULL)
 {
   I64 it = ui_msg(ui_msg(UiCls("NSMenuItem"), UiSel("alloc"), 0, 0, 0),
     UiSel("initWithTitle:action:keyEquivalent:"),
@@ -836,7 +836,7 @@ U0 UiExpand(UiCtl *c, Bool on)
     priority, 0.0, 0.0, 0.0, 1, 0, 0);
 }
 
-U0 UiCocoaSchedule(F64 secs, U0 *fn, U0 *data, I64 repeats)
+U0 UiCocoaSchedule(F64 secs, UiCallback *fn, U0 *data, I64 repeats)
 {
   UiCtl *t = UiCtlNew(UI_TIMER, 0);
   UiOnClick(t, fn, data);
@@ -846,13 +846,13 @@ U0 UiCocoaSchedule(F64 secs, U0 *fn, U0 *data, I64 repeats)
     secs, ui_timer_tgt, UiSel("tick:"), box, repeats);
 }
 
-U0 UiTimer(I64 ms, U0 *fn, U0 *data=NULL)
+U0 UiTimer(I64 ms, UiCallback *fn, U0 *data=NULL)
 {
   F64 secs = ms;
   UiCocoaSchedule(secs / 1000.0, fn, data, 1);
 }
 
-U0 UiQueueMain(U0 *fn, U0 *data=NULL)
+U0 UiQueueMain(UiCallback *fn, U0 *data=NULL)
 {
   UiCocoaSchedule(0.0, fn, data, 0);  // repeats:0 fires once, self-invalidates
 }
@@ -866,7 +866,7 @@ UiCtl *UiToolbarNew()
   return UiCtlNew(UI_TOOLBAR, sv);
 }
 
-U0 UiToolAdd(UiCtl *tb, U8 *label, U0 *fn, U0 *data=NULL)
+U0 UiToolAdd(UiCtl *tb, U8 *label, UiCallback *fn, U0 *data=NULL)
 {
   I64 b = ui_msg(UiCls("NSButton"), UiSel("buttonWithTitle:target:action:"),
     UiStr(label), ui_target, UiSel("clicked:"));
@@ -911,7 +911,7 @@ UiCtl *UiScrollNew(UiCtl *child)
   return UiCtlNew(UI_SCROLL, s);
 }
 
-UiCtl *UiTableNew(U0 *cellfn, U0 *data=NULL)
+UiCtl *UiTableNew(UiCellCallback *cellfn, U0 *data=NULL)
 {
   I64 tv = ui_msg(ui_msg(UiCls("NSTableView"), UiSel("alloc"), 0, 0, 0),
     UiSel("init"), 0, 0, 0);

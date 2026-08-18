@@ -25,8 +25,9 @@ U0 ThreadTestTLSDestroy(U8 *value)
   ThreadMutexUnlock(&thread_test_mutex);
 }
 
-U0 ThreadTestWorker(CThreadTestArgs *args)
+U0 ThreadTestWorker(U8 *argument)
 {
+  CThreadTestArgs *args = argument;
   I64 i;
 
   args->tls_ok = ThreadTLSSet(&thread_test_tls, args) &&

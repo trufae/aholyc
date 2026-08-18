@@ -1356,6 +1356,77 @@ else
 fi
 
 # formatter: idempotent, whitespace-only, and semantics-preserving
+# Class values return through a hidden out-pointer on every backend.
+sretok=1
+printf '%s\n' 'class CP { I64 x; I64 y; };' \
+	'CP Make(I64 x) { CP p; p.x = x; p.y = x * 2; return p; }' \
+	'CP Twice(I64 x) { return Make(x * 2); }' \
+	'CP (*maker)(I64 x) = &Make;' 'CP a;' 'a = Make(3);' 'CP b = a;' \
+	'"%d %d %d %d %d %d\n", a.x, a.y, b.y, Make(5).y, maker(7).x, Twice(10).y;' \
+	>tests/out/sret.HC
+for b in $backends; do
+	if ! ./aholyc run -b "$b" tests/out/sret.HC >"tests/out/sret-$b.txt" \
+		2>"tests/out/sret-$b.err" ||
+	   [ "$(cat "tests/out/sret-$b.txt")" != '3 6 6 10 7 40' ]; then
+		sretok=0
+	fi
+done
+if [ "$sretok" = 1 ]; then
+	echo "ok   class-return"
+else
+	echo "FAIL class-return"
+	head -5 tests/out/sret-*.err 2>/dev/null
+	fail=1
+fi
+
+# Function-pointer signatures and function/data pointer conversions are
+# checked on assignment, call arguments and returns; explicit casts and
+# -fno-strict-fnptr accept them.
+fnptrok=1
+./aholyc -h | grep -q -- '-fno-strict-fnptr' || fnptrok=0
+printf '%s\n' 'U0 Wrong(U8 *s) { "%s", s; }' \
+	'U0 Call(U0 (*fn)(I64 x)) { fn(0); }' 'U0 (*fp)(I64 x) = &Wrong;' \
+	'Call(&Wrong);' 'fp = &Wrong;' 'Call(fp);' >tests/out/fnptr-strict.HC
+printf '%s\n' 'U0 Fn(I64 x) { "%d\n", x; }' 'U8 *raw = &Fn;' \
+	'U0 (*fp)(I64 x) = raw;' 'fp(3);' >tests/out/fnptr-data.HC
+printf '%s\n' 'U0 Fn(I64 x) { "%d\n", x; }' 'U8 *raw = (&Fn)(U8 *);' \
+	'U0 (*fp)(I64 x) = raw(U0 (*)(I64 x));' 'fp(3);' \
+	'U0 Handler(I64 x);' 'class CBox { Handler *fn; };' \
+	'U0 Call(Handler *fn, I64 x) { Handler *h = fn; h(x); }' \
+	'CBox box;' 'box.fn = &Fn;' 'Call(box.fn, 4);' 'Call(raw(Handler *), 5);' \
+	>tests/out/fnptr-cast.HC
+printf '%s\n' 'U0 Handler(I64 x);' 'U0 Wrong(U8 *s) {}' 'Handler *h = &Wrong;' \
+	>tests/out/fnptr-named.HC
+if ./aholyc -S -b c tests/out/fnptr-strict.HC -o tests/out/fnptr-strict.c \
+		2>tests/out/fnptr-strict.err ||
+   ! grep -q 'incompatible function-pointer signature' tests/out/fnptr-strict.err ||
+   ! ./aholyc -fno-strict-fnptr -S -b c tests/out/fnptr-strict.HC \
+		-o tests/out/fnptr-strict-no.c 2>tests/out/fnptr-strict-no.err ||
+   ./aholyc -S -b c tests/out/fnptr-data.HC -o tests/out/fnptr-data.c \
+		2>tests/out/fnptr-data.err ||
+   ! grep -q 'function and data pointer' tests/out/fnptr-data.err ||
+   ! ./aholyc -fno-strict-fnptr -S -b c tests/out/fnptr-data.HC \
+		-o tests/out/fnptr-data-no.c 2>tests/out/fnptr-data-no.err ||
+   ./aholyc -S -b c tests/out/fnptr-named.HC -o tests/out/fnptr-named.c \
+		2>tests/out/fnptr-named.err ||
+   ! grep -q 'incompatible function-pointer signature' tests/out/fnptr-named.err; then
+	fnptrok=0
+fi
+for b in $backends; do
+	if ! ./aholyc run -b "$b" tests/out/fnptr-cast.HC \
+		>"tests/out/fnptr-cast-$b.txt" 2>"tests/out/fnptr-cast-$b.err" ||
+	   [ "$(printf '%s' "$(cat "tests/out/fnptr-cast-$b.txt")")" != "$(printf '3\n4\n5')" ]; then
+		fnptrok=0
+	fi
+done
+if [ "$fnptrok" = 1 ]; then
+	echo "ok   strict-fnptr"
+else
+	echo "FAIL strict-fnptr"
+	head -5 tests/out/fnptr-strict.err tests/out/fnptr-strict-no.err 2>/dev/null
+	fail=1
+fi
+
 fmtok=1
 printf 'U0 F(I64 x) {//c\nif (x) {\n"y\\n";\n}\n}\n' > tests/out/fmt_in.HC
 printf 'U0 F(I64 x)\n{//c\n  if (x) {\n    "y\\n";\n  }\n}\n' > tests/out/fmt_exp.HC

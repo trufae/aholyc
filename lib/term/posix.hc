@@ -13,7 +13,8 @@ extern I64 write(I64 fd, U8 *buffer, I64 count);
 extern I64 ioctl(I64 fd, U64 request, U8 *argument);
 extern I64 tcgetattr(I64 fd, U8 *state);
 extern I64 tcsetattr(I64 fd, I64 actions, U8 *state);
-extern U8 *signal(I64 number, U8 *handler);
+U0 TermPosixHandler(I64 number); // signal handler shape
+extern U8 *signal(I64 number, TermPosixHandler *handler);
 extern I64 poll(U8 *fds, U64 count, I64 timeout);
 extern I64 isatty(I64 fd);
 extern I64 clock_gettime(I64 clock, U8 *timespec);
@@ -101,8 +102,8 @@ Bool TermNativeInit()
 
 U0 TermNativeFini()
 {
-  signal(TERM_SIGINT, term_posix_old_int);
-  signal(TERM_SIGWINCH, term_posix_old_winch);
+  signal(TERM_SIGINT, term_posix_old_int(TermPosixHandler *));
+  signal(TERM_SIGWINCH, term_posix_old_winch(TermPosixHandler *));
 }
 
 Bool TermNativeSize(I64 *width, I64 *height)

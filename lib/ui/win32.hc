@@ -464,7 +464,7 @@ UiCtl *UiSeparatorNew()
   return UiCtlNew(UI_SEP, h);
 }
 
-UiCtl *UiCanvasNew(I64 w, I64 h, U0 *drawfn, U0 *data=NULL)
+UiCtl *UiCanvasNew(I64 w, I64 h, UiCallback *drawfn, U0 *data=NULL)
 {
   I64 hw = CreateWindowExA(0, "UiCanvasC", "", WS_CHILD_VISIBLE,
     0, 0, w, h, ui_hwnd, 0, ui_inst, 0);
@@ -521,7 +521,7 @@ UiCtl *UiMenuNew(U8 *title)
   return UiCtlNew(UI_MENU, m);
 }
 
-UiCtl *UiMenuItem(UiCtl *m, U8 *label, U0 *fn, U0 *data=NULL)
+UiCtl *UiMenuItem(UiCtl *m, U8 *label, UiCallback *fn, U0 *data=NULL)
 {
   I64 id = ++ui_menuid;
   AppendMenuA(m->native, 0, id, label);
@@ -713,14 +713,14 @@ U0 UiExpand(UiCtl *c, Bool on)
   c->row = on;  // UiLayout gives expanded multilines the spare height
 }
 
-U0 UiTimer(I64 ms, U0 *fn, U0 *data=NULL)
+U0 UiTimer(I64 ms, UiCallback *fn, U0 *data=NULL)
 {
   UiCtl *t = UiCtlNew(UI_TIMER, ++ui_timerid);
   UiOnClick(t, fn, data);
   SetTimer(ui_hwnd, ui_timerid, ms, 0);
 }
 
-U0 UiQueueMain(U0 *fn, U0 *data=NULL)
+U0 UiQueueMain(UiCallback *fn, U0 *data=NULL)
 {
   UiCtl *t = UiCtlNew(UI_TIMER, ++ui_onceid);
   UiOnClick(t, fn, data);
@@ -732,7 +732,7 @@ UiCtl *UiToolbarNew()
   return UiCtlNew(UI_TOOLBAR, 0);
 }
 
-U0 UiToolAdd(UiCtl *tb, U8 *label, U0 *fn, U0 *data=NULL)
+U0 UiToolAdd(UiCtl *tb, U8 *label, UiCallback *fn, U0 *data=NULL)
 {
   I64 h = CreateWindowExA(0, "BUTTON", label, WS_CHILD_VISIBLE,
     0, 0, 10, 10, ui_hwnd, 0, ui_inst, 0);
@@ -788,7 +788,7 @@ UiCtl *UiScrollNew(UiCtl *child)
   I64 lparam;        // @40
 };
 
-UiCtl *UiTableNew(U0 *cellfn, U0 *data=NULL)
+UiCtl *UiTableNew(UiCellCallback *cellfn, U0 *data=NULL)
 {
   I64 h = CreateWindowExA(0, "SysListView32", "",
     WS_CHILD_VISIBLE | 0x1 | 0xC000,  // LVS_REPORT | WS_BORDER-ish

@@ -40,6 +40,7 @@ $ aholyc fmt -w src.HC              # format sources in place (doc/format.md)
 | `-fno-pic` | disable position-independent native code and PIE executable linking |
 | `-fno-exceptions` | omit exception handlers and catch blocks; surviving throws abort |
 | `-fno-stack-protector` | disable native stack-protector instrumentation |
+| `-fno-strict-fnptr` | accept function pointers whose signature differs from the declared function-pointer type, and implicit conversions between function and data pointers, in assignments, arguments and returns |
 | `-k` | keep intermediate files (`.ll`, `.c`, runtime copies, `#exe` block libraries) |
 | `-V` | print the toolchain commands being executed (including `#exe` builds) |
 | `-h`, `-v` | help / version |

@@ -97,7 +97,9 @@ Bool log_system_open;
 U8 *log_name;
 U8 *log_file_path;
 U8 *log_file_handle;
-Bool (*log_callback)(I64 level, U8 *file, I64 line, U8 *msg, U0 *data);
+// Receives every message; return TRUE to swallow it, FALSE to log it too.
+Bool LogCallback(I64 level, U8 *file, I64 line, U8 *msg, U0 *data);
+LogCallback *log_callback;
 U0 *log_callback_data;
 Bool log_in_fatal;
 Bool log_privacy;
@@ -251,7 +253,7 @@ public U0 LogSetPrivacy(Bool on=TRUE)
   log_privacy = on;
 }
 
-public U0 LogSetCallback(U0 *fn, U0 *data=NULL)
+public U0 LogSetCallback(LogCallback *fn, U0 *data=NULL)
 {
   log_callback = fn;
   log_callback_data = data;

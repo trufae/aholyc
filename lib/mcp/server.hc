@@ -44,6 +44,11 @@
 #define MCP_ENTRY_RESOURCE 3
 
 class CMcpServer;
+class CMcpEntry;
+
+// Serves one tool call, prompt or resource read; returns a MAlloc'd JSON
+// result, or NULL after McpServerFail.
+U8 *McpHandler(CMcpServer *server, CMcpEntry *entry, CJsonValue *params);
 
 class CMcpEntry
 {
@@ -52,7 +57,7 @@ class CMcpEntry
   U8 *description;  // tool/prompt description or resource name, NULL allowed
   U8 *json;         // tool inputSchema, prompt arguments array, or NULL
   U8 *mime;         // resource mimeType or NULL
-  U8 *(*handler)(CMcpServer *server, CMcpEntry *entry, CJsonValue *params);
+  McpHandler *handler;
   CMcpEntry *next;
 };
 
@@ -129,7 +134,7 @@ U0 McpServerFini(CMcpServer *server)
 }
 
 CMcpEntry *McpServerAdd(CMcpServer *server, I64 kind, U8 *name,
-  U8 *description, U8 *json, U8 *mime, U8 *handler)
+  U8 *description, U8 *json, U8 *mime, McpHandler *handler)
 {
   CMcpEntry *entry;
 
@@ -154,7 +159,7 @@ CMcpEntry *McpServerAdd(CMcpServer *server, I64 kind, U8 *name,
 // {"type":"object"}). The handler receives the request params
 // ($.name, $.arguments) and returns a tools/call result.
 Bool McpServerTool(CMcpServer *server, U8 *name, U8 *description,
-  U8 *input_schema, U8 *handler)
+  U8 *input_schema, McpHandler *handler)
 {
   return McpServerAdd(server, MCP_ENTRY_TOOL, name, description,
     input_schema, NULL, handler) != NULL;
@@ -163,7 +168,7 @@ Bool McpServerTool(CMcpServer *server, U8 *name, U8 *description,
 // Register a prompt; arguments is a JSON array of {name, description,
 // required} objects or NULL. The handler returns a prompts/get result.
 Bool McpServerPrompt(CMcpServer *server, U8 *name, U8 *description,
-  U8 *arguments, U8 *handler)
+  U8 *arguments, McpHandler *handler)
 {
   return McpServerAdd(server, MCP_ENTRY_PROMPT, name, description,
     arguments, NULL, handler) != NULL;
@@ -172,7 +177,7 @@ Bool McpServerPrompt(CMcpServer *server, U8 *name, U8 *description,
 // Register a resource by uri with a human-readable name (NULL repeats the
 // uri). The handler returns a resources/read result.
 Bool McpServerResource(CMcpServer *server, U8 *uri, U8 *name,
-  U8 *mime_type, U8 *handler)
+  U8 *mime_type, McpHandler *handler)
 {
   return McpServerAdd(server, MCP_ENTRY_RESOURCE, uri, name, NULL,
     mime_type, handler) != NULL;
