@@ -123,8 +123,8 @@ CHttpResponse *HttpRequest(U8 *method, U8 *url_text,
 {
   CHttpResponse *response = HttpResponseNew;
   CHttpUrl url;
-  CHttpBuffer request;
-  CHttpBuffer raw;
+  CStrBuf request;
+  CStrBuf raw;
   U8 *host_header = NULL;
   U8 receive_buffer[8192];
   U8 *transfer_encoding = NULL;
@@ -139,8 +139,8 @@ CHttpResponse *HttpRequest(U8 *method, U8 *url_text,
   I64 content_length;
   Bool transport_ok = FALSE;
 
-  HttpBufferInit(&request);
-  HttpBufferInit(&raw);
+  StrBufInit(&request);
+  StrBufInit(&raw);
 
   if (!HttpMethodIsSafe(method)) {
     HttpResponseSetError(response, "invalid HTTP method");
@@ -156,42 +156,42 @@ CHttpResponse *HttpRequest(U8 *method, U8 *url_text,
   }
 
   host_header = HttpHostHeader(&url);
-  if (!HttpBufferAppendFormat(&request, "%s %s HTTP/1.1\r\n",
+  if (!StrBufPrintf(&request, "%s %s HTTP/1.1\r\n",
       method, url.target) ||
-    !HttpBufferAppendFormat(&request, "Host: %s\r\n", host_header) ||
+    !StrBufPrintf(&request, "Host: %s\r\n", host_header) ||
     !HttpHeadersHave(extra_headers, "User-Agent") &&
-    !HttpBufferAppendString(&request, "User-Agent: aholyc-http/1\r\n") ||
+    !StrBufPutS(&request, "User-Agent: aholyc-http/1\r\n") ||
     !HttpHeadersHave(extra_headers, "Accept") &&
-    !HttpBufferAppendString(&request, "Accept: */*\r\n") ||
-    !HttpBufferAppendString(&request, "Connection: close\r\n")) {
+    !StrBufPutS(&request, "Accept: */*\r\n") ||
+    !StrBufPutS(&request, "Connection: close\r\n")) {
       HttpResponseSetError(response, "HTTP request is too large");
       goto http_request_url_done;
     }
   if (content_type && *content_type &&
-    !HttpBufferAppendFormat(&request, "Content-Type: %s\r\n",
+    !StrBufPrintf(&request, "Content-Type: %s\r\n",
       content_type)) {
         HttpResponseSetError(response, "HTTP request is too large");
         goto http_request_url_done;
       }
   if ((body_length || HttpEqualsInsensitive(method, "POST")) &&
-    !HttpBufferAppendFormat(&request, "Content-Length: %d\r\n",
+    !StrBufPrintf(&request, "Content-Length: %d\r\n",
       body_length)) {
         HttpResponseSetError(response, "HTTP request is too large");
         goto http_request_url_done;
       }
   if (extra_headers && *extra_headers) {
-    if (!HttpBufferAppendString(&request, extra_headers)) {
+    if (!StrBufPutS(&request, extra_headers)) {
       HttpResponseSetError(response, "HTTP request is too large");
       goto http_request_url_done;
     }
-    if (request.length < 1 || request.data[request.length - 1] != '\n') {
-      if (!HttpBufferAppendString(&request, "\r\n")) {
+    if (StrsEmpty(&request) || request.b[-1] != '\n') {
+      if (!StrBufPutS(&request, "\r\n")) {
         HttpResponseSetError(response, "HTTP request is too large");
         goto http_request_url_done;
       }
     }
   }
-  if (!HttpBufferAppendString(&request, "\r\n")) {
+  if (!StrBufPutS(&request, "\r\n")) {
     HttpResponseSetError(response, "HTTP request is too large");
     goto http_request_url_done;
   }
@@ -209,7 +209,7 @@ CHttpResponse *HttpRequest(U8 *method, U8 *url_text,
     }
   }
 
-  if (!HttpSendBytes(socket, tls, request.data, request.length) ||
+  if (!HttpSendBytes(socket, tls, request.a, StrsLen(&request)) ||
     body_length && !HttpSendBytes(socket, tls, body, body_length)) {
       if (tls)
         HttpResponseSetError(response, SslLastError);
@@ -243,14 +243,14 @@ http_request_connection_done:
 
   if (!transport_ok)
     goto http_request_url_done;
-  header_finish = HttpFindHeaderEnd(raw.data, raw.length);
+  header_finish = HttpFindHeaderEnd(raw.a, StrsLen(&raw));
   if (header_finish < 0) {
     HttpResponseSetError(response, "malformed HTTP response headers");
     goto http_request_url_done;
   }
 
   response->headers_length = header_finish - 2;
-  response->headers = HttpSlice(raw.data, 0, response->headers_length);
+  response->headers = HttpSlice(raw.a, 0, response->headers_length);
   response->status = HttpParseStatus(response->headers,
     response->headers_length);
   if (!response->status) {
@@ -258,12 +258,12 @@ http_request_connection_done:
     goto http_request_url_done;
   }
 
-  available = raw.length - header_finish;
+  available = StrsLen(&raw) - header_finish;
   transfer_encoding = HttpHeaderValue(response, "Transfer-Encoding");
   content_length_text = HttpHeaderValue(response, "Content-Length");
 
   if (HttpValueHasToken(transfer_encoding, "chunked")) {
-    decoded = HttpDecodeChunked(raw.data + header_finish, available,
+    decoded = HttpDecodeChunked(raw.a + header_finish, available,
       &decoded_size);
     if (!decoded) {
       HttpResponseSetError(response, "malformed chunked HTTP body");
@@ -275,11 +275,11 @@ http_request_connection_done:
   } else if (content_length_text) {
     if (!HttpParseDecimal(content_length_text, &content_length) ||
       content_length > available ||
-      !HttpCopyBody(response, raw.data + header_finish, content_length)) {
+      !HttpCopyBody(response, raw.a + header_finish, content_length)) {
         HttpResponseSetError(response, "invalid or incomplete Content-Length");
         goto http_request_url_done;
       }
-  } else if (!HttpCopyBody(response, raw.data + header_finish, available)) {
+  } else if (!HttpCopyBody(response, raw.a + header_finish, available)) {
     HttpResponseSetError(response, "HTTP body exceeds limit");
     goto http_request_url_done;
   }
@@ -292,8 +292,8 @@ http_request_done:
   Free(transfer_encoding);
   Free(content_length_text);
   Free(decoded);
-  HttpBufferFree(&request);
-  HttpBufferFree(&raw);
+  StrBufFini(&request);
+  StrBufFini(&raw);
   return response;
 }
 

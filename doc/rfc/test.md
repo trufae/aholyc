@@ -347,3 +347,4 @@ Priority areas (each becomes a numbered test file):
 - Should the runner support `--filter=` for selecting tests by name pattern?
 - How to handle platform-dependent tests (e.g. inline asm, syscall numbers)?
   Guard with `#ifdef` or skip in the runner?
+- Do we have a way to differentiate debug and release builds like Swift#DEBUG?

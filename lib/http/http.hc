@@ -1,22 +1,16 @@
 #ifndef AHOLYC_LIB_HTTP_HTTP_HC
 #define AHOLYC_LIB_HTTP_HTTP_HC
 
-// Pieces shared by the HTTP client and server: a growable byte buffer, URL
+// Pieces shared by the HTTP client and server: a size-capped byte buffer, URL
 // parsing and percent coding, case-insensitive header helpers, and chunked
 // transfer decoding. Applications include client.hc or server.hc.
 
 #include "../net/socket.hc"
+#include "../text/strbuf.hc"
 
 #ifndef HTTP_MAX_MESSAGE
 #define HTTP_MAX_MESSAGE 268435456
 #endif
-
-class CHttpBuffer
-{
-  U8 *data;
-  I64 length;
-  I64 capacity;
-};
 
 class CHttpUrl
 {
@@ -27,95 +21,12 @@ class CHttpUrl
   U8 *target;
 };
 
-U0 HttpBufferInit(CHttpBuffer *buffer)
+// Growable byte buffer: a CStrBuf whose payload is capped at HTTP_MAX_MESSAGE.
+Bool HttpBufferAppend(CStrBuf *buffer, U8 *data, I64 size)
 {
-  buffer->data = NULL;
-  buffer->length = 0;
-  buffer->capacity = 0;
-}
-
-U0 HttpBufferFree(CHttpBuffer *buffer)
-{
-  Free(buffer->data);
-  HttpBufferInit(buffer);
-}
-
-Bool HttpBufferReserve(CHttpBuffer *buffer, I64 needed)
-{
-  U8 *data;
-  I64 capacity;
-
-  if (needed < 0 || needed > HTTP_MAX_MESSAGE)
+  if (size < 0 || StrsLen(buffer) > HTTP_MAX_MESSAGE - size)
     return FALSE;
-  if (needed <= buffer->capacity)
-    return TRUE;
-
-  capacity = buffer->capacity;
-  if (capacity < 256)
-    capacity = 256;
-  while (capacity < needed) {
-    if (capacity > HTTP_MAX_MESSAGE / 2)
-      capacity = HTTP_MAX_MESSAGE;
-    else
-      capacity *= 2;
-    if (capacity < needed && capacity == HTTP_MAX_MESSAGE)
-      return FALSE;
-  }
-
-  data = MAlloc(capacity);
-  if (buffer->length)
-    MemCpy(data, buffer->data, buffer->length);
-  Free(buffer->data);
-  buffer->data = data;
-  buffer->capacity = capacity;
-  return TRUE;
-}
-
-Bool HttpBufferAppend(CHttpBuffer *buffer, U8 *data, I64 size)
-{
-  if (size < 0 || size && !data)
-    return FALSE;
-  if (!HttpBufferReserve(buffer, buffer->length + size + 1))
-    return FALSE;
-  if (size)
-    MemCpy(buffer->data + buffer->length, data, size);
-  buffer->length += size;
-  buffer->data[buffer->length] = 0;
-  return TRUE;
-}
-
-Bool HttpBufferAppendString(CHttpBuffer *buffer, U8 *text)
-{
-  if (!text)
-    return TRUE;
-  return HttpBufferAppend(buffer, text, StrLen(text));
-}
-
-Bool HttpBufferAppendFormat(CHttpBuffer *buffer, U8 *format, ...)
-{
-  U8 *text = StrPrintJoin(NULL, format, argc, argv);
-  Bool result = HttpBufferAppendString(buffer, text);
-
-  Free(text);
-  return result;
-}
-
-U8 *HttpBufferTake(CHttpBuffer *buffer, I64 *size=NULL)
-{
-  U8 *data;
-
-  if (!buffer->data) {
-    buffer->data = MAlloc(1);
-    buffer->data[0] = 0;
-    buffer->capacity = 1;
-  }
-  data = buffer->data;
-  if (size)
-    *size = buffer->length;
-  buffer->data = NULL;
-  buffer->length = 0;
-  buffer->capacity = 0;
-  return data;
+  return !size || StrBufPutN(buffer, data, size);
 }
 
 U8 HttpAsciiLower(U8 character)
@@ -244,7 +155,7 @@ Bool HttpUrlParse(U8 *text, CHttpUrl *url)
   I64 close_bracket = -1;
   I64 colon = -1;
   I64 colon_count = 0;
-  CHttpBuffer target;
+  CStrBuf target;
 
   MemSet(url, 0, sizeof(CHttpUrl));
   if (HttpStartsWithInsensitive(text, "https://")) {
@@ -324,15 +235,15 @@ Bool HttpUrlParse(U8 *text, CHttpUrl *url)
   if (authority_finish == fragment) {
     url->target = StrNew("/");
   } else if (text[authority_finish] == '?') {
-    HttpBufferInit(&target);
-    HttpBufferAppendString(&target, "/");
+    StrBufInit(&target);
+    StrBufPutS(&target, "/");
     if (!HttpBufferAppend(&target, text + authority_finish,
         fragment - authority_finish)) {
-          HttpBufferFree(&target);
+          StrBufFini(&target);
           HttpUrlFree(url);
           return FALSE;
         }
-    url->target = HttpBufferTake(&target);
+    url->target = StrBufTake(&target);
   } else {
     url->target = HttpSlice(text, authority_finish, fragment);
   }
@@ -606,13 +517,13 @@ Bool HttpParseDecimal(U8 *text, I64 *value)
 
 U8 *HttpDecodeChunked(U8 *encoded, I64 encoded_size, I64 *decoded_size)
 {
-  CHttpBuffer decoded;
+  CStrBuf decoded;
   I64 position = 0;
   I64 digit;
   I64 chunk_size;
   Bool have_digit;
 
-  HttpBufferInit(&decoded);
+  StrBufInit(&decoded);
   while (position < encoded_size) {
     chunk_size = 0;
     have_digit = FALSE;
@@ -620,42 +531,42 @@ U8 *HttpDecodeChunked(U8 *encoded, I64 encoded_size, I64 *decoded_size)
       encoded[position] != '\r' && encoded[position] != ';') {
         digit = HttpHexValue(encoded[position]);
         if (digit < 0) {
-          HttpBufferFree(&decoded);
+          StrBufFini(&decoded);
           return NULL;
         }
         have_digit = TRUE;
         chunk_size = chunk_size << 4 | digit;
         if (chunk_size > HTTP_MAX_MESSAGE) {
-          HttpBufferFree(&decoded);
+          StrBufFini(&decoded);
           return NULL;
         }
         position++;
       }
     if (!have_digit) {
-      HttpBufferFree(&decoded);
+      StrBufFini(&decoded);
       return NULL;
     }
     while (position < encoded_size && encoded[position] != '\r')
       position++;
     if (position + 1 >= encoded_size ||
       encoded[position] != '\r' || encoded[position + 1] != '\n') {
-        HttpBufferFree(&decoded);
+        StrBufFini(&decoded);
         return NULL;
       }
     position += 2;
 
     if (!chunk_size)
-      return HttpBufferTake(&decoded, decoded_size);
+      return StrBufTake(&decoded, decoded_size);
     if (position + chunk_size + 2 > encoded_size ||
       encoded[position + chunk_size] != '\r' ||
       encoded[position + chunk_size + 1] != '\n' ||
       !HttpBufferAppend(&decoded, encoded + position, chunk_size)) {
-        HttpBufferFree(&decoded);
+        StrBufFini(&decoded);
         return NULL;
       }
     position += chunk_size + 2;
   }
-  HttpBufferFree(&decoded);
+  StrBufFini(&decoded);
   return NULL;
 }
 

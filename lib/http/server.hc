@@ -107,28 +107,27 @@ Bool HttpRespond(CHttpRequest *request, I64 status, U8 *body=NULL,
   I64 body_length=0, U8 *content_type="text/plain",
   U8 *extra_headers=NULL)
 {
-  CHttpBuffer head;
+  CStrBuf head;
   Bool ok;
 
   if (!request || request->socket == SOCKET_INVALID || body_length < 0 ||
     body_length && !body)
     return FALSE;
-  HttpBufferInit(&head);
-  HttpBufferAppendFormat(&head, "HTTP/1.1 %d %s\r\n", status,
+  StrBufInit(&head);
+  StrBufPrintf(&head, "HTTP/1.1 %d %s\r\n", status,
     HttpStatusText(status));
   if (!HttpHeadersHave(extra_headers, "Content-Type") && content_type &&
     *content_type && (body_length || status < 300))
-    HttpBufferAppendFormat(&head, "Content-Type: %s\r\n", content_type);
-  HttpBufferAppendFormat(&head, "Content-Length: %d\r\n", body_length);
-  HttpBufferAppendString(&head, "Connection: close\r\n");
-  HttpBufferAppendString(&head, extra_headers);
-  if (extra_headers && *extra_headers &&
-    head.data[head.length - 1] != '\n')
-    HttpBufferAppendString(&head, "\r\n");
-  HttpBufferAppendString(&head, "\r\n");
-  ok = SocketSendAll(request->socket, head.data, head.length) &&
+    StrBufPrintf(&head, "Content-Type: %s\r\n", content_type);
+  StrBufPrintf(&head, "Content-Length: %d\r\n", body_length);
+  StrBufPutS(&head, "Connection: close\r\n");
+  StrBufPutS(&head, extra_headers);
+  if (extra_headers && *extra_headers && head.b[-1] != '\n')
+    StrBufPutS(&head, "\r\n");
+  StrBufPutS(&head, "\r\n");
+  ok = SocketSendAll(request->socket, head.a, StrsLen(&head)) &&
     (!body_length || SocketSendAll(request->socket, body, body_length));
-  HttpBufferFree(&head);
+  StrBufFini(&head);
   SocketClose(request->socket);
   request->socket = SOCKET_INVALID;
   return ok;
@@ -167,7 +166,7 @@ Bool HttpParseRequestLine(CHttpRequest *request)
 // request->error set on malformed or oversized input.
 Bool HttpReadRequest(CHttpRequest *request)
 {
-  CHttpBuffer raw;
+  CStrBuf raw;
   U8 chunk[8192];
   U8 *transfer_encoding = NULL;
   U8 *content_length_text = NULL;
@@ -179,12 +178,12 @@ Bool HttpReadRequest(CHttpRequest *request)
   Bool chunked = FALSE;
   Bool ok = FALSE;
 
-  HttpBufferInit(&raw);
+  StrBufInit(&raw);
   while (TRUE) {
     if (header_finish >= 0) {
       if (chunked) {
-        decoded = HttpDecodeChunked(raw.data + header_finish,
-          raw.length - header_finish, &decoded_size);
+        decoded = HttpDecodeChunked(raw.a + header_finish,
+          StrsLen(&raw) - header_finish, &decoded_size);
         if (decoded) {
           request->body = decoded;
           request->body_length = decoded_size;
@@ -192,8 +191,8 @@ Bool HttpReadRequest(CHttpRequest *request)
           ok = TRUE;
           break;
         }
-      } else if (raw.length - header_finish >= content_length) {
-        request->body = HttpSlice(raw.data, header_finish,
+      } else if (StrsLen(&raw) - header_finish >= content_length) {
+        request->body = HttpSlice(raw.a, header_finish,
           header_finish + content_length);
         request->body_length = content_length;
         ok = TRUE;
@@ -212,10 +211,10 @@ Bool HttpReadRequest(CHttpRequest *request)
       break;
     }
     if (header_finish < 0)
-      header_finish = HttpFindHeaderEnd(raw.data, raw.length);
+      header_finish = HttpFindHeaderEnd(raw.a, StrsLen(&raw));
     if (header_finish >= 0 && !request->headers) {
       request->headers_length = header_finish - 2;
-      request->headers = HttpSlice(raw.data, 0, request->headers_length);
+      request->headers = HttpSlice(raw.a, 0, request->headers_length);
       if (!HttpParseRequestLine(request)) {
         Free(request->error);
         request->error = StrNew("malformed HTTP request line");
@@ -236,7 +235,7 @@ Bool HttpReadRequest(CHttpRequest *request)
   Free(transfer_encoding);
   Free(content_length_text);
   Free(decoded);
-  HttpBufferFree(&raw);
+  StrBufFini(&raw);
   return ok;
 }
 
