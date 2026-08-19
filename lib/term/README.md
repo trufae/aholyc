@@ -72,9 +72,14 @@ U0   TermRedraw();                            // force a full repaint
 Bool TermPollEvent(CTermEvent *event, I64 timeout_ms=-1);
 I64  TermReadKey(I64 timeout_ms=-1);          // 0 on timeout
 I64  TermReadLine(U8 *buffer, I64 capacity);  // cooked line, -1 on EOF
+I64  TermReadByte();                          // cooked byte, -1 on EOF
 Bool TermInterrupted(Bool clear=TRUE);        // did the user press ^C?
 U0   TermMouse(Bool enable=TRUE);
 U0   TermRaw(Bool enable=TRUE);
+
+// Raw output for scrolling uses of the terminal (see lib/line).
+U0   TermWrite(U8 *bytes, I64 count);         // bypass the cell grid
+Bool TermLegacy();                            // console without ANSI
 
 I64  TermMs();                                // monotonic milliseconds
 U64  TermPeek(I64 x, I64 y);                  // read back a drawn cell

@@ -470,6 +470,23 @@ Bool TermNativePoll(CTermEvent *event, I64 timeout_ms)
   return FALSE;
 }
 
+// One cooked byte from standard input; -1 on end of input or interrupt.
+// Works without TermNativeInit, so pipes and files feed line input too.
+I64 TermNativeReadByte()
+{
+  U8 one;
+  I64 got;
+
+  while (TRUE) {
+    got = read(0, &one, 1);
+    if (got == 1)
+      return one;
+    if (got >= 0 || term_interrupted)
+      return -1;
+    // Signals interrupt reads; retry.
+  }
+}
+
 I64 TermNativeReadLine(U8 *buffer, I64 capacity)
 {
   Bool was_raw = term_posix_raw;

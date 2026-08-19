@@ -34,9 +34,13 @@
 //   Bool TermPollEvent(&event, timeout_ms=-1); // key/mouse/resize
 //   I64  TermReadKey(timeout_ms=-1);           // 0 on timeout
 //   I64  TermReadLine(buffer, capacity);       // cooked line, -1 on EOF
+//   I64  TermReadByte();                       // cooked byte, -1 on EOF
 //   Bool TermInterrupted(clear=TRUE);          // did the user press ^C?
 //   U0   TermMouse(enable=TRUE);
 //   U0   TermRaw(enable=TRUE);
+// Raw output, for line editors and other scrolling uses of the terminal:
+//   U0   TermWrite(bytes, count);              // bypass the cell grid
+//   Bool TermLegacy();                         // console without ANSI
 
 // Colors: 16 ANSI colors plus the terminal default.
 #define TERM_BLACK          0
@@ -269,9 +273,11 @@ I64 term_rgb_count;
 I64 term_rgb_cap;
 
 // The xterm defaults for the 16 basic colors, as 0xRRGGBB.
-I64 term_basic_rgb[16] = {0x000000, 0xCD0000, 0x00CD00, 0xCDCD00, 0x0000EE,
-    0xCD00CD, 0x00CDCD, 0xE5E5E5, 0x7F7F7F, 0xFF0000, 0x00FF00, 0xFFFF00,
-    0x5C5CFF, 0xFF00FF, 0x00FFFF, 0xFFFFFF};
+I64 term_basic_rgb[16] = {
+  0x000000, 0xCD0000, 0x00CD00, 0xCDCD00, 0x0000EE,
+  0xCD00CD, 0x00CDCD, 0xE5E5E5, 0x7F7F7F, 0xFF0000, 0x00FF00, 0xFFFF00,
+  0x5C5CFF, 0xFF00FF, 0x00FFFF, 0xFFFFFF
+};
 
 public I64 TermColorDepth()
 {
@@ -390,8 +396,23 @@ I64 TermRgbTo256(I64 rgb)
     6 * TermCubeStep(rgb >> 8 & 0xFF) + TermCubeStep(rgb & 0xFF);
 }
 
-// SGR fragment (";38;5;n" style) for one color, degraded to the depth.
-U0 TermPenColor(U8 *item, I64 color, Bool bg)
+// Append a non-negative decimal number and return the next free byte.
+U8 *TermPenNumber(U8 *at, I64 number)
+{
+  U8 digits[20];
+  I64 length = 0;
+
+  do {
+    digits[length++] = '0' + number % 10;
+    number /= 10;
+  } while (number);
+  while (length)
+    *at++ = digits[--length];
+  return at;
+}
+
+// Append an SGR fragment (";38;5;n" style), degraded to the color depth.
+U8 *TermPenColor(U8 *at, I64 color, Bool bg)
 {
   I64 base = 30, rgb;
 
@@ -406,46 +427,71 @@ U0 TermPenColor(U8 *item, I64 color, Bool bg)
   }
   if (color >= 256 && color < 512 && term_color_depth < 256)
     color = TermRgbToBasic(TermColorToRgb(color));
+  *at++ = ';';
   if (color < 8)
-    StrPrint(item, ";%d", base + color);
-  else if (color < 16)
-    StrPrint(item, ";%d", base + 60 + color - 8);
-  else if (color == TERM_DEFAULT)
-    StrPrint(item, ";%d", base + 9);
-  else if (color < 512)
-    StrPrint(item, ";%d;5;%d", base + 8, color - 256);
-  else {
-    rgb = TermColorToRgb(color);
-    StrPrint(item, ";%d;2;%d;%d;%d", base + 8, rgb >> 16 & 0xFF,
-      rgb >> 8 & 0xFF, rgb & 0xFF);
+    return TermPenNumber(at, base + color);
+  if (color < 16)
+    return TermPenNumber(at, base + 60 + color - 8);
+  if (color == TERM_DEFAULT)
+    return TermPenNumber(at, base + 9);
+  at = TermPenNumber(at, base + 8);
+  if (color < 512) {
+    *at++ = ';';
+    *at++ = '5';
+    *at++ = ';';
+    return TermPenNumber(at, color - 256);
   }
+  *at++ = ';';
+  *at++ = '2';
+  *at++ = ';';
+  rgb = TermColorToRgb(color);
+  at = TermPenNumber(at, rgb >> 16 & 0xFF);
+  *at++ = ';';
+  at = TermPenNumber(at, rgb >> 8 & 0xFF);
+  *at++ = ';';
+  return TermPenNumber(at, rgb & 0xFF);
 }
 
 U0 TermOutPen(I64 fg, I64 bg, I64 attr)
 {
   U8 sequence[96];
-  U8 item[32];  // ";48;2;255;255;255" is the longest fragment
+  U8 *at = sequence;
 
-  StrCpy(sequence, "\x1B[0");
-  if (attr & TERM_BOLD)
-    StrCat(sequence, ";1");
-  if (attr & TERM_DIM)
-    StrCat(sequence, ";2");
-  if (attr & TERM_ITALIC)
-    StrCat(sequence, ";3");
-  if (attr & TERM_UNDERLINE)
-    StrCat(sequence, ";4");
-  if (attr & TERM_BLINK)
-    StrCat(sequence, ";5");
-  if (attr & TERM_REVERSE)
-    StrCat(sequence, ";7");
-  if (attr & TERM_STRIKE)
-    StrCat(sequence, ";9");
-  TermPenColor(item, fg, FALSE);
-  StrCat(sequence, item);
-  TermPenColor(item, bg, TRUE);
-  StrCat(sequence, item);
-  StrCat(sequence, "m");
+  *at++ = 0x1B;
+  *at++ = '[';
+  *at++ = '0';
+  if (attr & TERM_BOLD) {
+    *at++ = ';';
+    *at++ = '1';
+  }
+  if (attr & TERM_DIM) {
+    *at++ = ';';
+    *at++ = '2';
+  }
+  if (attr & TERM_ITALIC) {
+    *at++ = ';';
+    *at++ = '3';
+  }
+  if (attr & TERM_UNDERLINE) {
+    *at++ = ';';
+    *at++ = '4';
+  }
+  if (attr & TERM_BLINK) {
+    *at++ = ';';
+    *at++ = '5';
+  }
+  if (attr & TERM_REVERSE) {
+    *at++ = ';';
+    *at++ = '7';
+  }
+  if (attr & TERM_STRIKE) {
+    *at++ = ';';
+    *at++ = '9';
+  }
+  at = TermPenColor(at, fg, FALSE);
+  at = TermPenColor(at, bg, TRUE);
+  *at++ = 'm';
+  *at = 0;
   TermOutText(sequence);
 }
 
@@ -841,11 +887,11 @@ public U0 TermCommit()
   if (changed || term_cursor_x != term_committed_x ||
     term_cursor_y != term_committed_y ||
     term_cursor_visible != term_committed_visible) {
-    TermNativeWrite(term_out, term_out_length);
-    term_committed_x = term_cursor_x;
-    term_committed_y = term_cursor_y;
-    term_committed_visible = term_cursor_visible;
-  }
+      TermNativeWrite(term_out, term_out_length);
+      term_committed_x = term_cursor_x;
+      term_committed_y = term_cursor_y;
+      term_committed_visible = term_cursor_visible;
+    }
 }
 
 public Bool TermPollEvent(CTermEvent *event, I64 timeout_ms=-1)
@@ -882,6 +928,26 @@ public I64 TermReadLine(U8 *buffer, I64 capacity)
   if (!buffer || capacity < 1)
     return -1;
   return TermNativeReadLine(buffer, capacity);
+}
+
+// One cooked byte from standard input, -1 on end of input.  Unlike the
+// event API this needs no TermInit, so pipes and files work too.
+public I64 TermReadByte()
+{
+  return TermNativeReadByte;
+}
+
+// Raw bytes straight to the terminal, bypassing the cell grid.
+public U0 TermWrite(U8 *bytes, I64 count)
+{
+  if (bytes && count > 0)
+    TermNativeWrite(bytes, count);
+}
+
+// A legacy Win32 console that cannot render ANSI escape sequences.
+public Bool TermLegacy()
+{
+  return TermNativeLegacy;
 }
 
 #endif

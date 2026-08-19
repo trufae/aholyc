@@ -46,6 +46,7 @@ extern U32 WaitForSingleObject(U8 *handle, U32 milliseconds);
 extern I64 SetConsoleOutputCP(U32 codepage);
 extern U32 GetConsoleOutputCP();
 extern U64 GetTickCount64();
+extern I64 _read(I64 fd, U8 *buffer, U32 count);
 
 I64 TermNativeMs()
 {
@@ -481,6 +482,17 @@ Bool TermNativePoll(CTermEvent *event, I64 timeout_ms)
       // Swallowed records retry with the full timeout; close enough.
     }
   }
+}
+
+// One cooked byte from standard input; -1 on end of input.  _read works
+// on pipes and files as well as consoles, unlike ReadConsoleW.
+I64 TermNativeReadByte()
+{
+  U8 one;
+
+  if (_read(0, &one, 1)(I32) != 1)
+    return -1;
+  return one;
 }
 
 I64 TermNativeReadLine(U8 *buffer, I64 capacity)
