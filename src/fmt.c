@@ -382,7 +382,6 @@ static char *fmt_run(Aholyc *cc, const char *src, const FmtOpts *opt) {
 		int level;
 		FBlock *top = st.nstk > 0? &st.stk[st.nstk - 1]: NULL;
 		bool asm_line = top && top->is_asm;
-		bool init_line = top && top->is_init;
 		if (b[0] == '}') {
 			level = top? top->outer: 0;
 		} else if (asm_line && (is_asm_label (b) || b[0] == '#')) {
@@ -463,8 +462,10 @@ static char *fmt_run(Aholyc *cc, const char *src, const FmtOpts *opt) {
 				word_is (st.first_word, "while") ||
 				word_is (st.first_word, "for");
 			char lc = st.last_code;
+			/* post-scan: a '{...' opened on this line counts too */
+			bool in_init = st.nstk > 0 && st.stk[st.nstk - 1].is_init;
 			if (lc == '{' || lc == ';' || lc == '}' || lc == ':' ||
-			    (lc == ',' && init_line)) {
+			    (lc == ',' && in_init)) {
 				st.hang = 0;
 				st.ctrl_open = false;
 				st.stmt_open = false;
