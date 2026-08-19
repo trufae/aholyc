@@ -17,7 +17,7 @@ CFLAGS += -DAHOLYC_BACKEND_LLVM=$(AHOLYC_BACKEND_LLVM) \
 	-DAHOLYC_BACKEND_JS=$(AHOLYC_BACKEND_JS)
 
 LIBSRC = src/aholyc.c src/getopt.c src/lex.c src/lexhints.c src/lexpp.c src/parse.c \
-	src/asm.c src/effects.c src/util.c src/sb.c src/exe.c src/fmt.c
+	src/asm.c src/effects.c src/util.c src/sb.c src/exe.c src/fmt.c src/repl.c
 ifeq ($(AHOLYC_BACKEND_LLVM),1)
 LIBSRC += src/back_ll.c
 endif

@@ -37,6 +37,7 @@ static int usage(int code) {
 	printf ("usage: aholyc [options] [file.HC ... | -] [file.o ...]\n"
 		"       aholyc run [options] <file.HC | -> [args...]   build and run\n"
 		"       aholyc fmt [-w | -q] [file.HC ... | -]   format sources (doc/format.md)\n"
+		"       aholyc repl [file.HC]   interactive loop; accepted lines append\n"
 		"\n"
 		"options:\n"
 		"  -o <file>     output file (default: a.out)\n"
@@ -141,6 +142,9 @@ static void build_source(Aholyc *cc, const Backend *be, Program *prog,
 static int parseargv(Aholyc *cc, int argc, char **argv) {
 	if (argc >= 2 && !strcmp (argv[1], "fmt")) {
 		return fmt_main (cc, argc - 2, argv + 2);
+	}
+	if (argc >= 2 && !strcmp (argv[1], "repl")) {
+		return repl_main (cc, argv[0], argc - 2, argv + 2);
 	}
 	bool run = argc >= 2 && !strcmp (argv[1], "run");
 	int argi = run? 2: 1;

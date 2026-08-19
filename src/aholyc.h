@@ -391,6 +391,9 @@ void pkgconfig_push(Aholyc *cc, const char *pkgs);
 /* 'aholyc fmt' source formatter (fmt.c, self-contained; doc/format.md) */
 int fmt_main(Aholyc *cc, int argc, char **argv);
 
+/* 'aholyc repl' interactive session loop (repl.c) */
+int repl_main(Aholyc *cc, const char *argv0, int argc, char **argv);
+
 /* misc */
 char *read_source(Aholyc *cc, const char *path);
 void write_file(Aholyc *cc, const char *path,
