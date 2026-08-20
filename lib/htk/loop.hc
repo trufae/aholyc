@@ -4,7 +4,7 @@
 // Per-kind behavior, one row per HTK_* kind: measure into pw/ph, lay out
 // the kids, draw, handle a key.  A zero entry leaves pw/ph alone (a canvas
 // keeps its creation size), draws nothing, or declines the key.
-#define HTK_KINDS 31
+#define HTK_KINDS 32
 I64 htk_measure[HTK_KINDS], htk_layout[HTK_KINDS];
 I64 htk_draw[HTK_KINDS], htk_key[HTK_KINDS];
 
@@ -46,6 +46,7 @@ U0 HtkOpsInit()
   HtkOps(HTK_CANVAS, 0, 0, &HtkCanvasDraw, 0);
   HtkOps(HTK_TERM, &HtkTermMeasure, 0, &HtkTermDraw, &HtkTermKey);
   HtkOps(HTK_SWITCH, &HtkSwitchMeasure, 0, &HtkSwitchDraw, &HtkSwitchKey);
+  HtkOps(HTK_SPINNER, &HtkSpinnerMeasure, 0, &HtkSpinnerDraw, 0);
 }
 
 U0 HtkMeasureCtl(HtkCtl *c)

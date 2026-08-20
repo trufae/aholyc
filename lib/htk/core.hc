@@ -33,6 +33,7 @@
 #define HTK_POPUP     28
 #define HTK_TERM      29
 #define HTK_SWITCH    30
+#define HTK_SPINNER   31
 
 // The theme: every color the widgets use, changeable at runtime.  The
 // defaults are the Borland palette; assign any htk_theme field (then touch
@@ -197,7 +198,9 @@ U0 HtkPopupPush(HtkCtl *popup);
 U0 HtkPopupPop();
 U0 HtkPopupClose();
 HtkCtl *HtkPopupRoot();
+HtkCtl *HtkOwnerWindow(HtkCtl *c);
 U0 HtkWindowClose(HtkCtl *w);
+U0 HtkHookAdd(I64 delay_ms, I64 repeat_ms, I64 fn, I64 a, I64 b);
 U0 HtkOpsInit();                 // fills the per-kind tables (loop.hc)
 Bool htk_ops_ready;
 

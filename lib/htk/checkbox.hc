@@ -92,6 +92,51 @@ Bool HtkSwitchKey(HtkCtl *c, CTermEvent *e)
   return FALSE;
 }
 
+// Activity spinner.  It starts when attached to a window and stops re-arming
+// itself when that window closes or the control is hidden.
+U0 HtkSpinnerTick(I64 ctl, I64 unused)
+{
+  HtkCtl *c = ctl;
+  HtkCtl *w = HtkOwnerWindow(c);
+
+  if (!w || w->closed || c->hidden)
+    return;
+  c->value = (c->value + 1) & 3;
+  htk_dirty = TRUE;
+  HtkHookAdd(125, 0, &HtkSpinnerTick, c, 0);
+}
+
+HtkCtl *HtkSpinnerNew(U8 *text="")
+{
+  HtkCtl *c = HtkNew(HTK_SPINNER);
+
+  HtkSetText(c, text);
+  HtkHookAdd(125, 0, &HtkSpinnerTick, c, 0);
+  return c;
+}
+
+U0 HtkSpinnerMeasure(HtkCtl *c)
+{
+  c->pw = HtkRunes(c->text) + 2;  // frame plus a separating cell
+  c->ph = 1;
+}
+
+U0 HtkSpinnerDraw(HtkCtl *c)
+{
+  I64 rune = '|';
+  I64 bg = HtkBg(c, HTK_C_BG);
+
+  if (c->value == 1)
+    rune = '/';
+  else if (c->value == 2)
+    rune = '-';
+  else if (c->value == 3)
+    rune = '\\';
+  HtkRect(c->x, c->y, c->w, 1, ' ', HtkInk(c, HTK_C_FG), bg);
+  HtkChr(c->x, c->y, rune, HtkInk(c, HTK_C_ACCENT), bg, TERM_BOLD);
+  HtkStr(c->x + 2, c->y, c->text, HtkInk(c, HTK_C_FG), bg);
+}
+
 HtkCtl *HtkRadioNew()
 {
   HtkCtl *c = HtkNew(HTK_RADIO);

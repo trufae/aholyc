@@ -4,7 +4,8 @@
 // htk — a Borland-style widget toolkit for the terminal, in pure HolyC on
 // top of lib/term.  Windows with shadows on a ▒ desktop, double-line
 // frames, tiling layout containers (box, grid, split, scroll), and the
-// common widgets: label, button, entry, checkbox, switch, radio, slider, progress,
+// common widgets: label, button, entry, checkbox, switch, radio, slider,
+// progress, spinner,
 // spin, combobox, table, tree, tabs, group, toolbar, statusbar, canvas,
 // menus, and modal dialogs.
 //
