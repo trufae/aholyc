@@ -22,6 +22,12 @@ progress, activity spinner, spin, combobox, table (pull model), tree, tabs, titl
 frames, toolbar, statusbar, canvas (color/rect/line), menu bar with
 dropdowns, and modal dialogs (`HtkMsgBox`, `HtkPrompt`, `HtkOpenFile`).
 
+`HtkMsgBox` and `HtkPrompt` are modal to the active window.  Use
+`HtkMsgBoxFor(owner, ...)`, `HtkPromptFor(owner, ...)`, or
+`HtkModalFor(dialog, owner)` to choose the owner explicitly; a `NULL` owner
+makes a dialog application-modal.  Clicking a blocked owner raises and
+refocuses its dialog.
+
 ## Layout
 
 Tiling containers compute a preferred size bottom-up, then divide space

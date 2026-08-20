@@ -620,9 +620,29 @@ U0 HtkMouse(CTermEvent *e)
     w = w->sib;
   }
   if (!at) {
+    if (htk_modal) {
+      HtkWindowRaise(htk_modal);
+      HtkEnsureFocus;
+      return;
+    }
     if (e->pressed && !e->motion && e->button == TERM_MOUSE_RIGHT)
       HtkAppMenuOpen(e->x, e->y);  // desktop context menu
     return;
+  }
+  // A modal with no owner is application-modal.  An owner-modal dialog only
+  // blocks its owner, leaving unrelated windows usable.  In both cases a
+  // click on a blocked window raises and refocuses the dialog instead.
+  if (htk_modal && at != htk_modal) {
+    HtkCtl *modal = htk_modal;
+
+    while (modal) {
+      if (!modal->modal_owner || modal->modal_owner == at) {
+        HtkWindowRaise(htk_modal);
+        HtkEnsureFocus;
+        return;
+      }
+      modal = modal->modal_prev;
+    }
   }
   // A press on a background window raises it and still counts: the title
   // starts dragging right away and controls react without a second click.
@@ -739,9 +759,29 @@ U0 HtkMain()
   htk_running = FALSE;
 }
 
-// Nested loop for dialogs: runs until the window is dismissed.
-U0 HtkModal(HtkCtl *w)
+// Run a nested modal loop.  owner may be a window or any control in it; NULL
+// makes the dialog application-modal.
+U0 HtkModalFor(HtkCtl *w, HtkCtl *owner)
 {
+  HtkCtl *prior = htk_modal;
+
+  HtkPopupClose;
+  htk_modal = w;
+  if (owner)
+    owner = HtkOwnerWindow(owner);
+  w->modal_owner = owner;
+  w->modal_prev = prior;
+  HtkWindowRaise(w);
+  HtkEnsureFocus;
   while (!w->closed && htk_windows && !HtkInterrupted)
     HtkStep(HtkStepTimeout);
+  w->modal_owner = NULL;
+  w->modal_prev = NULL;
+  htk_modal = prior;
+}
+
+// Backwards-compatible application-modal helper.
+U0 HtkModal(HtkCtl *w)
+{
+  HtkModalFor(w, NULL);
 }

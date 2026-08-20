@@ -130,6 +130,8 @@ class HtkCtl
   HtkCtl *sib;
   HtkCtl *link;       // popup owner, tree selection, tabpage payload
   HtkCtl *menu;       // context menu (an unattached HTK_MENU), right click
+  HtkCtl *modal_owner; // window blocked by this dialog while it is modal
+  HtkCtl *modal_prev; // enclosing modal, for nested owner-modal dialogs
   U8 *text;           // htk_empty until HtkSetText, never freed while shared
   U0 (*changed)(HtkCtl *c);
   U0 (*submit)(HtkCtl *c);   // entry: Enter pressed
@@ -171,6 +173,7 @@ class HtkHook
 HtkCtl *htk_windows;   // bottom to top, chained via sib
 HtkCtl *htk_focus;
 HtkCtl *htk_popup;     // topmost popup; submenus chain down via ->parent
+HtkCtl *htk_modal;     // active modal dialog, while HtkModalFor is running
 HtkCtl *htk_drag;
 I64 htk_drag_dx, htk_drag_dy;
 I64 htk_drag_resize;   // 0 move, else HTK_CORNER_* being dragged
@@ -201,6 +204,7 @@ HtkCtl *HtkPopupRoot();
 HtkCtl *HtkOwnerWindow(HtkCtl *c);
 U0 HtkWindowClose(HtkCtl *w);
 U0 HtkHookAdd(I64 delay_ms, I64 repeat_ms, I64 fn, I64 a, I64 b);
+U0 HtkModalFor(HtkCtl *w, HtkCtl *owner);
 U0 HtkOpsInit();                 // fills the per-kind tables (loop.hc)
 Bool htk_ops_ready;
 

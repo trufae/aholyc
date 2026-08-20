@@ -46,7 +46,7 @@ HtkCtl *HtkDialogNew(U8 *title, HtkCtl *content)
   return w;
 }
 
-U0 HtkMsgBox(U8 *title, U8 *body)
+U0 HtkMsgBoxFor(HtkCtl *owner, U8 *title, U8 *body)
 {
   HtkCtl *box = HtkDialogBody(body);
   HtkCtl *ok = HtkDialogButton("  OK  ", TRUE);
@@ -57,11 +57,16 @@ U0 HtkMsgBox(U8 *title, U8 *body)
   w = HtkDialogNew(title, box);
   w->link = ok;
   HtkSetFocus(ok);
-  HtkModal(w);
+  HtkModalFor(w, owner);
+}
+
+U0 HtkMsgBox(U8 *title, U8 *body)
+{
+  HtkMsgBoxFor(HtkTop, title, body);
 }
 
 // MAlloc'd entry text, or NULL when cancelled.
-U8 *HtkPrompt(U8 *title, U8 *body, U8 *init="")
+U8 *HtkPromptFor(HtkCtl *owner, U8 *title, U8 *body, U8 *init="")
 {
   HtkCtl *box = HtkDialogBody(body);
   HtkCtl *entry = HtkEntryNew(init);
@@ -79,10 +84,16 @@ U8 *HtkPrompt(U8 *title, U8 *body, U8 *init="")
   w->link = ok;
   htk_dialog_ok = FALSE;
   HtkSetFocus(entry);
-  HtkModal(w);
+  HtkModalFor(w, owner);
   if (htk_dialog_ok)
     result = StrNew(entry->text);
   return result;
+}
+
+// MAlloc'd entry text, or NULL when cancelled.  Modal to the active window.
+U8 *HtkPrompt(U8 *title, U8 *body, U8 *init="")
+{
+  return HtkPromptFor(HtkTop, title, body, init);
 }
 
 U8 *HtkOpenFile()
