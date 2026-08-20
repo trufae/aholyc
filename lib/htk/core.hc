@@ -32,6 +32,7 @@
 #define HTK_ITEM      27
 #define HTK_POPUP     28
 #define HTK_TERM      29
+#define HTK_SWITCH    30
 
 // The theme: every color the widgets use, changeable at runtime.  The
 // defaults are the Borland palette; assign any htk_theme field (then touch

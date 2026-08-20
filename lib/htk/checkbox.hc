@@ -1,5 +1,5 @@
-// Checkbox "[x]" and the vertical radio group "( )/(•)"; radio options are
-// HTK_ITEM kids and value is the selected index.
+// Checkbox "[x]", switch, and the vertical radio group "( )/(•)"; radio
+// options are HTK_ITEM kids and value is the selected index.
 
 HtkCtl *HtkCheckboxNew(U8 *text, Bool checked)
 {
@@ -33,6 +33,60 @@ Bool HtkCheckboxKey(HtkCtl *c, CTermEvent *e)
   if (e->key == ' ' || e->key == TERM_KEY_ENTER) {
     c->value = !c->value;
     HtkFire(c);
+    return TRUE;
+  }
+  return FALSE;
+}
+
+// Switch: a compact binary control, with an optional label.  It deliberately
+// shares the checkbox's Bool value and changed hook, but has a distinct
+// presentation for settings-style UIs.
+HtkCtl *HtkSwitchNew(U8 *text="", Bool on=FALSE)
+{
+  HtkCtl *c = HtkNew(HTK_SWITCH);
+
+  HtkSetText(c, text);
+  c->value = on;
+  c->focusable = TRUE;
+  return c;
+}
+
+U0 HtkSwitchMeasure(HtkCtl *c)
+{
+  c->pw = HtkRunes(c->text) + 8;  // "[ OFF ]" plus one separating cell
+  c->ph = 1;
+}
+
+U0 HtkSwitchDraw(HtkCtl *c)
+{
+  I64 bg = HtkBg(c, HTK_C_BG);
+  I64 switch_bg = bg;
+  I64 switch_fg = HtkInk(c, HTK_C_DIM);
+  U8 *state = "[ OFF ]";
+
+  if (c->value) {
+    state = "[ ON  ]";
+    switch_bg = HtkBg(c, HTK_C_BTN_BG);
+    switch_fg = HtkInk(c, HTK_C_BTN_FG);
+  }
+  HtkRect(c->x, c->y, c->w, 1, ' ', HtkInk(c, HTK_C_FG), bg);
+  HtkStr(c->x, c->y, state, switch_fg, switch_bg);
+  HtkStr(c->x + 8, c->y, c->text, HtkInk(c, HTK_C_FG), bg);
+}
+
+U0 HtkSwitchSet(HtkCtl *c, Bool on)
+{
+  on = !!on;
+  if (c->value == on)
+    return;
+  c->value = on;
+  HtkFire(c);
+}
+
+Bool HtkSwitchKey(HtkCtl *c, CTermEvent *e)
+{
+  if (e->key == ' ' || e->key == TERM_KEY_ENTER) {
+    HtkSwitchSet(c, !c->value);
     return TRUE;
   }
   return FALSE;

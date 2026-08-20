@@ -17,7 +17,7 @@ $ aholyc run -DUI_HTK examples/ui/simpledemo.hc
 ## Widgets
 
 label, separator, button, entry (with optional byte-length bound and
-password masking), multiline editor, checkbox, radio group, slider,
+password masking), multiline editor, checkbox, switch, radio group, slider,
 progress, spin, combobox, table (pull model), tree, tabs, titled group
 frames, toolbar, statusbar, canvas (color/rect/line), menu bar with
 dropdowns, and modal dialogs (`HtkMsgBox`, `HtkPrompt`, `HtkOpenFile`).
