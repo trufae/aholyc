@@ -43,6 +43,7 @@
 #include "group.hc"
 #include "canvas.hc"
 #include "window.hc"
+#include "notice.hc"
 #include "loop.hc"
 #include "dialog.hc"
 #include "colorpick.hc"

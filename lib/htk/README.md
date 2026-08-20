@@ -28,6 +28,11 @@ dropdowns, and modal dialogs (`HtkMsgBox`, `HtkPrompt`, `HtkOpenFile`).
 makes a dialog application-modal.  Clicking a blocked owner raises and
 refocuses its dialog.
 
+`HtkNotify("Saved", 3000)` posts a non-modal notification at the lower right,
+stacked above the window bar; the optional timeout is in milliseconds.  A zero
+timeout leaves it visible until its `[x]` button is clicked.  `HtkNoticeClose`
+can dismiss the `HtkNotice *` returned by `HtkNotify` programmatically.
+
 ## Layout
 
 Tiling containers compute a preferred size bottom-up, then divide space

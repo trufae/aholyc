@@ -312,6 +312,7 @@ U0 HtkRedraw()
   }
   HtkClipAll;
   HtkTaskbar(-1, TRUE);
+  HtkNoticesDraw;
   if (htk_popup)
     HtkPopupDrawChain(htk_popup);
   TermCommit;
@@ -557,6 +558,8 @@ U0 HtkMouse(CTermEvent *e)
       HtkMultilineCursorAt(htk_drag, e->x, e->y);
     return;
   }
+  if (HtkNoticesMouse(e))
+    return;
   if (htk_popup) {
     // Topmost popup under the pointer wins; clicking a lower one in the
     // chain folds the submenus above it first.

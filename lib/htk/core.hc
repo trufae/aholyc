@@ -170,6 +170,17 @@ class HtkHook
   I64 fn, a, b;      // fn(a, b)
 };
 
+// A desktop notification.  Coordinates are refreshed every redraw so the
+// mouse handler can recognize its close button.
+class HtkNotice
+{
+  HtkNotice *next;
+  U8 *text;
+  I32 x, y, w, h;
+  Bool closed;
+  Bool timer;
+};
+
 HtkCtl *htk_windows;   // bottom to top, chained via sib
 HtkCtl *htk_focus;
 HtkCtl *htk_popup;     // topmost popup; submenus chain down via ->parent
@@ -178,6 +189,7 @@ HtkCtl *htk_drag;
 I64 htk_drag_dx, htk_drag_dy;
 I64 htk_drag_resize;   // 0 move, else HTK_CORNER_* being dragged
 HtkHook *htk_hooks;
+HtkNotice *htk_notices;  // newest first
 Bool htk_dirty;
 Bool htk_running;
 Bool htk_started;
