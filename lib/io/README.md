@@ -53,3 +53,16 @@ On POSIX the child leads its own process group so the shutdown sequence
 reaches the programs the shell started; `ProcessOpen` also ignores `SIGPIPE`
 so writing to a dead child fails instead of killing the caller. On Windows
 the shutdown terminates the shell only.
+# `lib/io`
+
+`env.hc` provides owned environment strings across POSIX and Windows:
+
+```c
+#include "lib/io/env.hc"
+
+U8 *home = EnvHome;  // MAlloc'd HOME / USERPROFILE value; Free when done
+U8 *value = EnvGet("MY_SETTING");
+```
+
+`EnvHome` uses `HOME` on POSIX and `GetEnvironmentVariableA("USERPROFILE")`
+on Windows. `EnvGet` and `EnvHome` return `NULL` when unavailable.
