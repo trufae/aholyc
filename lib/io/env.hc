@@ -9,7 +9,7 @@ extern U32 GetEnvironmentVariableA(U8 *name, U8 *value, U32 size);
 extern Bool SetEnvironmentVariableA(U8 *name, U8 *value);
 
 // Set name to value. Omitting value, or passing NULL, removes name.
-Bool SetEnv(U8 *name, U8 *value = NULL)
+Bool EnvSet(U8 *name, U8 *value = NULL)
 {
   if (!name || !name[0])
     return FALSE;
@@ -41,7 +41,7 @@ extern I64 setenv(U8 *name, U8 *value, I64 overwrite);
 extern I64 unsetenv(U8 *name);
 
 // Set name to value. Omitting value, or passing NULL, removes name.
-Bool SetEnv(U8 *name, U8 *value = NULL)
+Bool EnvSet(U8 *name, U8 *value = NULL)
 {
   if (!name || !name[0])
     return FALSE;
