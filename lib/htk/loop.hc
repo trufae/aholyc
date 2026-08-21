@@ -295,26 +295,40 @@ I64 HtkNextTimeout()
 U0 HtkRedraw()
 {
   HtkCtl *w = htk_windows;
+  Bool app_modal = htk_modal && !htk_modal->modal_owner;
 
   HtkEnsureFocus;
   TermShowCursor(FALSE);
   HtkClipAll;
+  htk_paint_dim = app_modal;
   HtkDesktopDraw;
+  htk_paint_dim = FALSE;
   while (w) {
     if (!w->minimized) {
       HtkClipAll;
       HtkWindowLayout(w);
-      htk_paint_dim = htk_dim_inactive && w != HtkTop;
+      // An application-modal dialog shades every pre-existing window.  The
+      // dialog itself is always-on-top and stays fully legible.
+      if (app_modal)
+        htk_paint_dim = w != htk_modal;
+      else
+        htk_paint_dim = htk_dim_inactive && w != HtkTop;
       HtkWindowDraw(w);
       htk_paint_dim = FALSE;
     }
     w = w->sib;
   }
   HtkClipAll;
+  htk_paint_dim = app_modal;
   HtkTaskbar(-1, TRUE);
   HtkNoticesDraw;
   if (htk_popup)
     HtkPopupDrawChain(htk_popup);
+  // Entry/multiline/terminal drawing enables the physical terminal cursor.
+  // It must not leak through a later popup or a window above its owner.
+  if (htk_popup || !htk_focus || HtkOwnerWindow(htk_focus) != HtkTop)
+    TermShowCursor(FALSE);
+  htk_paint_dim = FALSE;
   TermCommit;
 }
 
@@ -342,11 +356,20 @@ U0 HtkWindowMouse(HtkCtl *w, CTermEvent *e)
 {
   HtkCtl *content = HtkWindowContent(w);
   HtkCtl *hit;
+  I64 at;
   Bool press = e->pressed && !e->motion && e->button == TERM_MOUSE_LEFT;
   Bool right = e->pressed && !e->motion && e->button == TERM_MOUSE_RIGHT;
 
-  if (right && e->y == w->y) {  // title bar: window manager menu
+  if (right && e->y == w->y && w->controls & HTK_WINDOW_MENU) {
+    // Title bar: window manager menu.
     HtkWindowMenuOpen(w, e->x, e->y + 1);
+    return;
+  }
+  // The system-menu button is deliberately inside the resize corner.  It
+  // makes all title-bar actions reachable on terminals without button 3.
+  if (press && w->controls & HTK_WINDOW_MENU && e->y == w->y &&
+    e->x >= w->x + 2 && e->x < w->x + 5) {
+    HtkWindowMenuOpen(w, w->x + 2, w->y + 1);
     return;
   }
   // Any of the four frame corners (two cells wide) resizes; the rest of the
@@ -364,19 +387,41 @@ U0 HtkWindowMouse(HtkCtl *w, CTermEvent *e)
         htk_drag_resize = HTK_CORNER_BR;
       return;
     }
+  // Frame edges resize in one dimension; corners above keep their two-axis
+  // behavior, and the top frame remains the title-bar drag handle.
+  if (press && !w->maximized) {
+    if (e->x == w->x && e->y > w->y && e->y < w->y + w->h - 1)
+      htk_drag_resize = HTK_EDGE_LEFT;
+    else if (e->x == w->x + w->w - 1 && e->y > w->y &&
+      e->y < w->y + w->h - 1)
+      htk_drag_resize = HTK_EDGE_RIGHT;
+    else if (e->y == w->y + w->h - 1 && e->x > w->x + 1 &&
+      e->x < w->x + w->w - 2)
+      htk_drag_resize = HTK_EDGE_BOTTOM;
+    else
+      htk_drag_resize = 0;
+    if (htk_drag_resize) {
+      htk_drag = w;
+      return;
+    }
+  }
   if (e->y == w->y) {
-    I64 box = e->x - (w->x + w->w - 10);  // [_][□][■] at the right
     if (!press)
       return;
-    if (box >= 0 && box < 3) {
+    at = w->x + w->w - 1 - HtkWindowControlCount(w) * 3;
+    if (w->controls & HTK_WINDOW_MINIMIZE && e->x >= at && e->x < at + 3) {
       HtkWindowMinimize(w);
       return;
     }
-    if (box >= 3 && box < 6) {
+    if (w->controls & HTK_WINDOW_MINIMIZE)
+      at += 3;
+    if (w->controls & HTK_WINDOW_MAXIMIZE && e->x >= at && e->x < at + 3) {
       HtkWindowMaximize(w);
       return;
     }
-    if (box >= 6 && box < 9) {
+    if (w->controls & HTK_WINDOW_MAXIMIZE)
+      at += 3;
+    if (w->controls & HTK_WINDOW_CLOSE && e->x >= at && e->x < at + 3) {
       HtkWindowClose(w);
       return;
     }
@@ -473,8 +518,15 @@ U0 HtkWindowMouse(HtkCtl *w, CTermEvent *e)
     break;
   case HTK_MULTILINE:
     if (press) {
-      HtkMultilineCursorAt(hit, e->x, e->y);
-      hit->anchor = hit->cursor;
+      if (hit->scrollbar && e->x == hit->x + hit->w - 1) {
+        HtkMultilineScrollMouse(hit, e->y);
+        htk_drag_scroll = TRUE;
+      } else {
+        HtkMultilineCursorAt(hit, e->x, e->y);
+        hit->anchor = hit->cursor;
+        hit->scroll_hold = FALSE;
+        htk_drag_scroll = FALSE;
+      }
       htk_drag = hit;
     }
     break;
@@ -491,7 +543,7 @@ U0 HtkWindowMouse(HtkCtl *w, CTermEvent *e)
       HtkCtl *page = hit->kids;
       I64 i = 0;
       while (page) {
-        if (e->x >= page->x && e->x < page->x + page->w) {
+        if (e->x >= page->tab_x && e->x < page->tab_x + page->tab_w) {
           hit->value = i;
           htk_dirty = TRUE;
         }
@@ -538,6 +590,7 @@ U0 HtkMouse(CTermEvent *e)
       htk_drag->anchor = -1;  // a plain click selects nothing
     htk_drag = NULL;
     htk_drag_resize = 0;
+    htk_drag_scroll = FALSE;
   }
   if (htk_drag && e->pressed) {
     if (htk_drag->kind == HTK_WINDOW) {
@@ -554,13 +607,34 @@ U0 HtkMouse(CTermEvent *e)
       HtkCanvasMouse(htk_drag, e);
     else if (htk_drag->kind == HTK_ENTRY)
       HtkEntryCursorAt(htk_drag, e->x);  // extends the selection
-    else if (htk_drag->kind == HTK_MULTILINE)
-      HtkMultilineCursorAt(htk_drag, e->x, e->y);
+    else if (htk_drag->kind == HTK_MULTILINE) {
+      if (htk_drag_scroll)
+        HtkMultilineScrollMouse(htk_drag, e->y);
+      else
+        HtkMultilineCursorAt(htk_drag, e->x, e->y);
+    }
     return;
   }
   if (HtkNoticesMouse(e))
     return;
   if (htk_popup) {
+    // A click on another menubar title changes menus immediately, like the
+    // Right arrow.  Handle it before the ordinary outside-popup close path.
+    if (e->pressed && !e->motion && e->button == TERM_MOUSE_LEFT) {
+      HtkCtl *root = HtkPopupRoot;
+      HtkCtl *owner, *menu;
+
+      if (root && root->link && root->link->kind == HTK_MENU) {
+        owner = root->link->parent;
+        if (owner && owner->kind == HTK_WINDOW && e->y == owner->y + 1) {
+          menu = HtkMenubarHit(owner, e->x);
+          if (menu && menu != root->link) {
+            HtkMenuOpen(menu);
+            return;
+          }
+        }
+      }
+    }
     // Topmost popup under the pointer wins; clicking a lower one in the
     // chain folds the submenus above it first.
     HtkCtl *p = htk_popup;
@@ -577,6 +651,13 @@ U0 HtkMouse(CTermEvent *e)
     }
     if (e->pressed && !e->motion)
       HtkPopupClose;
+    return;
+  }
+  // An application-modal dialog owns the whole desktop, including the bar.
+  if (htk_modal && !htk_modal->modal_owner &&
+    e->pressed && !e->motion && HtkTaskbarHeight && e->y == TermHeight - 1) {
+    HtkWindowRaise(htk_modal);
+    HtkEnsureFocus;
     return;
   }
   // Window bar: [App] opens the menu, a click on a button restores that
@@ -662,6 +743,22 @@ U0 HtkKey(CTermEvent *e)
     HtkPickKey(htk_popup, e);
     return;
   }
+  if (e->key == TERM_KEY_TAB && e->mods & TERM_MOD_CTRL) {
+    if (e->mods & TERM_MOD_SHIFT)
+      HtkWindowCycle(-1);
+    else
+      HtkWindowCycle(1);
+    return;
+  }
+  if (e->key == 'g' && e->mods & TERM_MOD_CTRL) {
+    if (top)
+      HtkWindowMenuOpen(top, top->x + 2, top->y + 1);
+    return;
+  }
+  if (e->key == 'o' && e->mods & TERM_MOD_CTRL) {
+    HtkAppMenuOpen(0, TermHeight - 1);
+    return;
+  }
   if (e->key == TERM_KEY_TAB &&
     !(htk_focus && htk_focus->kind == HTK_TERM && !(e->mods & TERM_MOD_SHIFT))) {
       if (e->mods & TERM_MOD_SHIFT)  // a terminal keeps plain Tab
@@ -719,6 +816,7 @@ Bool HtkInit()
   if (!TermInit)
     return FALSE;
   HtkThemeDefault;
+  HtkSettingsLoad;
   TermMouse;
   htk_started = TRUE;
   htk_dirty = TRUE;
@@ -747,17 +845,39 @@ I64 HtkStepTimeout()
   return wait;
 }
 
-// ^C ends the loop unless a terminal control has focus and takes it.
+// lib/term receives ^C as SIGINT rather than a key.  A focused terminal always
+// gets the byte first; the remaining policies apply to the rest of HTK.
 Bool HtkInterrupted()
 {
   HtkTermInterrupt;
+  if (!TermInterrupted(FALSE))
+    return FALSE;
+  if (htk_ctrl_c_mode == HTK_CTRLC_IGNORE) {
+    TermInterrupted(TRUE);
+    return FALSE;
+  }
+  if (htk_ctrl_c_mode == HTK_CTRLC_COPY) {
+    TermInterrupted(TRUE);
+    HtkCopySelection(htk_focus);
+    return FALSE;
+  }
+  if (htk_ctrl_c_mode == HTK_CTRLC_CALLBACK) {
+    TermInterrupted(TRUE);
+    if (htk_ctrl_c_fn && !htk_ctrl_c_pending && !htk_ctrl_c_active) {
+      htk_ctrl_c_pending = TRUE;
+      HtkHookAdd(0, 0, &HtkCtrlCCall, 0, 0);
+    }
+    return FALSE;
+  }
   return TermInterrupted(FALSE);
 }
 
 U0 HtkMain()
 {
   htk_running = TRUE;
-  while (htk_running && htk_windows && !HtkInterrupted)
+  // A registered launcher owns the desktop lifetime even after its last
+  // window closes, so App can start it (or another registered app) again.
+  while (htk_running && (htk_windows || htk_apps) && !HtkInterrupted)
     HtkStep(HtkStepTimeout);
   htk_running = FALSE;
 }
@@ -774,13 +894,19 @@ U0 HtkModalFor(HtkCtl *w, HtkCtl *owner)
     owner = HtkOwnerWindow(owner);
   w->modal_owner = owner;
   w->modal_prev = prior;
+  w->modal_top_saved = w->always_on_top;
+  HtkWindowSetAlwaysOnTop(w, TRUE);
   HtkWindowRaise(w);
   HtkEnsureFocus;
   while (!w->closed && htk_windows && !HtkInterrupted)
     HtkStep(HtkStepTimeout);
   w->modal_owner = NULL;
   w->modal_prev = NULL;
+  if (!w->closed)
+    HtkWindowSetAlwaysOnTop(w, w->modal_top_saved);
   htk_modal = prior;
+  HtkEnsureFocus;
+  htk_dirty = TRUE;
 }
 
 // Backwards-compatible application-modal helper.

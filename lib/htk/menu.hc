@@ -19,6 +19,15 @@ HtkCtl *HtkMenuItem(HtkCtl *menu, U8 *label)
   return item;
 }
 
+HtkCtl *HtkMenuSeparator(HtkCtl *menu)
+{
+  HtkCtl *sep = HtkNew(HTK_SEP);
+
+  sep->disabled = TRUE;
+  HtkAdd(menu, sep);
+  return sep;
+}
+
 // A menu that lives outside the menubar: pop it up with HtkMenuOpenAt or
 // attach it to a control's ->menu for right clicks.
 HtkCtl *HtkContextMenuNew()

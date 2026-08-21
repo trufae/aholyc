@@ -27,6 +27,7 @@
 // their title bar and close on the [■] box.
 
 #include "../term/term.hc"
+#include "../io/env.hc"
 #include "core.hc"
 #include "box.hc"
 #include "label.hc"
@@ -38,6 +39,10 @@
 #include "combobox.hc"
 #include "menu.hc"
 #include "table.hc"
+#ifdef HTK_NATIVE_CLIPBOARD
+#include "../text/base64.hc"
+#endif
+#include "clipboard.hc"
 #include "tree.hc"
 #include "tabs.hc"
 #include "group.hc"
@@ -64,6 +69,18 @@
 #endif
 #endif
 #ifdef HTK_NODESK
+Bool HtkSettingsLoad()
+{
+  return FALSE;
+}
+Bool HtkSettingsSaved()
+{
+  return FALSE;
+}
+HtkApp *HtkAppRegister(U8 *name, I64 entry, I64 data=0)
+{
+  return NULL;  // no App launcher exists without the desktop layer
+}
 U0 HtkAppMenuOpen(I64 x, I64 y)
 {
 }

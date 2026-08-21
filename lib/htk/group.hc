@@ -45,6 +45,18 @@ U0 HtkGroupDraw(HtkCtl *c)
 
 #define HtkToolbarNew HtkNew(HTK_TOOLBAR)
 
+// A horizontal box intended for dialog/action buttons.  It aligns its
+// non-expanding children to the right and docks to a vertical parent's
+// bottom; set ->right or ->bottom to FALSE to opt out.
+HtkCtl *HtkButtonBarNew()
+{
+  HtkCtl *c = HtkNew(HTK_BOX);
+
+  c->right = TRUE;
+  c->bottom = TRUE;
+  return c;
+}
+
 U0 HtkToolbarDraw(HtkCtl *c)
 {
   HtkRect(c->x, c->y, c->w, c->h, ' ', HTK_C_FG, HTK_C_BG);

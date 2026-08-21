@@ -470,18 +470,21 @@ U0 HtkTermByte(CHtkTerm *t, I64 byte)
 Bool HtkTermPump(CHtkTerm *t)
 {
   U8 buffer[4096];
-  I64 n, i;
+  I64 n = 1, i;
   Bool changed = FALSE;
 
   if (t->exited)
     return FALSE;
-  while (TRUE) {
+  // Keep the read condition in the loop header.  Apart from being clearer,
+  // this avoids emitting an unreachable constant-true tail on the LLVM
+  // backend (which could become a self-branch in the generated executable).
+  while (n > 0) {
     n = HtkPtyRead(t, buffer, sizeof(buffer));
-    if (n <= 0)
-      break;
-    for (i = 0; i < n; i++)
-      HtkTermByte(t, buffer[i]);
-    changed = TRUE;
+    if (n > 0) {
+      for (i = 0; i < n; i++)
+        HtkTermByte(t, buffer[i]);
+      changed = TRUE;
+    }
   }
   if (!HtkPtyAlive(t)) {
     t->exited = TRUE;
@@ -513,13 +516,23 @@ CHtkTerm *HtkTermOf(HtkCtl *c)
 U0 HtkTermTick(I64 a, I64 b)
 {
   HtkCtl *c = a;
-  CHtkTerm *t = HtkTermOf(c);
+  CHtkTerm *t;
+
+  // Window close releases the pty before its one-shot poll hook is due.
+  // That last queued tick must become a no-op instead of dereferencing the
+  // cleared control data.
+  if (!c || !c->data)
+    return;
+  t = HtkTermOf(c);
 
   if (HtkTermPump(t))
     htk_dirty = TRUE;
-  if (t->exited)
-    return;
-  HtkHookAdd(20, 0, &HtkTermTick, c, 0);  // re-arm while the shell lives
+  // Express this as a guarded re-arm rather than an early return.  Besides
+  // making the one-shot timer ownership explicit, this avoids a dead block
+  // after `return` in the LLVM output (some builds could spin in that block
+  // when a PTY exits).
+  if (!t->exited)
+    HtkHookAdd(20, 0, &HtkTermTick, c, 0);  // re-arm while the shell lives
 }
 
 HtkCtl *HtkTerminalNew(I64 cols=80, I64 rows=24)
@@ -643,8 +656,9 @@ U0 HtkTermClosed(HtkCtl *w)
   }
 }
 
-// App > Terminal: a window around a fresh shell.
-U0 HtkTerminalWindow()
+// A window around a fresh shell.  The optional argument lets this function
+// be registered directly with HtkAppRegister.
+U0 HtkTerminalWindow(I64 unused=0)
 {
   HtkCtl *w = HtkWindowNew("Terminal", 84, 26);
   HtkCtl *term = HtkTerminalNew(80, 24);

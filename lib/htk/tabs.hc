@@ -64,10 +64,17 @@ U0 HtkTabLayout(HtkCtl *c)
   HtkTabPages(c);
   if (!page || !page->kids)
     return;
-  page->kids->x = c->x + 1;
-  page->kids->y = c->y + 1;
-  page->kids->w = c->w - 2;
-  page->kids->h = c->h - 2;
+  // The page needs its own content rectangle as well as its child.  Without
+  // it HtkHit stops at the tab control, so controls inside a page cannot be
+  // clicked or focused with the mouse.
+  page->x = c->x + 1;
+  page->y = c->y + 1;
+  page->w = c->w - 2;
+  page->h = c->h - 2;
+  page->kids->x = page->x;
+  page->kids->y = page->y;
+  page->kids->w = page->w;
+  page->kids->h = page->h;
   HtkLayoutCtl(page->kids);
 }
 
@@ -86,12 +93,12 @@ U0 HtkTabDraw(HtkCtl *c)
       if (HtkFocused(c))
         fg = HTK_C_FIELD_BG;
     }
-    page->x = x;
-    page->w = HtkRunes(page->text) + 2;
+    page->tab_x = x;
+    page->tab_w = HtkRunes(page->text) + 2;
     HtkChr(x, c->y, ' ', fg, HTK_C_BG);
     HtkStr(x + 1, c->y, page->text, fg, HTK_C_BG, attr);
-    HtkChr(x + page->w - 1, c->y, ' ', fg, HTK_C_BG);
-    x += page->w + 1;
+    HtkChr(x + page->tab_w - 1, c->y, ' ', fg, HTK_C_BG);
+    x += page->tab_w + 1;
     page = page->sib;
     i++;
   }

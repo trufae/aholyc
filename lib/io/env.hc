@@ -1,11 +1,20 @@
 #ifndef AHOLYC_LIB_IO_ENV_HC
 #define AHOLYC_LIB_IO_ENV_HC
 
-// Small, owned-string environment API.  EnvGet and EnvHome return MAlloc'd
-// strings that callers must Free, so their values are safe to retain.
+// Small environment API. EnvGet and EnvHome return MAlloc'd strings that
+// callers must Free, so their values are safe to retain.
 
 #ifdef IS_WINDOWS
 extern U32 GetEnvironmentVariableA(U8 *name, U8 *value, U32 size);
+extern Bool SetEnvironmentVariableA(U8 *name, U8 *value);
+
+// Set name to value. Omitting value, or passing NULL, removes name.
+Bool SetEnv(U8 *name, U8 *value = NULL)
+{
+  if (!name || !name[0])
+    return FALSE;
+  return SetEnvironmentVariableA(name, value);
+}
 
 U8 *EnvGet(U8 *name)
 {
@@ -28,6 +37,18 @@ U8 *EnvGet(U8 *name)
 }
 #else
 extern U8 *getenv(U8 *name);
+extern I64 setenv(U8 *name, U8 *value, I64 overwrite);
+extern I64 unsetenv(U8 *name);
+
+// Set name to value. Omitting value, or passing NULL, removes name.
+Bool SetEnv(U8 *name, U8 *value = NULL)
+{
+  if (!name || !name[0])
+    return FALSE;
+  if (!value)
+    return unsetenv(name) == 0;
+  return setenv(name, value, TRUE) == 0;
+}
 
 U8 *EnvGet(U8 *name)
 {

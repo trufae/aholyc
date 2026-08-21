@@ -28,7 +28,10 @@ U0 HtkButtonDraw(HtkCtl *c)
   pad = (c->w - HtkRunes(c->text)) / 2;
   if (pad < 0)
     pad = 0;
-  HtkStr(c->x + pad, c->y, c->text, fg, bg);
+  if (HtkFocused(c))
+    HtkStr(c->x + pad, c->y, c->text, fg, bg, TERM_BOLD);
+  else
+    HtkStr(c->x + pad, c->y, c->text, fg, bg);
 }
 
 Bool HtkButtonKey(HtkCtl *c, CTermEvent *e)

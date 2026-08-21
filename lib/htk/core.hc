@@ -35,6 +35,16 @@
 #define HTK_SWITCH    30
 #define HTK_SPINNER   31
 
+// Policy for the SIGINT that lib/term receives for Ctrl-C.
+#define HTK_CTRLC_DEFAULT 0  // preserve SIGINT: HtkMain exits
+#define HTK_CTRLC_IGNORE  1  // clear it and continue
+#define HTK_CTRLC_COPY    2  // copy the focused control's selection
+#define HTK_CTRLC_CALLBACK 3 // call the configured handler and continue
+
+#define HTK_MULTILINE_LINE_NUMBERS 1
+#define HTK_MULTILINE_WRAP         2
+#define HTK_MULTILINE_SCROLLBAR    4
+
 // The theme: every color the widgets use, changeable at runtime.  The
 // defaults are the Borland palette; assign any htk_theme field (then touch
 // htk_dirty) to restyle, or call HtkThemeDefault to reset.
@@ -49,6 +59,7 @@ class HtkTheme
   I64 focus_bg;           // focused widget highlight
   I64 field_bg, field_fg; // entry/combo/spin fields
   I64 sel_bg, sel_fg;     // menu/list selection
+  I64 bar_bg, bar_fg;     // desktop App/window bar
   I64 accent;
 };
 
@@ -61,7 +72,7 @@ U0 HtkThemeDefault()
   htk_theme.bg = TERM_WHITE;
   htk_theme.fg = TERM_BLACK;
   htk_theme.dim = TERM_GRAY;
-  htk_theme.frame = TERM_BRIGHT_WHITE;
+  htk_theme.frame = TERM_BLUE;
   htk_theme.title = TERM_BLACK;
   htk_theme.btn_bg = TERM_GREEN;
   htk_theme.btn_fg = TERM_BLACK;
@@ -70,7 +81,9 @@ U0 HtkThemeDefault()
   htk_theme.field_fg = TERM_BRIGHT_WHITE;
   htk_theme.sel_bg = TERM_GREEN;
   htk_theme.sel_fg = TERM_BRIGHT_WHITE;
-  htk_theme.accent = TERM_BRIGHT_YELLOW;
+  htk_theme.bar_bg = TERM_BLUE;
+  htk_theme.bar_fg = TERM_BRIGHT_WHITE;
+  htk_theme.accent = TERM_BLUE;
 }
 
 #define HTK_C_DESK_FG  htk_theme.desk_fg
@@ -87,6 +100,8 @@ U0 HtkThemeDefault()
 #define HTK_C_FIELD_FG htk_theme.field_fg
 #define HTK_C_SEL_BG   htk_theme.sel_bg
 #define HTK_C_SEL_FG   htk_theme.sel_fg
+#define HTK_C_BAR_BG   htk_theme.bar_bg
+#define HTK_C_BAR_FG   htk_theme.bar_fg
 #define HTK_C_ACCENT   htk_theme.accent
 
 #define HTK_TILE_LEFT 1
@@ -98,6 +113,18 @@ U0 HtkThemeDefault()
 #define HTK_CORNER_TR 2
 #define HTK_CORNER_BL 3
 #define HTK_CORNER_BR 4
+#define HTK_EDGE_LEFT  5
+#define HTK_EDGE_RIGHT 6
+#define HTK_EDGE_BOTTOM 7
+
+// Per-window title controls.  MENU enables both the top-left system button
+// and title-bar right-click menu; the remaining bits draw and activate their
+// corresponding title buttons.
+#define HTK_WINDOW_MENU     1
+#define HTK_WINDOW_MINIMIZE 2
+#define HTK_WINDOW_MAXIMIZE 4
+#define HTK_WINDOW_CLOSE    8
+#define HTK_WINDOW_DEFAULT_CONTROLS (HTK_WINDOW_MENU | HTK_WINDOW_MINIMIZE | HTK_WINDOW_MAXIMIZE | HTK_WINDOW_CLOSE)
 
 // Box-drawing runes.
 #define HTK_R_H  0x2500
@@ -138,6 +165,7 @@ class HtkCtl
   I64 fn, data;      // canvas draw callback / table cell callback + data
   I64 user;          // adapter's UiCtl
   I64 value;         // state: checked, position, selection, tab index
+  I64 controls;      // HTK_WINDOW_* title controls, meaningful for windows
   I64 low, high;     // bounds; table: high = row count; window: low=dismissable
   I32 top;           // first visible row / scroll offset
   I32 cursor;        // entry/multiline cursor, byte index
@@ -145,21 +173,29 @@ class HtkCtl
   I32 x, y, w, h;    // laid-out rect, absolute cells
   I32 pw, ph;        // preferred size from measure
   I32 rx, ry, rw, rh; // window rect saved while maximized
+  I32 min_w, min_h, max_w, max_h; // window size limits; max 0 = unbounded
   I32 col, row;      // grid placement
+  I32 tab_x, tab_w;  // tab-page header geometry (separate from page content)
   I32 mouse_x, mouse_y;
   U8 kind;
   U8 mouse_button;
   Bool mouse_pressed, mouse_motion;
   Bool vertical;
+  Bool right;        // horizontal box: start its non-expanding kids at right
+  Bool bottom;       // vertical parent: reserve this control at its bottom
   Bool expand;
   Bool focusable;
   Bool disabled;
   Bool hidden;
   Bool secret;       // password entry
+  Bool line_numbers, wrap, scrollbar; // multiline editor display options
+  Bool scroll_hold;   // multiline: preserve an explicit scrollbar position
   Bool readonly;     // entry/multiline: navigation only
   Bool closed;       // window dismissed
   Bool minimized;    // window parked on the taskbar
   Bool maximized;    // window covers the desktop; rx.. keeps the old rect
+  Bool always_on_top; // stays above ordinary windows in the z-order
+  Bool modal_top_saved; // prior always_on_top value while HtkModalFor runs
 };
 
 // Deferred call: due timestamp, repeating interval (0 = one shot).
@@ -181,6 +217,15 @@ class HtkNotice
   Bool timer;
 };
 
+// A desktop launcher.  The entry callback constructs (or restores) its own
+// windows and receives the application-defined data value.
+class HtkApp
+{
+  HtkApp *next;
+  U8 *name;
+  I64 entry, data;
+};
+
 HtkCtl *htk_windows;   // bottom to top, chained via sib
 HtkCtl *htk_focus;
 HtkCtl *htk_popup;     // topmost popup; submenus chain down via ->parent
@@ -188,8 +233,14 @@ HtkCtl *htk_modal;     // active modal dialog, while HtkModalFor is running
 HtkCtl *htk_drag;
 I64 htk_drag_dx, htk_drag_dy;
 I64 htk_drag_resize;   // 0 move, else HTK_CORNER_* being dragged
+Bool htk_drag_scroll;  // a multiline scrollbar thumb is being dragged
 HtkHook *htk_hooks;
 HtkNotice *htk_notices;  // newest first
+HtkApp *htk_apps;        // registered desktop launchers, oldest first
+I64 htk_ctrl_c_mode;
+I64 htk_ctrl_c_fn, htk_ctrl_c_data;
+Bool htk_ctrl_c_pending;
+Bool htk_ctrl_c_active;
 Bool htk_dirty;
 Bool htk_running;
 Bool htk_started;
@@ -215,8 +266,19 @@ U0 HtkPopupClose();
 HtkCtl *HtkPopupRoot();
 HtkCtl *HtkOwnerWindow(HtkCtl *c);
 U0 HtkWindowClose(HtkCtl *w);
+U0 HtkWindowRaise(HtkCtl *w);
+U0 HtkWindowCycle(I64 direction);
+U0 HtkEnsureFocus();
+U0 HtkWindowSetAlwaysOnTop(HtkCtl *w, Bool on);
+U0 HtkWindowSetControls(HtkCtl *w, I64 controls);
+HtkApp *HtkAppRegister(U8 *name, I64 entry, I64 data=0);
+U0 HtkMultilineSetOptions(HtkCtl *c, I64 options);
+U0 HtkWindowSetSizeLimits(HtkCtl *w, I64 min_w=12, I64 min_h=4,
+  I64 max_w=0, I64 max_h=0);
 U0 HtkHookAdd(I64 delay_ms, I64 repeat_ms, I64 fn, I64 a, I64 b);
 U0 HtkModalFor(HtkCtl *w, HtkCtl *owner);
+Bool HtkSettingsLoad();
+Bool HtkSettingsSaved();
 U0 HtkOpsInit();                 // fills the per-kind tables (loop.hc)
 Bool htk_ops_ready;
 

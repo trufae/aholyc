@@ -44,7 +44,7 @@ U0 HtkBoxMeasure(HtkCtl *c)
 U0 HtkBoxLayout(HtkCtl *c)
 {
   HtkCtl *k = c->kids;
-  I64 fixed = 0, stretchy = 0, extra, at;
+  I64 fixed = 0, stretchy = 0, extra, at, bottom_at, bottom_fixed = 0;
 
   while (k) {
     if (!k->hidden) {
@@ -54,6 +54,8 @@ U0 HtkBoxLayout(HtkCtl *c)
         fixed += k->pw + 1;
       if (k->expand)
         stretchy++;
+      if (c->vertical && k->bottom)
+        bottom_fixed += k->ph;
     }
     k = k->sib;
   }
@@ -69,12 +71,21 @@ U0 HtkBoxLayout(HtkCtl *c)
     at = c->y;
   else
     at = c->x;
+  bottom_at = c->y + c->h - bottom_fixed;
+  // Button bars reserve their spare width on the left.  An expanding child
+  // already consumes that width, so it remains the explicit opt-out.
+  if (!c->vertical && c->right && !stretchy)
+    at += extra;
   k = c->kids;
   while (k) {
     if (!k->hidden) {
       if (c->vertical) {
         k->x = c->x;
-        k->y = at;
+        if (k->bottom) {
+          k->y = bottom_at;
+          bottom_at += k->ph;
+        } else
+          k->y = at;
         k->w = c->w;
         k->h = k->ph;
       } else {
@@ -89,8 +100,10 @@ U0 HtkBoxLayout(HtkCtl *c)
         else
           k->w += extra / stretchy;
       }
-      if (c->vertical)
-        at += k->h;
+      if (c->vertical) {
+        if (!k->bottom)
+          at += k->h;
+      }
       else
         at += k->w + 1;
       HtkLayoutCtl(k);

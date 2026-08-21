@@ -126,7 +126,7 @@ I64 HtkColorPick(U8 *title, I64 rgb=0x808080)
     htk_pick_g = HtkPickSlider(box, "G", rgb >> 8 & 0xFF);
     htk_pick_b = HtkPickSlider(box, "B", rgb & 0xFF);
   }
-  row = HtkNew(HTK_BOX);
+  row = HtkButtonBarNew;
   htk_pick_preview = HtkCanvasNew(8, 1, &HtkPickPreviewPaint, 0);
   HtkAdd(row, htk_pick_preview);
   htk_pick_hex = HtkNew(HTK_LABEL);

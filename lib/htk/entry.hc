@@ -196,9 +196,41 @@ U0 HtkEntryDraw(HtkCtl *c)
 
 Bool HtkEntryKey(HtkCtl *c, CTermEvent *e)
 {
-  I64 key = e->key;
+  I64 key = e->key, from, saved, step;
 
-  if (key == TERM_KEY_LEFT) {
+  if (key == 'a' && e->mods & TERM_MOD_CTRL) {
+    HtkTextMoveStart(c, e);
+    c->cursor = 0;
+  } else if (key == 'e' && e->mods & TERM_MOD_CTRL) {
+    HtkTextMoveStart(c, e);
+    c->cursor = StrLen(c->text);
+  } else if (key == 'w' && e->mods & TERM_MOD_CTRL) {
+    if (!HtkTextDeleteSelection(c)) {
+      from = c->cursor;
+      // Skip whitespace, then the preceding word.  Step by runes so UTF-8
+      // text is never cut in the middle of a sequence.
+      while (from > 0) {
+        saved = c->cursor;
+        c->cursor = from;
+        step = HtkTextStepBack(c);
+        c->cursor = saved;
+        if (c->text[from - step] > ' ')
+          break;
+        from -= step;
+      }
+      while (from > 0) {
+        saved = c->cursor;
+        c->cursor = from;
+        step = HtkTextStepBack(c);
+        c->cursor = saved;
+        if (c->text[from - step] <= ' ')
+          break;
+        from -= step;
+      }
+      HtkTextDelete(c, from, c->cursor - from);
+      c->cursor = from;
+    }
+  } else if (key == TERM_KEY_LEFT) {
     HtkTextMoveStart(c, e);
     c->cursor -= HtkTextStepBack(c);
   } else if (key == TERM_KEY_RIGHT) {
@@ -239,6 +271,16 @@ HtkCtl *HtkMultilineNew(U8 *text)
   return c;
 }
 
+U0 HtkMultilineSetOptions(HtkCtl *c, I64 options)
+{
+  if (!c || c->kind != HTK_MULTILINE)
+    return;
+  c->line_numbers = options & HTK_MULTILINE_LINE_NUMBERS;
+  c->wrap = options & HTK_MULTILINE_WRAP;
+  c->scrollbar = options & HTK_MULTILINE_SCROLLBAR;
+  htk_dirty = TRUE;
+}
+
 U0 HtkMultilineMeasure(HtkCtl *c)
 {
   c->pw = 24;
@@ -254,13 +296,28 @@ I64 HtkLineStart(U8 *text, I64 at)
 
 U0 HtkMultilineDraw(HtkCtl *c)
 {
-  I64 i = 0, row = 0, col = 0, x, y;
-  I64 crow = 0, ccol = 0;
+  I64 i = 0, row = 0, col = 0, x, y, line = 1, lines = 1;
+  I64 crow = 0, ccol = 0, total = 1, width, gutter = 0, digits = 1;
   I64 sel_from = -1, sel_to = -1;
+  Bool continuation = FALSE;
+  U8 number[16];
 
   HtkTextSelected(c, &sel_from, &sel_to);
+  for (i = 0; c->text[i]; i++)
+    if (c->text[i] == '\n')
+      lines++;
+  while (lines >= 10) {
+    digits++;
+    lines /= 10;
+  }
+  if (c->line_numbers)
+    gutter = digits + 1;
+  width = c->w - gutter - c->scrollbar;
+  if (width < 1)
+    width = 1;
 
-  // Locate the cursor in row/column terms.
+  // Locate cursor and total visual rows, including soft wraps.
+  i = 0;
   while (i < c->cursor && c->text[i]) {
     if (c->text[i] == '\n') {
       crow++;
@@ -269,44 +326,112 @@ U0 HtkMultilineDraw(HtkCtl *c)
     } else {
       TermRuneNext(c->text, &i);
       ccol++;
+      if (c->wrap && ccol >= width) {
+        crow++;
+        ccol = 0;
+      }
     }
   }
-  HtkScrollIntoView(c, crow, c->h);
+  i = 0;
+  col = 0;
+  while (c->text[i]) {
+    if (c->text[i] == '\n') {
+      total++;
+      col = 0;
+      i++;
+    } else {
+      TermRuneNext(c->text, &i);
+      col++;
+      if (c->wrap && col >= width) {
+        total++;
+        col = 0;
+      }
+    }
+  }
+  if (!c->scroll_hold)
+    HtkScrollIntoView(c, crow, c->h);
   HtkRect(c->x, c->y, c->w, c->h, ' ', HTK_C_FIELD_FG, HTK_C_FIELD_BG);
   i = 0;
   row = 0;
   col = 0;
   x = c->x;
   y = c->y;
-  while (c->text[i]) {
+  continuation = FALSE;
+  while (TRUE) {
+    if (row >= c->top && row < c->top + c->h && col == 0 && c->line_numbers &&
+      !continuation) {
+      StrPrint(number, "%d", line);
+      HtkStr(c->x + digits - StrLen(number), c->y + row - c->top, number,
+        HTK_C_DIM, HTK_C_FIELD_BG);
+    }
+    if (!c->text[i])
+      break;
     if (c->text[i] == '\n') {
       row++;
+      line++;
       col = 0;
       x = c->x;
+      continuation = FALSE;
       i++;
     } else {
       Bool selected = i >= sel_from && i < sel_to;
       I64 rune = TermRuneNext(c->text, &i);
-      if (row >= c->top && row < c->top + c->h && col < c->w) {
+      if (row >= c->top && row < c->top + c->h && col < width) {
         if (selected)
-          HtkChr(x, c->y + row - c->top, rune, HTK_C_SEL_FG, HTK_C_SEL_BG);
+          HtkChr(c->x + gutter + col, c->y + row - c->top, rune,
+            HTK_C_SEL_FG, HTK_C_SEL_BG);
         else
-          HtkChr(x, c->y + row - c->top, rune,
+          HtkChr(c->x + gutter + col, c->y + row - c->top, rune,
             HtkInk(c, HTK_C_FIELD_FG), HTK_C_FIELD_BG);
       }
       x++;
       col++;
+      if (c->wrap && col >= width) {
+        row++;
+        col = 0;
+        continuation = TRUE;
+      }
     }
     if (c->text[i] && row - c->top >= c->h)
       break;
   }
-  if (HtkFocused(c) && !c->disabled) {
-    x = c->x + ccol;
-    if (x > c->x + c->w - 1)
-      x = c->x + c->w - 1;
+  if (c->scrollbar && total > c->h) {
+    I64 span = total - c->h;
+    I64 thumb_h = c->h * c->h / total;
+    I64 thumb;
+    if (thumb_h < 1)
+      thumb_h = 1;
+    // Map 0..span onto 0..(height-thumb), so the last row is exactly flush
+    // with the bottom regardless of integer rounding.
+    thumb = c->top * (c->h - thumb_h) / span;
+    for (i = 0; i < thumb_h; i++)
+      HtkChr(c->x + c->w - 1, c->y + thumb + i, HTK_R_BLOCK,
+        HTK_C_DIM, HTK_C_FIELD_BG);
+  }
+  c->high = total;  // visual row count, used for scrollbar mouse dragging
+  if (HtkFocused(c) && !c->disabled && crow >= c->top &&
+    crow < c->top + c->h) {
+    x = c->x + gutter + ccol;
+    if (x > c->x + gutter + width - 1)
+      x = c->x + gutter + width - 1;
     TermGotoXY(x, c->y + crow - c->top);
     TermShowCursor(TRUE);
   }
+}
+
+U0 HtkMultilineScrollMouse(HtkCtl *c, I64 y)
+{
+  I64 span = c->high - c->h, at = y - c->y;
+
+  if (span < 1 || c->h < 2)
+    return;
+  if (at < 0)
+    at = 0;
+  if (at >= c->h)
+    at = c->h - 1;
+  c->top = at * span / (c->h - 1);
+  c->scroll_hold = TRUE;
+  htk_dirty = TRUE;
 }
 
 Bool HtkMultilineKey(HtkCtl *c, CTermEvent *e)
@@ -314,10 +439,12 @@ Bool HtkMultilineKey(HtkCtl *c, CTermEvent *e)
   I64 key = e->key;
   I64 start, up;
 
+  c->scroll_hold = FALSE;
+
   if (key == TERM_KEY_ENTER) {
     HtkTextDeleteSelection(c);
     HtkTextInsert(c, '\n');
-  } else if (key == TERM_KEY_UP) {
+  } else if (key == TERM_KEY_UP || key == 'p' && e->mods & TERM_MOD_CTRL) {
     HtkTextMoveStart(c, e);
     start = HtkLineStart(c->text, c->cursor);
     if (!start)
@@ -328,7 +455,7 @@ Bool HtkMultilineKey(HtkCtl *c, CTermEvent *e)
       c->cursor++;
     if (c->cursor > start - 1)
       c->cursor = start - 1;
-  } else if (key == TERM_KEY_DOWN) {
+  } else if (key == TERM_KEY_DOWN || key == 'n' && e->mods & TERM_MOD_CTRL) {
     HtkTextMoveStart(c, e);
     start = c->cursor;
     while (c->text[start] && c->text[start] != '\n')

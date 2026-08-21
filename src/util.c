@@ -3,6 +3,8 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <spawn.h>
+#include <signal.h>
+#include <errno.h>
 
 extern char **environ;
 
@@ -192,13 +194,39 @@ int run_cmd(Aholyc *cc, char *const argv[]) {
 		}
 		fputc ('\n', stderr);
 	}
+	/* `aholyc run` remains the foreground parent while it waits for the
+	 * generated program.  Ignore ^C here, but reset it in the child: terminal
+	 * apps such as htk must receive SIGINT themselves instead of the driver
+	 * dying and returning the shell while the child is still alive. */
+	struct sigaction ignore = { 0 }, old_int;
+	posix_spawnattr_t attr;
+	sigset_t defaults;
+	ignore.sa_handler = SIG_IGN;
+	sigemptyset (&ignore.sa_mask);
+	if (sigaction (SIGINT, &ignore, &old_int) < 0) {
+		error (cc, "cannot ignore SIGINT while running %s", argv[0]);
+	}
+	if (posix_spawnattr_init (&attr) || sigemptyset (&defaults) ||
+		sigaddset (&defaults, SIGINT) ||
+		posix_spawnattr_setsigdefault (&attr, &defaults) ||
+		posix_spawnattr_setflags (&attr, POSIX_SPAWN_SETSIGDEF)) {
+		sigaction (SIGINT, &old_int, NULL);
+		error (cc, "cannot configure SIGINT for %s", argv[0]);
+	}
 	pid_t pid;
-	int e = posix_spawnp (&pid, argv[0], NULL, NULL, argv, environ);
+	int e = posix_spawnp (&pid, argv[0], NULL, &attr, argv, environ);
+	posix_spawnattr_destroy (&attr);
 	if (e) {
+		sigaction (SIGINT, &old_int, NULL);
 		error (cc, "cannot execute %s: %s", argv[0], strerror (e));
 	}
 	int st = 0;
-	if (waitpid (pid, &st, 0) < 0) {
+	pid_t waited;
+	do {
+		waited = waitpid (pid, &st, 0);
+	} while (waited < 0 && errno == EINTR);
+	sigaction (SIGINT, &old_int, NULL);
+	if (waited < 0) {
 		error (cc, "waitpid failed");
 	}
 	if (WIFEXITED (st)) {

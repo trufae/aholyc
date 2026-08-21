@@ -5,6 +5,28 @@
 // one-row taskbar along the bottom of the terminal.
 
 extern I64 time(I64 *now);
+
+I64 HtkWindowLimit(I64 value, I64 min, I64 max)
+{
+  if (value < min)
+    value = min;
+  if (max > 0 && value > max)
+    value = max;
+  return value;
+}
+
+I64 HtkWindowControlCount(HtkCtl *w)
+{
+  I64 count = 0;
+
+  if (w->controls & HTK_WINDOW_MINIMIZE)
+    count++;
+  if (w->controls & HTK_WINDOW_MAXIMIZE)
+    count++;
+  if (w->controls & HTK_WINDOW_CLOSE)
+    count++;
+  return count;
+}
 extern I32 *localtime(I64 *now);
 
 // "HH:MM" from the C runtime clock; struct tm starts sec, min, hour.
@@ -22,7 +44,10 @@ HtkCtl *HtkWindowNew(U8 *title, I64 w, I64 h)
   HtkCtl *prior = htk_windows;
   I64 n = 0;
 
+  w = HtkWindowLimit(w, 12, 0);
+  h = HtkWindowLimit(h, 4, 0);
   HtkSetText(win, title);
+  win->controls = HTK_WINDOW_DEFAULT_CONTROLS;
   while (prior) {
     n++;
     prior = prior->sib;
@@ -40,6 +65,7 @@ HtkCtl *HtkWindowNew(U8 *title, I64 w, I64 h)
   if (win->y + h > TermHeight)
     win->y = TermHeight - h;
   HtkListAppend(&htk_windows, win);
+  HtkWindowRaise(win);  // insert below any existing always-on-top windows
   htk_dirty = TRUE;
   return win;
 }
@@ -62,10 +88,102 @@ HtkCtl *HtkOwnerWindow(HtkCtl *c)
 
 U0 HtkWindowRaise(HtkCtl *w)
 {
-  if (!w || w == HtkTop)
+  HtkCtl **at;
+
+  if (!w)
     return;
   HtkListUnlink(&htk_windows, w);
-  HtkListAppend(&htk_windows, w);
+  if (w->always_on_top)
+    HtkListAppend(&htk_windows, w);
+  else {
+    at = &htk_windows;
+    while (*at && !(*at)->always_on_top)
+      at = &(*at)->sib;
+    w->sib = *at;
+    *at = w;
+  }
+  htk_dirty = TRUE;
+}
+
+// Cycle visible windows in z-order.  Raising the chosen window also gives it
+// normal keyboard focus, matching Alt-Tab desktop behavior.
+U0 HtkWindowCycle(I64 direction)
+{
+  HtkCtl *w = htk_windows, *top = HtkTop;
+  HtkCtl *first = NULL, *last = NULL, *prev = NULL, *next = NULL, *target;
+
+  if (htk_modal) {
+    HtkWindowRaise(htk_modal);
+    HtkEnsureFocus;
+    return;
+  }
+  while (w) {
+    if (!w->minimized) {
+      if (!first)
+        first = w;
+      if (w == top)
+        prev = last;
+      else if (last == top)
+        next = w;
+      last = w;
+    }
+    w = w->sib;
+  }
+  if (direction < 0) {
+    target = prev;
+    if (!target)
+      target = last;
+  } else {
+    target = next;
+    if (!target)
+      target = first;
+  }
+  if (target) {
+    HtkWindowRaise(target);
+    htk_focus = NULL;
+    HtkEnsureFocus;
+  }
+}
+
+U0 HtkWindowSetAlwaysOnTop(HtkCtl *w, Bool on)
+{
+  if (!w || w->always_on_top == on)
+    return;
+  w->always_on_top = on;
+  HtkWindowRaise(w);
+}
+
+U0 HtkWindowSetControls(HtkCtl *w, I64 controls)
+{
+  if (!w || w->kind != HTK_WINDOW)
+    return;
+  w->controls = controls & HTK_WINDOW_DEFAULT_CONTROLS;
+  htk_dirty = TRUE;
+}
+
+// Set the interactive bounds of a window.  A zero maximum means no upper
+// limit; HTK always retains a 12x4 frame as the absolute minimum.
+U0 HtkWindowSetSizeLimits(HtkCtl *w, I64 min_w=12, I64 min_h=4,
+  I64 max_w=0, I64 max_h=0)
+{
+  if (!w || w->kind != HTK_WINDOW)
+    return;
+  if (min_w < 12)
+    min_w = 12;
+  if (min_h < 4)
+    min_h = 4;
+  if (max_w > 0 && max_w < min_w)
+    max_w = min_w;
+  if (max_h > 0 && max_h < min_h)
+    max_h = min_h;
+  w->min_w = min_w;
+  w->min_h = min_h;
+  w->max_w = max_w;
+  w->max_h = max_h;
+  if (!w->maximized) {
+    w->w = HtkWindowLimit(w->w, min_w, max_w);
+    w->h = HtkWindowLimit(w->h, min_h, max_h);
+  }
   htk_dirty = TRUE;
 }
 
@@ -150,7 +268,7 @@ U0 HtkWindowTile(HtkCtl *w, I64 side)
 // Title bar context menu, shared by every window: the items carry the
 // target window in ->link while the popup is open.
 HtkCtl *htk_wm_menu;
-HtkCtl *htk_wm_minimize, *htk_wm_maximize;
+HtkCtl *htk_wm_minimize, *htk_wm_maximize, *htk_wm_always_on_top, *htk_wm_close;
 
 U0 HtkWmMinimize(HtkCtl *item)
 {
@@ -165,6 +283,11 @@ U0 HtkWmMinimize(HtkCtl *item)
 U0 HtkWmMaximize(HtkCtl *item)
 {
   HtkWindowMaximize(item->link);
+}
+
+U0 HtkWmAlwaysOnTop(HtkCtl *item)
+{
+  HtkWindowSetAlwaysOnTop(item->link, !item->link->always_on_top);
 }
 
 U0 HtkWmClose(HtkCtl *item)
@@ -190,16 +313,20 @@ U0 HtkWindowMenuOpen(HtkCtl *w, I64 x, I64 y)
 {
   HtkCtl *tile, *k;
 
+  if (!w || !(w->controls & HTK_WINDOW_MENU))
+    return;
   if (!htk_wm_menu) {
     htk_wm_menu = HtkContextMenuNew;
     htk_wm_minimize = HtkWmItem(htk_wm_menu, "Minimize", &HtkWmMinimize);
     htk_wm_maximize = HtkWmItem(htk_wm_menu, "Maximize", &HtkWmMaximize);
+    htk_wm_always_on_top = HtkWmItem(htk_wm_menu, "Always on top",
+      &HtkWmAlwaysOnTop);
     tile = HtkSubMenu(htk_wm_menu, "Tile");
     HtkWmItem(tile, "Left", &HtkWmTile, HTK_TILE_LEFT);
     HtkWmItem(tile, "Right", &HtkWmTile, HTK_TILE_RIGHT);
     HtkWmItem(tile, "Top", &HtkWmTile, HTK_TILE_TOP);
     HtkWmItem(tile, "Bottom", &HtkWmTile, HTK_TILE_BOTTOM);
-    HtkWmItem(htk_wm_menu, "Close", &HtkWmClose);
+    htk_wm_close = HtkWmItem(htk_wm_menu, "Close", &HtkWmClose);
   }
   if (w->maximized)
     HtkSetText(htk_wm_maximize, "Restore");
@@ -209,6 +336,13 @@ U0 HtkWindowMenuOpen(HtkCtl *w, I64 x, I64 y)
     HtkSetText(htk_wm_minimize, "Restore");
   else
     HtkSetText(htk_wm_minimize, "Minimize");
+  if (w->always_on_top)
+    HtkSetText(htk_wm_always_on_top, "SometimesOnTop");
+  else
+    HtkSetText(htk_wm_always_on_top, "AlwaysOnTop");
+  htk_wm_minimize->disabled = !(w->controls & HTK_WINDOW_MINIMIZE);
+  htk_wm_maximize->disabled = !(w->controls & HTK_WINDOW_MAXIMIZE);
+  htk_wm_close->disabled = !(w->controls & HTK_WINDOW_CLOSE);
   k = htk_wm_menu->kids;
   while (k) {
     k->link = w;
@@ -229,26 +363,27 @@ U0 HtkWindowMenuOpen(HtkCtl *w, I64 x, I64 y)
 U0 HtkWindowResizeCorner(HtkCtl *w, I64 corner, I64 x, I64 y)
 {
   I64 right = w->x + w->w - 1, bottom = w->y + w->h - 1;
+  I64 min_w = w->min_w, min_h = w->min_h;
 
-  if (corner == HTK_CORNER_TL || corner == HTK_CORNER_BL) {
-    if (x > right - 11)
-      x = right - 11;
-    w->x = x;
-    w->w = right - x + 1;
-  } else {
-    w->w = x - w->x + 1;
-    if (w->w < 12)
-      w->w = 12;
+  if (min_w < 12)
+    min_w = 12;
+  if (min_h < 4)
+    min_h = 4;
+
+  if (corner == HTK_CORNER_TL || corner == HTK_CORNER_BL ||
+    corner == HTK_EDGE_LEFT) {
+    w->w = HtkWindowLimit(right - x + 1, min_w, w->max_w);
+    w->x = right - w->w + 1;
+  } else if (corner == HTK_CORNER_TR || corner == HTK_CORNER_BR ||
+    corner == HTK_EDGE_RIGHT) {
+    w->w = HtkWindowLimit(x - w->x + 1, min_w, w->max_w);
   }
   if (corner == HTK_CORNER_TL || corner == HTK_CORNER_TR) {
-    if (y > bottom - 3)
-      y = bottom - 3;
-    w->y = y;
-    w->h = bottom - y + 1;
-  } else {
-    w->h = y - w->y + 1;
-    if (w->h < 4)
-      w->h = 4;
+    w->h = HtkWindowLimit(bottom - y + 1, min_h, w->max_h);
+    w->y = bottom - w->h + 1;
+  } else if (corner == HTK_CORNER_BL || corner == HTK_CORNER_BR ||
+    corner == HTK_EDGE_BOTTOM) {
+    w->h = HtkWindowLimit(y - w->y + 1, min_h, w->max_h);
   }
   htk_dirty = TRUE;
 }
@@ -293,28 +428,45 @@ U0 HtkWindowDraw(HtkCtl *w)
   HtkCtl *content = HtkWindowContent(w);
   Bool active = w == HtkTop;
   I64 frame = HTK_C_DIM;
-  I64 mid;
+  I64 mid, controls, at, reserve, title_left;
 
   if (active)
     frame = HTK_C_FRAME;
   HtkRect(w->x, w->y, w->w, w->h, ' ', HTK_C_FG, HTK_C_BG);
   HtkFrame(w->x, w->y, w->w, w->h, active, frame, HTK_C_BG);
-  mid = w->x + (w->w - 10 - HtkRunes(w->text) - 2) / 2;
-  if (mid < w->x + 1)
-    mid = w->x + 1;
+  controls = HtkWindowControlCount(w);
+  if (w->controls & HTK_WINDOW_MENU)
+    HtkStr(w->x + 2, w->y, "[=]", frame, HTK_C_BG);
+  reserve = controls * 3 + 1;
+  mid = w->x + (w->w - reserve - HtkRunes(w->text) - 2) / 2;
+  title_left = w->x + 1;
+  if (w->controls & HTK_WINDOW_MENU)
+    title_left = w->x + 5;
+  if (mid < title_left)
+    mid = title_left;
   HtkChr(mid, w->y, ' ', HTK_C_FG, HTK_C_BG);
   HtkStr(mid + 1, w->y, w->text, HTK_C_FG, HTK_C_BG, TERM_BOLD);
   HtkChr(mid + 1 + HtkRunes(w->text), w->y, ' ', HTK_C_FG, HTK_C_BG);
-  // Title boxes, Windows order: minimize, maximize/restore, close.
-  mid = w->x + w->w - 10;
-  HtkStr(mid, w->y, "[_][", frame, HTK_C_BG);
-  if (w->maximized)
-    HtkChr(mid + 4, w->y, HTK_R_RESTORE, HTK_C_ACCENT, HTK_C_BG);
-  else
-    HtkChr(mid + 4, w->y, HTK_R_MAX, HTK_C_ACCENT, HTK_C_BG);
-  HtkStr(mid + 5, w->y, "][", frame, HTK_C_BG);
-  HtkChr(mid + 7, w->y, HTK_R_CLOSE, HTK_C_BTN_BG, HTK_C_BG);
-  HtkStr(mid + 8, w->y, "]", frame, HTK_C_BG);
+  // Title boxes, in Windows order: minimize, maximize/restore, close.
+  at = w->x + w->w - 1 - controls * 3;
+  if (w->controls & HTK_WINDOW_MINIMIZE) {
+    HtkStr(at, w->y, "[_]", frame, HTK_C_BG);
+    at += 3;
+  }
+  if (w->controls & HTK_WINDOW_MAXIMIZE) {
+    HtkChr(at, w->y, '[', frame, HTK_C_BG);
+    if (w->maximized)
+      HtkChr(at + 1, w->y, HTK_R_RESTORE, HTK_C_ACCENT, HTK_C_BG);
+    else
+      HtkChr(at + 1, w->y, HTK_R_MAX, HTK_C_ACCENT, HTK_C_BG);
+    HtkChr(at + 2, w->y, ']', frame, HTK_C_BG);
+    at += 3;
+  }
+  if (w->controls & HTK_WINDOW_CLOSE) {
+    HtkChr(at, w->y, '[', frame, HTK_C_BG);
+    HtkChr(at + 1, w->y, HTK_R_CLOSE, HTK_C_BTN_BG, HTK_C_BG);
+    HtkChr(at + 2, w->y, ']', frame, HTK_C_BG);
+  }
   if (!w->maximized) {
     HtkShade(w->x + 2, w->y + w->h, w->w, 1);
     HtkShade(w->x + w->w, w->y + 1, 2, w->h);
@@ -360,10 +512,10 @@ HtkCtl *HtkTaskbar(I64 x, Bool draw)
   if (htk_bar_clock)
     right = TermWidth - 7;
   if (draw) {
-    HtkRect(0, y, TermWidth, 1, ' ', HTK_C_FG, HTK_C_BG);
+    HtkRect(0, y, TermWidth, 1, ' ', HTK_C_BAR_FG, HTK_C_BAR_BG);
     if (htk_bar_clock) {
       HtkClockText(clock);
-      HtkStr(TermWidth - 6, y, clock, HTK_C_FG, HTK_C_BG, TERM_BOLD);
+      HtkStr(TermWidth - 6, y, clock, HTK_C_BAR_FG, HTK_C_BAR_BG, TERM_BOLD);
     }
     HtkClipSet(HTK_BAR_APP, y, right - HTK_BAR_APP, 1);
   }
@@ -373,9 +525,9 @@ HtkCtl *HtkTaskbar(I64 x, Bool draw)
       if (x >= HTK_BAR_APP && x < right && x >= at && x < at + width)
         return w;
       if (draw) {
-        HtkStr(at, y, "[ ", HTK_C_DIM, HTK_C_BG);
-        HtkStr(at + 2, y, w->text, HTK_C_FG, HTK_C_BG, TERM_BOLD);
-        HtkStr(at + 2 + HtkRunes(w->text), y, " ]", HTK_C_DIM, HTK_C_BG);
+        HtkStr(at, y, "[ ", HTK_C_DIM, HTK_C_BAR_BG);
+        HtkStr(at + 2, y, w->text, HTK_C_BAR_FG, HTK_C_BAR_BG, TERM_BOLD);
+        HtkStr(at + 2 + HtkRunes(w->text), y, " ]", HTK_C_DIM, HTK_C_BAR_BG);
       }
       at += width + 1;
     }
@@ -385,9 +537,10 @@ HtkCtl *HtkTaskbar(I64 x, Bool draw)
     htk_bar_total = at + htk_bar_scroll - HTK_BAR_APP;
     HtkClipAll;
     if (HTK_BAR_APP) {  // drawn last: the strip scrolls underneath
-      HtkStr(0, y, "[", HTK_C_DIM, HTK_C_BG);
-      HtkStr(1, y, "App", HTK_C_ACCENT, HTK_C_BG, TERM_BOLD);
-      HtkStr(4, y, "] ", HTK_C_DIM, HTK_C_BG);
+      HtkRect(0, y, HTK_BAR_APP, 1, ' ', TERM_BRIGHT_WHITE, TERM_BLACK);
+      HtkStr(0, y, "[", TERM_GRAY, TERM_BLACK);
+      HtkStr(1, y, "App", TERM_BRIGHT_WHITE, TERM_BLACK, TERM_BOLD);
+      HtkStr(4, y, "] ", TERM_GRAY, TERM_BLACK);
     }
   }
   return NULL;

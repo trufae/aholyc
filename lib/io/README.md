@@ -62,7 +62,10 @@ the shutdown terminates the shell only.
 
 U8 *home = EnvHome;  // MAlloc'd HOME / USERPROFILE value; Free when done
 U8 *value = EnvGet("MY_SETTING");
+SetEnv("MY_SETTING", "enabled");
+SetEnv("MY_SETTING"); // value defaults to NULL, which unsets it
 ```
 
 `EnvHome` uses `HOME` on POSIX and `GetEnvironmentVariableA("USERPROFILE")`
 on Windows. `EnvGet` and `EnvHome` return `NULL` when unavailable.
+`SetEnv` returns `TRUE` on success; a `NULL` value removes the variable.
