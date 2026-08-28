@@ -4,6 +4,9 @@
 #include "aholyc.h"
 #include <unistd.h>
 #include <sys/stat.h>
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
 
 struct AholyIncDir { AholyIncDir *next; char *dir; };
 
@@ -56,7 +59,21 @@ void lex_reset(Aholyc *cc) {
 	lex_define (cc, "IS_ARM_32", "1");
 #endif
 #ifdef __APPLE__
+	lex_define (cc, "IS_DARWIN", "1");
+#if defined(TARGET_OS_MACCATALYST) && TARGET_OS_MACCATALYST
+	lex_define (cc, "IS_MACCATALYST", "1");
+#elif defined(TARGET_OS_TV) && TARGET_OS_TV
+	lex_define (cc, "IS_TVOS", "1");
+#elif defined(TARGET_OS_WATCH) && TARGET_OS_WATCH
+	lex_define (cc, "IS_WATCHOS", "1");
+#elif defined(TARGET_OS_VISION) && TARGET_OS_VISION
+	lex_define (cc, "IS_VISIONOS", "1");
+#elif defined(TARGET_OS_IOS) && TARGET_OS_IOS
+	/* iPadOS uses the iOS target family at compile time. */
+	lex_define (cc, "IS_IOS", "1");
+#else
 	lex_define (cc, "IS_MACOS", "1");
+#endif
 #elif defined(__linux__)
 	lex_define (cc, "IS_LINUX", "1");
 #elif defined(__NetBSD__)
