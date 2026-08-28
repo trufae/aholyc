@@ -99,8 +99,10 @@ U0 Main()
 #endif
   HtkCtrlCHandler(&ConfirmQuit, 0);
   HtkCtrlCSet(HTK_CTRLC_CALLBACK);
+#ifndef HTK_NODESK
   HtkAppRegister("Terminal", &HtkTerminalWindow, 0);
   HtkAppRegister("Holy TermKit", &HtkDemoStart, 0);
+#endif
   HtkDemoStart(0);
   HtkMain;
   HtkFini;
