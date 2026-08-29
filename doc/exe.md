@@ -152,6 +152,24 @@ Semantics worth knowing:
 * A compile-time `Print` writes to the compiler's stdout — useful as a
   build-time trace, like TempleOS `Echo`.
 
+## Plain `Cd(...)` at top level
+
+TempleOS code also changes directory without a block: `Cd(__DIR__);;` is
+the first statement of every `.PRJ` before its list of `#include`s. aholyc
+accepts the same global-space form. When a top-level statement is exactly
+
+```c
+Cd("dir");;
+```
+
+with a single constant argument and a terminating `;`, it is a
+*compile-time* operation: the argument is resolved (a string literal,
+`__DIR__`/`__FILE__`, or a single-string object macro), the compiler's
+virtual cwd is changed so later `#include`s resolve there, and the
+statement drops out of the program. In any other context it is an
+ordinary call and fails with `undefined symbol 'Cd'`, since the normal
+prelude has no `Cd` runtime.
+
 ## Compatibility with TempleOS
 
 The reference for "standard" behavior here is the bundled official TempleOS

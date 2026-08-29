@@ -417,6 +417,20 @@ for b in $backends; do
 	fi
 done
 
+# Directory I/O relies on native directory APIs; JavaScript intentionally has
+# no FFI backend. The fixture removes the tree it creates before exiting.
+for b in $backends; do
+	[ "$b" = js ] && continue
+	if ./aholyc -b "$b" tests/io_dir.HC -o "tests/out/io-dir-$b" \
+		2>"tests/out/io-dir-$b.err" && "tests/out/io-dir-$b"; then
+		echo "ok   $b/directory-library"
+	else
+		echo "FAIL $b/directory-library"
+		head -5 "tests/out/io-dir-$b.err"
+		fail=1
+	fi
+done
+
 # lib/llm builds requests and parses replies without a server, but includes
 # the native lib/net transport, so it is a native-only fixture as well.
 for b in $backends; do
@@ -1164,6 +1178,49 @@ for b in $backends; do
 	else
 		echo "FAIL $b/#exe(-c)"
 		head -5 "tests/out/exe-module-$b.err"
+		fail=1
+	fi
+
+	# TempleOS `Cd(__DIR__);;` at top level is a compile-time cwd change:
+	# it must resolve later #includes and vanish from the program, while a
+	# bad dir errors and a Cd inside a function is a normal (undefined) call.
+	cdok=1
+	rm -rf tests/out/cdtest.d
+	mkdir -p tests/out/cdtest.d/sub
+	printf '%s\n' 'Print("from sub\n");' > tests/out/cdtest.d/sub/tool.hc
+	printf '%s\n' 'Cd(__DIR__);;' '#include "sub/tool.hc"' '"cd ok\n";' \
+		> tests/out/cdtest.d/main.HC
+	mkdir -p tests/out/cdmac.d
+	printf '%s\n' '#define D "../cdtest.d/sub"' 'Cd(D);;' '#include "tool.hc"' \
+		> tests/out/cdmac.d/main.HC
+	printf '%s\n' 'Cd("./no-such");;' '"x\\n";' > tests/out/cdtest.d/bad.HC
+	printf '%s\n' 'U0 f() { Cd("/tmp/X"); }' 'f;' > tests/out/cdtest.d/fn.HC
+	if ! (cd tests/out/cdtest.d && ../../../aholyc -b "$b" main.HC -o main \
+			2>err.txt) || \
+	   [ "$(tests/out/cdtest.d/main)" != "from sub
+cd ok" ]; then
+		cdok=0
+	fi
+	if ! (cd tests/out/cdmac.d && ../../../aholyc -b "$b" main.HC -o main \
+			2>err.txt) || \
+	   [ "$(tests/out/cdmac.d/main)" != "from sub" ]; then
+		cdok=0
+	fi
+	if (cd tests/out/cdtest.d && ../../../aholyc -b "$b" bad.HC -o bad \
+			2>bad.err) || \
+	   ! grep -q 'Cd: directory not found' tests/out/cdtest.d/bad.err; then
+		cdok=0
+	fi
+	if (cd tests/out/cdtest.d && ../../../aholyc -b "$b" fn.HC -o fn \
+			2>fn.err) || \
+	   ! grep -q "undefined symbol 'Cd'" tests/out/cdtest.d/fn.err; then
+		cdok=0
+	fi
+	if [ "$cdok" = 1 ]; then
+		echo "ok   $b/Cd(__DIR__)"
+	else
+		echo "FAIL $b/Cd(__DIR__)"
+		head -5 tests/out/cdtest.d/*.err tests/out/cdmac.d/*.err 2>/dev/null
 		fail=1
 	fi
 

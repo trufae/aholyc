@@ -352,11 +352,59 @@ static int64_t pp_eval_line(Aholyc *cc, Token *d, int dline, Token **after) {
 	return val;
 }
 
+/* One argument token resolved to a constant string, or NULL: a literal,
+ * __DIR__/__FILE__ (location_token), or an object macro with a single
+ * string body. */
+static char *pp_str_arg(Aholyc *cc, Token *s) {
+	if (!s) {
+		return NULL;
+	}
+	if (s->kind == TK_STR) {
+		return s->str;
+	}
+	if (s->kind == TK_ID && !s->no_expand) {
+		Token *loc = location_token (cc, s);
+		if (loc && loc->kind == TK_STR) {
+			return loc->str;
+		}
+		AholyMacro *m = find_macro (cc, s->str);
+		if (m && m->body && m->body->kind == TK_STR && !m->body->next) {
+			return m->body->str;
+		}
+	}
+	return NULL;
+}
+
+/* The TempleOS global-space idiom `Cd(__DIR__);;` before a run of
+ * #includes is a compile-time directory change: it sets this compiler
+ * instance's cwd for later include resolution and drops out of the
+ * program, exactly like the #exe {Cd(...);} form. Only a top-level
+ * statement whose argument is a constant string can be evaluated;
+ * anything else falls through to the parser. */
+static Token *pp_toplevel_cd(Aholyc *cc, Token *t) {
+	Token *a = t->next;
+	Token *c = a? a->next->next: NULL;
+	Token *e = c? c->next: NULL;
+	if (!tok_is (t, "Cd") || find_macro (cc, t->str) ||
+	    !tok_is (a, "(") || !tok_is (c, ")") || !tok_is (e, ";")) {
+		return NULL;
+	}
+	char *path = pp_str_arg (cc, a->next);
+	if (!path) {
+		return NULL;
+	}
+	if (!lex_set_cwd (cc, path)) {
+		error_tok (cc, t, "Cd: directory not found \"%s\"", path);
+	}
+	return e->next;
+}
+
 /* Resolve directives and expand macros. Consumes raw list, returns clean list. */
 Token *lex_preprocess(Aholyc *cc, Token *tok) {
 	Token head = {0};
 	Token *cur = &head;
 	int cond_depth = 0;
+	int braces = 0;
 	bool remember = cc->pp_depth++ == 0;
 
 	while (tok && tok->kind != TK_EOF) {
@@ -568,8 +616,20 @@ Token *lex_preprocess(Aholyc *cc, Token *tok) {
 				continue;
 			}
 		}
+		if (braces == 0 && (cur == &head || tok_is (cur, ";"))) {
+			Token *cd = pp_toplevel_cd (cc, tok);
+			if (cd) {
+				tok = cd;
+				continue;
+			}
+		}
 		cur->next = tok;
 		cur = tok;
+		if (tok_is (tok, "{")) {
+			braces++;
+		} else if (tok_is (tok, "}") && braces > 0) {
+			braces--;
+		}
 		if (remember) {
 			remember_exe_prefix (cc, tok);
 		}

@@ -61,14 +61,16 @@ compiled with the same exception setting.
 Multiple `.HC` input files are concatenated and compiled as one
 translation unit, in order.
 
-The host platform macros (`IS_MACOS`, `IS_LINUX`, `IS_NETBSD`, `IS_OPENBSD`,
+The host platform macros (`IS_DARWIN`, `IS_LINUX`, `IS_NETBSD`, `IS_OPENBSD`,
 `IS_FREEBSD`, `IS_WINDOWS`, and `IS_UNIX`) and architecture macros
 (`IS_X86_64`, `IS_ARM_64`, `IS_ARM_32`, `IS_POWERPC`, `IS_RISCV`, `IS_MIPS`,
 or `IS_S390`) are predefined, so sources can `#ifdef` on them to pick platform
-defaults. `HAS_ASM` is predefined when the selected backend supports assembly
-and `-fno-asm` is not active; use it to select a portable alternative to an
-`asm {}` block. `HAS_EXCEPTIONS` is predefined unless `-fno-exceptions` is
-active.
+defaults. Darwin also defines `IS_MACOS`, `IS_IOS` (including iPadOS),
+`IS_TVOS`, `IS_WATCHOS`, `IS_VISIONOS`, or `IS_MACCATALYST` for the concrete
+Apple platform when it can be identified. `HAS_ASM` is predefined when the
+selected backend supports assembly and `-fno-asm` is not active; use it to
+select a portable alternative to an `asm {}` block. `HAS_EXCEPTIONS` is
+predefined unless `-fno-exceptions` is active.
 
 ## Program arguments
 

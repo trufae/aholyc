@@ -72,8 +72,11 @@ capabilities are added by the driver after it selects the backend:
 
 - Architecture (one of): `IS_X86_64`, `IS_ARM_64`, `IS_ARM_32`,
   `IS_POWERPC`, `IS_RISCV`, `IS_MIPS`, `IS_S390`.
-- OS (one of): `IS_MACOS`, `IS_LINUX`, `IS_NETBSD`, `IS_OPENBSD`,
-  `IS_FREEBSD`, `IS_WINDOWS`; plus `IS_UNIX` on any Unix.
+- OS family: `IS_DARWIN`, `IS_LINUX`, `IS_NETBSD`, `IS_OPENBSD`,
+  `IS_FREEBSD`, or `IS_WINDOWS`; plus `IS_UNIX` on any Unix. Darwin also
+  defines one product macro: `IS_MACOS`, `IS_IOS` (including iPadOS),
+  `IS_TVOS`, `IS_WATCHOS`, `IS_VISIONOS`, or `IS_MACCATALYST` when
+  identifiable.
 - Capability: `HAS_ASM=1` when the selected backend supports `asm {}` and
   `-fno-asm` was not requested. It is absent for the JS backend and under
   `-fno-asm`.
