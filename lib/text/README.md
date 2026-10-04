@@ -17,6 +17,9 @@ The library is split by cost:
   tables, code blocks, emphasis, wrapping) that streams text and style
   events to callbacks, and `md_ansi.hc` for the terminal backend that
   turns them into plain or ANSI colored text.
+- Include `font.hc` for utfmt's named Unicode text styles, such as bold,
+  script, monospace, small caps, underline, and strikethrough. It also
+  supports utfmt-style `<bold>text</bold>` tags.
 
 `CStrs` is the common non-owning representation. It stores the half-open byte
 range `[a, b)`, so its length, consumption, and subslicing require no scan or
@@ -127,3 +130,27 @@ U0 MyStyle(CMarkdown *md, I64 style, I64 on) { ... }
 MarkdownInit(&md, &MyText, &MyStyle, my_widget);
 MarkdownRenderStrs(&md, &slice);   // any [a, b) slice, no NUL needed
 ```
+
+`font.hc` maps ASCII letters and supported digits to Unicode text styles.
+Other valid UTF-8 runes are preserved. `FontStyleFromNameS` selects a style
+by its utfmt name; `FontStyleName` provides the canonical spelling. The
+misspelled utfmt name `sansseribbold` remains an alias. Conversion does not
+select an installed font, allocate memory, or append a NUL byte.
+
+```c
+#include "lib/text/font.hc"
+
+CStrs input;
+StrsInitS(&input, "Hello 123");
+I64 style = FontStyleFromNameS("bold");
+I64 needed = FontConvert(&input, style, NULL, 0);
+U8 *output = MAlloc(needed + 1);
+FontConvert(&input, style, output, needed);
+output[needed] = 0; // 𝐇𝐞𝐥𝐥𝐨 𝟏𝟐𝟑
+Free(output);
+```
+
+`FontFormatTags` accepts non-nested utfmt tags such as
+`<monospace>code</monospace>`. Both conversion calls return the required byte
+count, or -1 for invalid input. A short output buffer receives a prefix
+without splitting a UTF-8 character or its combining mark.

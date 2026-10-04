@@ -65,6 +65,12 @@ button to bring it back), `[□]` maximizes over the desktop and `[▣]`
 restores, `[■]` closes (`HtkWindowMinimize/Maximize/Restore/Close`).  A
 `HtkStatusbarNew` control draws as an inverse strip, so a box with the
 status bar last gives a docked bar like the GTK/Cocoa/Win32 backends.
+On Termux, touchscreen swipes arrive as wheel events, not held-button
+motion. To reposition a window, tap its top-left system-menu button,
+choose **Move**, then tap where the center of its title bar should go.
+Move also accepts arrow keys, Enter to place and Escape to cancel;
+**Ctrl-G** opens the system menu from the keyboard. Physical mice still
+drag windows by their title bars.
 The window bar's `[App]` button (and a right click on the desktop) opens
 registered apps, Settings... and Quit. Settings picks a theme preset, the
 desktop/window-bar/border colors, whether the bar is always shown, a clock at

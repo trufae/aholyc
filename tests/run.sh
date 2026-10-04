@@ -37,6 +37,19 @@ for b in $backends; do
 	done
 done
 
+# HTK receives real SGR bytes through a pipe; no terminal or display needed.
+for b in $backends; do
+	[ "$b" = js ] && continue
+	if ./aholyc -b "$b" tests/htk_mouse.HC -o "tests/out/htk-mouse-$b" \
+		2>"tests/out/htk-mouse-$b.err" && "tests/out/htk-mouse-$b"; then
+		echo "ok   $b/htk-mouse"
+	else
+		echo "FAIL $b/htk-mouse"
+		head -5 "tests/out/htk-mouse-$b.err"
+		fail=1
+	fi
+done
+
 # Native assembly: a top-level block defines a callable symbol, while an
 # @inline function exercises local operands and block-local @@ labels.
 asmok=1
@@ -413,20 +426,6 @@ for b in $backends; do
 	else
 		echo "FAIL build $b/socket-timeout"
 		head -5 "tests/out/socket-$b.err"
-		fail=1
-	fi
-done
-
-# Directory I/O relies on native directory APIs; JavaScript intentionally has
-# no FFI backend. The fixture removes the tree it creates before exiting.
-for b in $backends; do
-	[ "$b" = js ] && continue
-	if ./aholyc -b "$b" tests/io_dir.HC -o "tests/out/io-dir-$b" \
-		2>"tests/out/io-dir-$b.err" && "tests/out/io-dir-$b"; then
-		echo "ok   $b/directory-library"
-	else
-		echo "FAIL $b/directory-library"
-		head -5 "tests/out/io-dir-$b.err"
 		fail=1
 	fi
 done

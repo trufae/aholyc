@@ -234,6 +234,8 @@ HtkCtl *htk_drag;
 I64 htk_drag_dx, htk_drag_dy;
 I64 htk_drag_resize;   // 0 move, else HTK_CORNER_* being dragged
 Bool htk_drag_scroll;  // a multiline scrollbar thumb is being dragged
+HtkCtl *htk_move;      // window awaiting a destination from the Move menu
+I64 htk_move_x, htk_move_y;
 HtkHook *htk_hooks;
 HtkNotice *htk_notices;  // newest first
 HtkApp *htk_apps;        // registered desktop launchers, oldest first

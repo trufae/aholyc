@@ -188,6 +188,7 @@ U0 HtkPopupClose()
 
 U0 HtkPopupOpen(HtkCtl *popup)
 {
+  HtkWindowMoveEnd(TRUE);
   HtkPopupClose;
   popup->parent = NULL;
   htk_popup = popup;
@@ -329,6 +330,12 @@ U0 HtkRedraw()
   if (htk_popup || !htk_focus || HtkOwnerWindow(htk_focus) != HtkTop)
     TermShowCursor(FALSE);
   htk_paint_dim = FALSE;
+  if (htk_move) {
+    HtkRect(0, TermHeight - 1, TermWidth, 1, ' ', HTK_C_BAR_FG, HTK_C_BAR_BG);
+    HtkStr(0, TermHeight - 1, "Move: tap destination | arrows | Enter | Esc",
+      HTK_C_BAR_FG, HTK_C_BAR_BG);
+    TermShowCursor(FALSE);
+  }
   TermCommit;
 }
 
@@ -377,6 +384,10 @@ U0 HtkWindowMouse(HtkCtl *w, CTermEvent *e)
   if (press && !w->maximized && (e->y == w->y || e->y == w->y + w->h - 1) &&
     (e->x <= w->x + 1 || e->x >= w->x + w->w - 2)) {
       htk_drag = w;
+      htk_drag_dx = e->x - w->x;
+      if (e->x > w->x + 1)
+        htk_drag_dx -= w->w - 1;
+      htk_drag_dy = 0;
       if (e->y == w->y && e->x <= w->x + 1)
         htk_drag_resize = HTK_CORNER_TL;
       else if (e->y == w->y)
@@ -402,6 +413,8 @@ U0 HtkWindowMouse(HtkCtl *w, CTermEvent *e)
       htk_drag_resize = 0;
     if (htk_drag_resize) {
       htk_drag = w;
+      htk_drag_dx = 0;
+      htk_drag_dy = 0;
       return;
     }
   }
@@ -580,22 +593,28 @@ U0 HtkMouse(CTermEvent *e)
 {
   HtkCtl *w;
   HtkCtl *at = NULL;
+  Bool release = !e->pressed && !e->motion &&
+    (e->button == TERM_MOUSE_LEFT || e->button == TERM_MOUSE_NONE);
 
-  // A release (or wheel) always ends the active drag.
-  if (!e->pressed) {
-    if (htk_drag && htk_drag->kind == HTK_CANVAS)
-      HtkCanvasMouse(htk_drag, e);
-    if (htk_drag && (htk_drag->kind == HTK_ENTRY ||
-      htk_drag->kind == HTK_MULTILINE) && htk_drag->anchor == htk_drag->cursor)
-      htk_drag->anchor = -1;  // a plain click selects nothing
-    htk_drag = NULL;
-    htk_drag_resize = 0;
-    htk_drag_scroll = FALSE;
+  // Touch terminals may only send taps; Move consumes the next left press.
+  if (htk_move) {
+    if (e->pressed && !e->motion && e->button == TERM_MOUSE_LEFT) {
+      htk_move->x = e->x - htk_move->w / 2;
+      htk_move->y = e->y;
+      HtkWindowLayout(htk_move);
+      HtkWindowMoveEnd;
+    } else if (e->pressed && !e->motion && e->button == TERM_MOUSE_RIGHT)
+      HtkWindowMoveEnd(TRUE);
+    return;
   }
-  if (htk_drag && e->pressed) {
+  if (htk_drag) {
+    // Wheels and other buttons must not move or release the captured control.
+    if (!release && !(e->pressed && e->motion && e->button == TERM_MOUSE_LEFT))
+      return;
     if (htk_drag->kind == HTK_WINDOW) {
       if (htk_drag_resize)
-        HtkWindowResizeCorner(htk_drag, htk_drag_resize, e->x, e->y);
+        HtkWindowResizeCorner(htk_drag, htk_drag_resize,
+          e->x - htk_drag_dx, e->y - htk_drag_dy);
       else {
         htk_drag->x = e->x - htk_drag_dx;
         htk_drag->y = e->y - htk_drag_dy;
@@ -612,6 +631,14 @@ U0 HtkMouse(CTermEvent *e)
         HtkMultilineScrollMouse(htk_drag, e->y);
       else
         HtkMultilineCursorAt(htk_drag, e->x, e->y);
+    }
+    if (release) {
+      if (htk_drag && (htk_drag->kind == HTK_ENTRY ||
+        htk_drag->kind == HTK_MULTILINE) && htk_drag->anchor == htk_drag->cursor)
+        htk_drag->anchor = -1;  // a plain click selects nothing
+      htk_drag = NULL;
+      htk_drag_resize = 0;
+      htk_drag_scroll = FALSE;
     }
     return;
   }
@@ -663,7 +690,7 @@ U0 HtkMouse(CTermEvent *e)
   // Window bar: [App] opens the menu, a click on a button restores that
   // window, a right click opens its window menu, dragging scrolls the strip.
   if (htk_bar_dragging) {
-    if (e->pressed && e->motion) {
+    if (e->pressed && e->motion && e->button == TERM_MOUSE_LEFT) {
       if (e->x != htk_bar_drag_x) {
         HtkTaskbarScroll(htk_bar_drag_x - e->x);
         htk_bar_drag_x = e->x;
@@ -671,12 +698,13 @@ U0 HtkMouse(CTermEvent *e)
       }
       return;
     }
-    if (!e->pressed) {
+    if (release) {
       htk_bar_dragging = FALSE;
       if (!htk_bar_drag_moved)
         HtkWindowRestore(HtkTaskbar(e->x, FALSE));  // it was a plain click
       return;
     }
+    return;
   }
   if (e->pressed && !e->motion && HtkTaskbarHeight &&
     e->y == TermHeight - 1) {
@@ -739,6 +767,25 @@ U0 HtkKey(CTermEvent *e)
 {
   HtkCtl *top = HtkTop;
 
+  if (htk_move) {
+    if (e->key == TERM_KEY_ESCAPE)
+      HtkWindowMoveEnd(TRUE);
+    else if (e->key == TERM_KEY_ENTER)
+      HtkWindowMoveEnd;
+    else {
+      if (e->key == TERM_KEY_LEFT)
+        htk_move->x--;
+      else if (e->key == TERM_KEY_RIGHT)
+        htk_move->x++;
+      else if (e->key == TERM_KEY_UP)
+        htk_move->y--;
+      else if (e->key == TERM_KEY_DOWN)
+        htk_move->y++;
+      HtkWindowLayout(htk_move);
+      htk_dirty = TRUE;
+    }
+    return;
+  }
   if (htk_popup) {
     HtkPickKey(htk_popup, e);
     return;
@@ -827,6 +874,7 @@ U0 HtkFini()
 {
   if (!htk_started)
     return;
+  HtkWindowMoveEnd;
   TermFini;
   htk_started = FALSE;
 }
@@ -888,6 +936,7 @@ U0 HtkModalFor(HtkCtl *w, HtkCtl *owner)
 {
   HtkCtl *prior = htk_modal;
 
+  HtkWindowMoveEnd(TRUE);
   HtkPopupClose;
   htk_modal = w;
   if (owner)
