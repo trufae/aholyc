@@ -17,7 +17,9 @@ CJsonDecoder decoder;
 CJsonValue root;
 CJsonValue value;
 U8 *json;
+U8 *jsonc;
 U8 *text;
+I64 number;
 
 PjO(pj);
 PjKs(pj, "name", "aholyc \"q\"\n");
@@ -50,6 +52,48 @@ if (JsonPathGet(&root, "$.name", &value))
 Check(text && !StrCmp(text, "aholyc \"q\"\n"), "JsonValueStringNew");
 Free(text);
 Free(json);
+
+jsonc = "/* lead */ { // first\r\n"
+  "\"a\" /* key */ : [1, /* item */ 2 // line\n"
+  "], /* next */ \"s\": /* value */ \"http://x/*y*/\" } // end";
+JsonDecoderInit(&decoder, jsonc);
+Check(!JsonDecode(&decoder, &root), "strict JSON rejects comments");
+JsonDecoderInit(&decoder, "// lead\n1");
+Check(!JsonDecode(&decoder, &root), "strict JSON rejects line comments");
+Check(!JsonValid(jsonc) &&
+  JsonValid(jsonc, JSON_TYPE_OBJECT, -1, TRUE), "JSONC validation option");
+JsonDecoderInit(&decoder, jsonc);
+decoder.allow_comments = TRUE;
+Check(JsonDecode(&decoder, &root) && root.allow_comments,
+  "JSONC comments decode");
+Check(JsonObjectLength(&root) == 2, "JSONC object length");
+Check(JsonPathGet(&root, "$.a", &value) &&
+  JsonArrayLength(&value) == 2, "JSONC array length");
+Check(JsonPathGet(&root, "$.a[1]", &value) &&
+  JsonValueAsI64(&value, &number) && number == 2,
+  "JSONC nested lookup");
+Check(JsonPathGet(&root, "$.s", &value) &&
+  JsonValueStringEquals(&value, "http://x/*y*/"),
+  "comment markers inside strings");
+
+JsonDecoderInit(&decoder, "[1, /* unfinished");
+decoder.allow_comments = TRUE;
+Check(!JsonDecode(&decoder, &root) &&
+  decoder.error == JSON_DECODE_UNTERMINATED_COMMENT &&
+  decoder.error_offset == decoder.length, "unterminated block comment");
+JsonDecoderInit(&decoder, "[1, /* ok */ ]");
+decoder.allow_comments = TRUE;
+Check(!JsonDecode(&decoder, &root), "JSONC trailing comma rejected");
+JsonDecoderInit(&decoder, "tr/* gap */ue");
+decoder.allow_comments = TRUE;
+Check(!JsonDecode(&decoder, &root), "comments cannot split tokens");
+JsonDecoderInit(&decoder, "1 // eof");
+decoder.allow_comments = TRUE;
+Check(JsonDecode(&decoder, &root), "line comment at end of input");
+JsonDecoderInit(&decoder, "/* only comment */");
+decoder.allow_comments = TRUE;
+Check(!JsonDecode(&decoder, &root) &&
+  decoder.error == JSON_DECODE_UNEXPECTED_END, "comment without value");
 
 // A builder without an enclosing container yields comma separated values
 // that PjJ splices into another document.

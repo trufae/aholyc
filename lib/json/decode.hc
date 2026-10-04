@@ -12,6 +12,7 @@
 //   CJsonDecoder decoder;
 //   CJsonValue root;
 //   JsonDecoderInit(&decoder, text);
+//   decoder.allow_comments = TRUE; // optional: accept // and /* */ comments
 //   if (!JsonDecode(&decoder, &root))
 //     "JSON error at %d: %s\n", decoder.error_offset,
 //       JsonDecodeErrorName(decoder.error);
@@ -40,6 +41,7 @@
 #define JSON_DECODE_EXPECTED_COLON 10
 #define JSON_DECODE_EXPECTED_COMMA 11
 #define JSON_DECODE_MAX_DEPTH 12
+#define JSON_DECODE_UNTERMINATED_COMMENT 13
 
 #ifndef JSON_DEFAULT_MAX_DEPTH
 #define JSON_DEFAULT_MAX_DEPTH 128
@@ -50,6 +52,7 @@ class CJsonValue
   U8 *data;
   I64 length;
   I64 type;
+  Bool allow_comments;
 };
 
 class CJsonDecoder
@@ -60,6 +63,7 @@ class CJsonDecoder
   I64 error;
   I64 error_offset;
   I64 max_depth;
+  Bool allow_comments;
 };
 
 Bool JsonDecodeFail(CJsonDecoder *decoder, I64 error)
@@ -76,11 +80,39 @@ Bool JsonDecodeIsSpace(U8 ch)
   return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r';
 }
 
-U0 JsonDecodeSkipSpace(CJsonDecoder *decoder)
+Bool JsonDecodeSkipSpace(CJsonDecoder *decoder)
 {
-  while (decoder->offset < decoder->length &&
-    JsonDecodeIsSpace(decoder->data[decoder->offset]))
-    decoder->offset++;
+  while (decoder->offset < decoder->length) {
+    if (JsonDecodeIsSpace(decoder->data[decoder->offset])) {
+      decoder->offset++;
+    } else if (decoder->allow_comments &&
+      decoder->offset + 1 < decoder->length &&
+      decoder->data[decoder->offset] == '/' &&
+      decoder->data[decoder->offset + 1] == '/') {
+        decoder->offset += 2;
+        while (decoder->offset < decoder->length &&
+          decoder->data[decoder->offset] != '\n' &&
+          decoder->data[decoder->offset] != '\r')
+          decoder->offset++;
+    } else if (decoder->allow_comments &&
+      decoder->offset + 1 < decoder->length &&
+      decoder->data[decoder->offset] == '/' &&
+      decoder->data[decoder->offset + 1] == '*') {
+        decoder->offset += 2;
+        while (decoder->offset + 1 < decoder->length &&
+          (decoder->data[decoder->offset] != '*' ||
+            decoder->data[decoder->offset + 1] != '/'))
+          decoder->offset++;
+        if (decoder->offset + 1 >= decoder->length) {
+          decoder->offset = decoder->length;
+          return JsonDecodeFail(decoder, JSON_DECODE_UNTERMINATED_COMMENT);
+        }
+        decoder->offset += 2;
+    } else {
+      break;
+    }
+  }
+  return TRUE;
 }
 
 I64 JsonDecodeHex(U8 ch)
@@ -250,7 +282,8 @@ Bool JsonDecodeScanValue(CJsonDecoder *decoder, I64 depth, CJsonValue *value)
   U8 ch;
   CJsonValue child;
 
-  JsonDecodeSkipSpace(decoder);
+  if (!JsonDecodeSkipSpace(decoder))
+    return FALSE;
   if (decoder->offset >= decoder->length)
     return JsonDecodeFail(decoder, JSON_DECODE_UNEXPECTED_END);
   start = decoder->offset;
@@ -281,7 +314,8 @@ Bool JsonDecodeScanValue(CJsonDecoder *decoder, I64 depth, CJsonValue *value)
     if (depth >= decoder->max_depth)
       return JsonDecodeFail(decoder, JSON_DECODE_MAX_DEPTH);
     decoder->offset++;
-    JsonDecodeSkipSpace(decoder);
+    if (!JsonDecodeSkipSpace(decoder))
+      return FALSE;
     if (decoder->offset < decoder->length &&
       decoder->data[decoder->offset] == ']') {
         decoder->offset++;
@@ -289,7 +323,8 @@ Bool JsonDecodeScanValue(CJsonDecoder *decoder, I64 depth, CJsonValue *value)
         for (;;) {
           if (!JsonDecodeScanValue(decoder, depth + 1, &child))
             return FALSE;
-          JsonDecodeSkipSpace(decoder);
+          if (!JsonDecodeSkipSpace(decoder))
+            return FALSE;
           if (decoder->offset >= decoder->length)
             return JsonDecodeFail(decoder, JSON_DECODE_UNEXPECTED_END);
           ch = decoder->data[decoder->offset++];
@@ -297,7 +332,8 @@ Bool JsonDecodeScanValue(CJsonDecoder *decoder, I64 depth, CJsonValue *value)
             break;
           if (ch != ',')
             return JsonDecodeFail(decoder, JSON_DECODE_EXPECTED_COMMA);
-          JsonDecodeSkipSpace(decoder);
+          if (!JsonDecodeSkipSpace(decoder))
+            return FALSE;
         }
       }
   } else if (ch == '{') {
@@ -305,7 +341,8 @@ Bool JsonDecodeScanValue(CJsonDecoder *decoder, I64 depth, CJsonValue *value)
     if (depth >= decoder->max_depth)
       return JsonDecodeFail(decoder, JSON_DECODE_MAX_DEPTH);
     decoder->offset++;
-    JsonDecodeSkipSpace(decoder);
+    if (!JsonDecodeSkipSpace(decoder))
+      return FALSE;
     if (decoder->offset < decoder->length &&
       decoder->data[decoder->offset] == '}') {
         decoder->offset++;
@@ -313,14 +350,16 @@ Bool JsonDecodeScanValue(CJsonDecoder *decoder, I64 depth, CJsonValue *value)
         for (;;) {
           if (!JsonDecodeScanString(decoder))
             return FALSE;
-          JsonDecodeSkipSpace(decoder);
+          if (!JsonDecodeSkipSpace(decoder))
+            return FALSE;
           if (decoder->offset >= decoder->length ||
             decoder->data[decoder->offset] != ':')
             return JsonDecodeFail(decoder, JSON_DECODE_EXPECTED_COLON);
           decoder->offset++;
           if (!JsonDecodeScanValue(decoder, depth + 1, &child))
             return FALSE;
-          JsonDecodeSkipSpace(decoder);
+          if (!JsonDecodeSkipSpace(decoder))
+            return FALSE;
           if (decoder->offset >= decoder->length)
             return JsonDecodeFail(decoder, JSON_DECODE_UNEXPECTED_END);
           ch = decoder->data[decoder->offset++];
@@ -328,7 +367,8 @@ Bool JsonDecodeScanValue(CJsonDecoder *decoder, I64 depth, CJsonValue *value)
             break;
           if (ch != ',')
             return JsonDecodeFail(decoder, JSON_DECODE_EXPECTED_COMMA);
-          JsonDecodeSkipSpace(decoder);
+          if (!JsonDecodeSkipSpace(decoder))
+            return FALSE;
         }
       }
   } else {
@@ -339,6 +379,7 @@ Bool JsonDecodeScanValue(CJsonDecoder *decoder, I64 depth, CJsonValue *value)
     value->data = decoder->data + start;
     value->length = decoder->offset - start;
     value->type = type;
+    value->allow_comments = decoder->allow_comments;
   }
   return TRUE;
 }
@@ -354,6 +395,7 @@ U0 JsonDecoderInit(CJsonDecoder *decoder, U8 *data, I64 length = -1)
   decoder->error = JSON_DECODE_OK;
   decoder->error_offset = 0;
   decoder->max_depth = JSON_DEFAULT_MAX_DEPTH;
+  decoder->allow_comments = FALSE;
 }
 
 Bool JsonDecode(CJsonDecoder *decoder, CJsonValue *value)
@@ -370,7 +412,8 @@ Bool JsonDecode(CJsonDecoder *decoder, CJsonValue *value)
     decoder->max_depth = JSON_DEFAULT_MAX_DEPTH;
   if (!JsonDecodeScanValue(decoder, 0, value))
     return FALSE;
-  JsonDecodeSkipSpace(decoder);
+  if (!JsonDecodeSkipSpace(decoder))
+    return FALSE;
   if (decoder->offset != decoder->length)
     return JsonDecodeFail(decoder, JSON_DECODE_TRAILING_DATA);
   return TRUE;
@@ -378,7 +421,10 @@ Bool JsonDecode(CJsonDecoder *decoder, CJsonValue *value)
 
 // Validate a whole JSON text without keeping the value; type restricts the
 // accepted root type (JSON_TYPE_OBJECT, ...), JSON_TYPE_INVALID accepts any.
-Bool JsonValid(U8 *json, I64 type=JSON_TYPE_INVALID, I64 length=-1)
+// Pass allow_comments to accept JSONC comments while keeping strict JSON the
+// default.
+Bool JsonValid(U8 *json, I64 type=JSON_TYPE_INVALID, I64 length=-1,
+  Bool allow_comments=FALSE)
 {
   CJsonDecoder decoder;
   CJsonValue value;
@@ -386,6 +432,7 @@ Bool JsonValid(U8 *json, I64 type=JSON_TYPE_INVALID, I64 length=-1)
   if (!json)
     return FALSE;
   JsonDecoderInit(&decoder, json, length);
+  decoder.allow_comments = allow_comments;
   if (!JsonDecode(&decoder, &value))
     return FALSE;
   return type == JSON_TYPE_INVALID || value.type == type;
@@ -755,6 +802,8 @@ U8 *JsonDecodeErrorName(I64 error)
       return "expected comma or container end";
     case JSON_DECODE_MAX_DEPTH:
       return "maximum nesting depth exceeded";
+    case JSON_DECODE_UNTERMINATED_COMMENT:
+      return "unterminated comment";
   }
   return "unknown error";
 }

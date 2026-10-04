@@ -22,8 +22,10 @@ Bool JsonArrayGet(CJsonValue *array, I64 index, CJsonValue *result)
   if (!array || !result || array->type != JSON_TYPE_ARRAY || index < 0)
     return FALSE;
   JsonDecoderInit(&decoder, array->data, array->length);
+  decoder.allow_comments = array->allow_comments;
   decoder.offset = 1;
-  JsonDecodeSkipSpace(&decoder);
+  if (!JsonDecodeSkipSpace(&decoder))
+    return FALSE;
   if (decoder.offset >= decoder.length ||
     decoder.data[decoder.offset] == ']')
     return FALSE;
@@ -34,7 +36,8 @@ Bool JsonArrayGet(CJsonValue *array, I64 index, CJsonValue *result)
       *result = value;
       return TRUE;
     }
-    JsonDecodeSkipSpace(&decoder);
+    if (!JsonDecodeSkipSpace(&decoder))
+      return FALSE;
     if (decoder.offset >= decoder.length ||
       decoder.data[decoder.offset] == ']')
       return FALSE;
@@ -51,8 +54,10 @@ I64 JsonArrayLength(CJsonValue *array)
   if (!array || array->type != JSON_TYPE_ARRAY)
     return -1;
   JsonDecoderInit(&decoder, array->data, array->length);
+  decoder.allow_comments = array->allow_comments;
   decoder.offset = 1;
-  JsonDecodeSkipSpace(&decoder);
+  if (!JsonDecodeSkipSpace(&decoder))
+    return -1;
   if (decoder.offset < decoder.length &&
     decoder.data[decoder.offset] == ']')
     return 0;
@@ -60,7 +65,8 @@ I64 JsonArrayLength(CJsonValue *array)
     if (!JsonDecodeScanValue(&decoder, 0, &value))
       return -1;
     count++;
-    JsonDecodeSkipSpace(&decoder);
+    if (!JsonDecodeSkipSpace(&decoder))
+      return -1;
     if (decoder.offset >= decoder.length)
       return -1;
     if (decoder.data[decoder.offset] == ']')
@@ -80,8 +86,10 @@ Bool JsonObjectGetN(CJsonValue *object, U8 *key, I64 key_length,
     key_length < 0)
     return FALSE;
   JsonDecoderInit(&decoder, object->data, object->length);
+  decoder.allow_comments = object->allow_comments;
   decoder.offset = 1;
-  JsonDecodeSkipSpace(&decoder);
+  if (!JsonDecodeSkipSpace(&decoder))
+    return FALSE;
   if (decoder.offset >= decoder.length ||
     decoder.data[decoder.offset] == '}')
     return FALSE;
@@ -91,7 +99,8 @@ Bool JsonObjectGetN(CJsonValue *object, U8 *key, I64 key_length,
     if (!JsonDecodeScanString(&decoder))
       return FALSE;
     name.length = decoder.data + decoder.offset - name.data;
-    JsonDecodeSkipSpace(&decoder);
+    if (!JsonDecodeSkipSpace(&decoder))
+      return FALSE;
     decoder.offset++;
     if (!JsonDecodeScanValue(&decoder, 0, &value))
       return FALSE;
@@ -99,12 +108,14 @@ Bool JsonObjectGetN(CJsonValue *object, U8 *key, I64 key_length,
       *result = value;
       return TRUE;
     }
-    JsonDecodeSkipSpace(&decoder);
+    if (!JsonDecodeSkipSpace(&decoder))
+      return FALSE;
     if (decoder.offset >= decoder.length ||
       decoder.data[decoder.offset] == '}')
       return FALSE;
     decoder.offset++;
-    JsonDecodeSkipSpace(&decoder);
+    if (!JsonDecodeSkipSpace(&decoder))
+      return FALSE;
   }
 }
 
@@ -124,26 +135,31 @@ I64 JsonObjectLength(CJsonValue *object)
   if (!object || object->type != JSON_TYPE_OBJECT)
     return -1;
   JsonDecoderInit(&decoder, object->data, object->length);
+  decoder.allow_comments = object->allow_comments;
   decoder.offset = 1;
-  JsonDecodeSkipSpace(&decoder);
+  if (!JsonDecodeSkipSpace(&decoder))
+    return -1;
   if (decoder.offset < decoder.length &&
     decoder.data[decoder.offset] == '}')
     return 0;
   for (;;) {
     if (!JsonDecodeScanString(&decoder))
       return -1;
-    JsonDecodeSkipSpace(&decoder);
+    if (!JsonDecodeSkipSpace(&decoder))
+      return -1;
     decoder.offset++;
     if (!JsonDecodeScanValue(&decoder, 0, &value))
       return -1;
     count++;
-    JsonDecodeSkipSpace(&decoder);
+    if (!JsonDecodeSkipSpace(&decoder))
+      return -1;
     if (decoder.offset >= decoder.length)
       return -1;
     if (decoder.data[decoder.offset] == '}')
       return count;
     decoder.offset++;
-    JsonDecodeSkipSpace(&decoder);
+    if (!JsonDecodeSkipSpace(&decoder))
+      return -1;
   }
 }
 
