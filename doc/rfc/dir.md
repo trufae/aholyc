@@ -1,9 +1,32 @@
 # DIRPLAN: heap-free directory I/O and HolyC compatibility
 
-Status: proposed implementation plan, based on the current uncommitted
-[`lib/io/dir.hc`](lib/io/dir.hc), syscall commit `0ac8cc4`, the bundled
-TempleOS sources, and the bundled holyc-lang sources. This document does not
-change the implementation.
+Status: implementation plan written against the first `opendir`-based draft
+of [`lib/io/dir.hc`](../../lib/io/dir.hc), syscall commit `0ac8cc4`, the
+bundled TempleOS sources, and the bundled holyc-lang sources.
+
+## Implementation status (2026-09-06)
+
+The strict core now exists in `lib/io/dir.hc` and `tests/io_dir.HC` runs it
+on macOS arm64 and Linux arm64 (C and LLVM backends, with and without asm)
+and cross-compiles it for Win32 with MinGW. Compared with this plan:
+
+- Done: caller-scratch iterator (`CDir`/`CDirBuf`, `DirOpenBuf`, `DirRead`
+  tri-state, `DirRewind`, idempotent `DirClose`), strict record validation
+  for Linux `getdents64` and Darwin `getdirentries64` (including the Darwin
+  end flag), the complete 320-byte Win32 find record, descriptor-relative
+  `O_NOFOLLOW` removal, reparse points removed as leaves, component-wise
+  `mkdirat` creation with `0x1ff`, Windows root parsing, native negative
+  errors with `DirCreateEx`/`DirRemoveEx`, and separate completion,
+  cancellation, and error results for `DirForEach`.
+- Deviations: POSIX removal shares one scratch across all levels and
+  rewinds the parent after each emptied child instead of taking a caller
+  workspace; a root symlink is refused with `DIR_ERROR_NOT_DIR` rather than
+  unlinked; the libc adapter (`DIR_LIBC`, automatic under `-fno-asm`) is a
+  supported backend for Linux and Darwin, so Darwin raw syscalls are the
+  default only when asm is available.
+- Open: phase 1 (syscall wrappers still build an argument array), BSD
+  adapters (rejected at compile time), the TempleOS compatibility layer,
+  stat-based metadata, and the allocation-trap and benchmark suites.
 
 ## Re-evaluated direction
 

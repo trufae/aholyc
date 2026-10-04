@@ -417,19 +417,42 @@ for b in $backends; do
 	fi
 done
 
-# Directory I/O relies on native directory APIs; JavaScript intentionally has
-# no FFI backend. The fixture removes the tree it creates before exiting.
+# Directory I/O parses raw kernel records: through lib/syscall when asm is
+# available and through libc's stubs under -fno-asm. JavaScript has no FFI
+# backend. The fixture removes the tree it creates and exits with the number
+# of the step that failed.
 for b in $backends; do
 	[ "$b" = js ] && continue
-	if ./aholyc -b "$b" tests/io_dir.HC -o "tests/out/io-dir-$b" \
-		2>"tests/out/io-dir-$b.err" && "tests/out/io-dir-$b"; then
-		echo "ok   $b/directory-library"
+	for mode in asm no-asm; do
+		flag=""
+		[ "$mode" = no-asm ] && flag="-fno-asm"
+		if ./aholyc -b "$b" $flag tests/io_dir.HC \
+			-o "tests/out/io-dir-$b-$mode" \
+			2>"tests/out/io-dir-$b-$mode.err" &&
+		   "tests/out/io-dir-$b-$mode"; then
+			echo "ok   $b/directory-library($mode)"
+		else
+			echo "FAIL $b/directory-library($mode)"
+			head -5 "tests/out/io-dir-$b-$mode.err"
+			fail=1
+		fi
+	done
+done
+
+# The Win32 backend of the same fixture is compiled (not run) with the
+# optional MinGW cross toolchain used by demos/windows.
+if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 &&
+   [ -x demos/windows/ccwin.sh ]; then
+	if CC=demos/windows/ccwin.sh ./aholyc -b c -DDIR_WINDOWS \
+		tests/io_dir.HC -o tests/out/io-dir-windows.exe \
+		2>tests/out/io-dir-windows.err; then
+		echo "ok   windows/directory-library(cross-build)"
 	else
-		echo "FAIL $b/directory-library"
-		head -5 "tests/out/io-dir-$b.err"
+		echo "FAIL build windows/directory-library"
+		head -5 tests/out/io-dir-windows.err
 		fail=1
 	fi
-done
+fi
 
 # lib/llm builds requests and parses replies without a server, but includes
 # the native lib/net transport, so it is a native-only fixture as well.

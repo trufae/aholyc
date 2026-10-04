@@ -19,6 +19,62 @@ if (FileExists("copy.bin"))
 libraries such as `lib/llm` and `lib/mcp` deliberately take bytes rather than paths; combine
 them with these helpers.
 
+# Directories
+
+`lib/io/dir.hc` lists directories straight from the kernel's own records
+(`getdents64` on Linux, `getdirentries64` on Darwin, `FindFirstFile` on
+Windows) into caller-owned storage. Listing never allocates, copies a name,
+or builds a path: entries are borrowed views that stay valid until the
+`DirRead` that refills the scratch, `DirRewind`, or `DirClose`.
+
+```holyc
+#include "lib/io/dir.hc"
+
+CDirBuf dir;                       // CDir plus a DIR_BUFFER_SIZE scratch
+CDirEntry entry;
+if (DirOpen(&dir, "assets")) {
+  while (DirRead(&dir, &entry) > 0)
+    "%s%s\n", entry.name, entry.type == DIR_TYPE_DIR ? "/" : "";
+  DirClose(&dir);
+}
+
+DirCreate("out/cache/images", TRUE); // mkdir -p
+DirRemove("out/cache", TRUE);        // rm -rf
+```
+
+| Function | Purpose |
+| --- | --- |
+| `DirOpenBuf(&dir, path, scratch, size)` | Open for listing into any buffer of at least `DIR_SCRATCH_MIN` bytes; 0 or a negative error. |
+| `DirOpen(&dir, path)` | The same through the buffer inside a `CDirBuf`; TRUE on success, the error stays in `dir.error`. |
+| `DirRead(&dir, &entry)` | Next entry other than `.` and `..`: 1, 0 at the end, or a negative error. `entry` carries `name`, `name_length`, `type` (`DIR_TYPE_*`, the POSIX `d_type` values) and `inode`. |
+| `DirNext(&dir)` | The next name or NULL; `dir.error` tells the end from a failure. |
+| `DirRewind(&dir)`, `DirClose(&dir)` | Restart or release the handle; close is idempotent and still reports a failure. |
+| `DirIsDir(path)`, `DirExists(path)` | TRUE for a directory the caller can open, following links. |
+| `DirForEach(path, callback, user=NULL)` | Calls `callback(path, &entry, user)` per entry: 1 after the last one, 0 once the callback returns FALSE, negative on error. |
+| `DirCreateEx(path, recursive=FALSE)`, `DirCreate` | `mkdir`, or with `recursive` `mkdir -p`, which accepts existing directories and creates each component relative to its parent's descriptor. |
+| `DirRemoveEx(path, force=FALSE)`, `DirRemove` | `rmdir`, or with `force` `rm -rf`. |
+
+Errors are native negative codes (`-errno`, `-GetLastError()` on Windows).
+`DIR_ERROR_NOT_FOUND`, `DIR_ERROR_EXISTS`, `DIR_ERROR_NOT_DIR`,
+`DIR_ERROR_NOT_EMPTY`, `DIR_ERROR_INVALID`, `DIR_ERROR_CLOSED` and
+`DIR_ERROR_RECORD` name the ones callers branch on; the `Ex` forms return
+them and the Bool wrappers only report success.
+
+Removal never follows links. POSIX traversal opens each subdirectory with
+`O_NOFOLLOW` relative to its parent's descriptor and unlinks symbolic links
+as leaves; a link given as the root is refused with `DIR_ERROR_NOT_DIR`.
+Windows deletes reparse points (junctions and symbolic links) without
+entering them. One `DIR_BUFFER_SIZE` scratch serves the whole POSIX walk and
+each level holds only a descriptor; Windows keeps one find state per level
+and a single `DIR_PATH_CAPACITY` path workspace.
+
+Backends: Linux (x86-64, arm64, riscv64) and Darwin call the kernel through
+`lib/syscall` when assembly is enabled and through libc's thin stubs under
+`-fno-asm` or when `DIR_LIBC` is defined; Windows uses the Win32 ANSI APIs.
+`DIR_WINDOWS` and `DIR_POSIX` override the compiler host for cross builds.
+The BSDs are rejected at compile time until their record layouts get
+adapters (`doc/rfc/dir.md`).
+
 ## Child processes
 
 `lib/io/process.hc` starts a command with piped stdin/stdout on

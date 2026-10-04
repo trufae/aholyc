@@ -156,7 +156,9 @@ static void emit_rt_arg(CGen *cg, Node *a, Type *pty) {
 	} else if (a->kind == ND_STR) {
 		sb_printf (cg->out, "hcs%d", a->str_id);
 	} else if (a->kind == ND_ADDR && a->lhs->kind == ND_VAR) {
-		sb_printf (cg->out, "%s%s", is_agg (a->lhs->ty)? "": "&", objname (cg, a->lhs->var));
+		/* locals and globals are hc_i64 storage; newer GCC rejects the
+		 * implicit conversion to the runtime's char * parameters */
+		sb_printf (cg->out, "(void *)%s%s", is_agg (a->lhs->ty)? "": "&", objname (cg, a->lhs->var));
 	} else {
 		sb_printf (cg->out, "(void *)(intptr_t)");
 		emit_val (cg, a);
