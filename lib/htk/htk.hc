@@ -29,6 +29,7 @@
 #include "../term/term.hc"
 #include "../io/env.hc"
 #include "core.hc"
+#include "keybind.hc"
 #include "box.hc"
 #include "label.hc"
 #include "button.hc"

@@ -37,17 +37,19 @@ for b in $backends; do
 	done
 done
 
-# HTK receives real SGR bytes through a pipe; no terminal or display needed.
+# HTK input and keybinding/settings regressions need no terminal or display.
 for b in $backends; do
 	[ "$b" = js ] && continue
-	if ./aholyc -b "$b" tests/htk_mouse.HC -o "tests/out/htk-mouse-$b" \
-		2>"tests/out/htk-mouse-$b.err" && "tests/out/htk-mouse-$b"; then
-		echo "ok   $b/htk-mouse"
-	else
-		echo "FAIL $b/htk-mouse"
-		head -5 "tests/out/htk-mouse-$b.err"
-		fail=1
-	fi
+	for name in mouse keys; do
+		if ./aholyc -b "$b" "tests/htk_$name.HC" -o "tests/out/htk-$name-$b" \
+			2>"tests/out/htk-$name-$b.err" && "tests/out/htk-$name-$b"; then
+			echo "ok   $b/htk-$name"
+		else
+			echo "FAIL $b/htk-$name"
+			head -5 "tests/out/htk-$name-$b.err"
+			fail=1
+		fi
+	done
 done
 
 # Native assembly: a top-level block defines a callable symbol, while an

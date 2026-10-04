@@ -194,9 +194,42 @@ U0 HtkWindowMoveEnd(Bool cancel=FALSE)
   if (cancel) {
     htk_move->x = htk_move_x;
     htk_move->y = htk_move_y;
+    htk_move->w = htk_move_w;
+    htk_move->h = htk_move_h;
+    HtkWindowLayout(htk_move);
   }
   htk_move = NULL;
+  htk_move_resize = FALSE;
   htk_dirty = TRUE;
+}
+
+U0 HtkWindowMoveBegin(HtkCtl *w, I64 dx=-1, I64 dy=0)
+{
+  if (!w || w->closed || w->minimized || w->maximized)
+    return;
+  HtkWindowMoveEnd(TRUE);
+  htk_move = w;
+  htk_move_x = w->x;
+  htk_move_y = w->y;
+  htk_move_w = w->w;
+  htk_move_h = w->h;
+  htk_move_resize = FALSE;
+  htk_move_dx = dx;
+  if (dx < 0)
+    htk_move_dx = w->w / 2;
+  htk_move_dy = dy;
+  htk_drag = NULL;
+  htk_drag_resize = 0;
+  htk_drag_scroll = FALSE;
+  HtkWindowRaise(w);
+}
+
+U0 HtkWindowResizeBegin(HtkCtl *w)
+{
+  if (!w || w->closed || w->minimized || w->maximized)
+    return;
+  HtkWindowMoveBegin(w);
+  htk_move_resize = TRUE;
 }
 
 U0 HtkWindowClose(HtkCtl *w)
@@ -288,20 +321,17 @@ U0 HtkWindowTile(HtkCtl *w, I64 side)
 // Title bar context menu, shared by every window: the items carry the
 // target window in ->link while the popup is open.
 HtkCtl *htk_wm_menu;
-HtkCtl *htk_wm_move;
+HtkCtl *htk_wm_move, *htk_wm_resize;
 HtkCtl *htk_wm_minimize, *htk_wm_maximize, *htk_wm_always_on_top, *htk_wm_close;
 
 U0 HtkWmMove(HtkCtl *item)
 {
-  HtkCtl *w = item->link;
+  HtkWindowMoveBegin(item->link);
+}
 
-  if (!w || w->closed || w->minimized || w->maximized)
-    return;
-  htk_move = w;
-  htk_move_x = w->x;
-  htk_move_y = w->y;
-  htk_drag = NULL;
-  HtkWindowRaise(w);
+U0 HtkWmResize(HtkCtl *item)
+{
+  HtkWindowResizeBegin(item->link);
 }
 
 U0 HtkWmMinimize(HtkCtl *item)
@@ -352,6 +382,7 @@ U0 HtkWindowMenuOpen(HtkCtl *w, I64 x, I64 y)
   if (!htk_wm_menu) {
     htk_wm_menu = HtkContextMenuNew;
     htk_wm_move = HtkWmItem(htk_wm_menu, "Move", &HtkWmMove);
+    htk_wm_resize = HtkWmItem(htk_wm_menu, "Resize", &HtkWmResize);
     htk_wm_minimize = HtkWmItem(htk_wm_menu, "Minimize", &HtkWmMinimize);
     htk_wm_maximize = HtkWmItem(htk_wm_menu, "Maximize", &HtkWmMaximize);
     htk_wm_always_on_top = HtkWmItem(htk_wm_menu, "Always on top",
@@ -376,6 +407,7 @@ U0 HtkWindowMenuOpen(HtkCtl *w, I64 x, I64 y)
   else
     HtkSetText(htk_wm_always_on_top, "AlwaysOnTop");
   htk_wm_move->disabled = w->minimized || w->maximized;
+  htk_wm_resize->disabled = w->minimized || w->maximized;
   htk_wm_minimize->disabled = !(w->controls & HTK_WINDOW_MINIMIZE);
   htk_wm_maximize->disabled = !(w->controls & HTK_WINDOW_MAXIMIZE);
   htk_wm_close->disabled = !(w->controls & HTK_WINDOW_CLOSE);

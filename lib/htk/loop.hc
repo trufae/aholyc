@@ -332,8 +332,12 @@ U0 HtkRedraw()
   htk_paint_dim = FALSE;
   if (htk_move) {
     HtkRect(0, TermHeight - 1, TermWidth, 1, ' ', HTK_C_BAR_FG, HTK_C_BAR_BG);
-    HtkStr(0, TermHeight - 1, "Move: tap destination | arrows | Enter | Esc",
-      HTK_C_BAR_FG, HTK_C_BAR_BG);
+    if (htk_move_resize)
+      HtkStr(0, TermHeight - 1, "Resize: tap corner | arrows | Shift:5 | Enter | Esc",
+        HTK_C_BAR_FG, HTK_C_BAR_BG);
+    else
+      HtkStr(0, TermHeight - 1, "Move: tap destination | arrows | Shift:5 | Enter | Esc",
+        HTK_C_BAR_FG, HTK_C_BAR_BG);
     TermShowCursor(FALSE);
   }
   TermCommit;
@@ -419,9 +423,19 @@ U0 HtkWindowMouse(HtkCtl *w, CTermEvent *e)
     }
   }
   if (e->y == w->y) {
+    at = w->x + w->w - 1 - HtkWindowControlCount(w) * 3;
+    // Termux sends a finger swipe as wheels at a fixed cell, with no
+    // preceding press or following release. Offer Move from the title
+    // itself; those reports contain no usable two-dimensional drag path.
+    if (htk_touch_titles && !w->maximized && e->pressed &&
+      (e->button == TERM_MOUSE_WHEEL_UP || e->button == TERM_MOUSE_WHEEL_DOWN) &&
+      e->x > w->x + 1 && e->x < w->x + w->w - 2 && e->x < at &&
+      (!(w->controls & HTK_WINDOW_MENU) || e->x >= w->x + 5)) {
+      HtkWindowMoveBegin(w, e->x - w->x, e->y - w->y);
+      return;
+    }
     if (!press)
       return;
-    at = w->x + w->w - 1 - HtkWindowControlCount(w) * 3;
     if (w->controls & HTK_WINDOW_MINIMIZE && e->x >= at && e->x < at + 3) {
       HtkWindowMinimize(w);
       return;
@@ -442,6 +456,7 @@ U0 HtkWindowMouse(HtkCtl *w, CTermEvent *e)
       return;
     htk_drag = w;
     htk_drag_resize = 0;
+    htk_drag_moved = FALSE;
     htk_drag_dx = e->x - w->x;
     htk_drag_dy = e->y - w->y;
     return;
@@ -599,8 +614,12 @@ U0 HtkMouse(CTermEvent *e)
   // Touch terminals may only send taps; Move consumes the next left press.
   if (htk_move) {
     if (e->pressed && !e->motion && e->button == TERM_MOUSE_LEFT) {
-      htk_move->x = e->x - htk_move->w / 2;
-      htk_move->y = e->y;
+      if (htk_move_resize)
+        HtkWindowResizeCorner(htk_move, HTK_CORNER_BR, e->x, e->y);
+      else {
+        htk_move->x = e->x - htk_move_dx;
+        htk_move->y = e->y - htk_move_dy;
+      }
       HtkWindowLayout(htk_move);
       HtkWindowMoveEnd;
     } else if (e->pressed && !e->motion && e->button == TERM_MOUSE_RIGHT)
@@ -616,6 +635,9 @@ U0 HtkMouse(CTermEvent *e)
         HtkWindowResizeCorner(htk_drag, htk_drag_resize,
           e->x - htk_drag_dx, e->y - htk_drag_dy);
       else {
+        if (e->motion || e->x != htk_drag->x + htk_drag_dx ||
+          e->y != htk_drag->y + htk_drag_dy)
+          htk_drag_moved = TRUE;
         htk_drag->x = e->x - htk_drag_dx;
         htk_drag->y = e->y - htk_drag_dy;
       }
@@ -633,6 +655,13 @@ U0 HtkMouse(CTermEvent *e)
         HtkMultilineCursorAt(htk_drag, e->x, e->y);
     }
     if (release) {
+      // A Termux tap is a press/release pair delivered on finger-up.
+      // A physical drag still completes normally after its motion reports.
+      if (htk_touch_titles && htk_drag && htk_drag->kind == HTK_WINDOW &&
+        !htk_drag_resize && !htk_drag_moved) {
+        HtkWindowMoveBegin(htk_drag, htk_drag_dx, htk_drag_dy);
+        return;
+      }
       if (htk_drag && (htk_drag->kind == HTK_ENTRY ||
         htk_drag->kind == HTK_MULTILINE) && htk_drag->anchor == htk_drag->cursor)
         htk_drag->anchor = -1;  // a plain click selects nothing
@@ -765,7 +794,8 @@ U0 HtkMouse(CTermEvent *e)
 
 U0 HtkKey(CTermEvent *e)
 {
-  HtkCtl *top = HtkTop;
+  HtkCtl *top = HtkTop, *target;
+  I64 dx = 0, dy = 0, step = 1;
 
   if (htk_move) {
     if (e->key == TERM_KEY_ESCAPE)
@@ -773,21 +803,44 @@ U0 HtkKey(CTermEvent *e)
     else if (e->key == TERM_KEY_ENTER)
       HtkWindowMoveEnd;
     else {
+      if (e->mods & TERM_MOD_SHIFT)
+        step = 5;
       if (e->key == TERM_KEY_LEFT)
-        htk_move->x--;
+        dx = -step;
       else if (e->key == TERM_KEY_RIGHT)
-        htk_move->x++;
+        dx = step;
       else if (e->key == TERM_KEY_UP)
-        htk_move->y--;
+        dy = -step;
       else if (e->key == TERM_KEY_DOWN)
-        htk_move->y++;
-      HtkWindowLayout(htk_move);
-      htk_dirty = TRUE;
+        dy = step;
+      if (dx || dy) {
+        if (htk_move_resize)
+          HtkWindowResizeCorner(htk_move, HTK_CORNER_BR,
+            htk_move->x + htk_move->w - 1 + dx,
+            htk_move->y + htk_move->h - 1 + dy);
+        else {
+          htk_move->x += dx;
+          htk_move->y += dy;
+        }
+        HtkWindowLayout(htk_move);
+        htk_dirty = TRUE;
+      }
     }
     return;
   }
   if (htk_popup) {
     HtkPickKey(htk_popup, e);
+    return;
+  }
+  target = top;
+  if (htk_modal)
+    target = htk_modal;
+  if (HtkWindowKeyMatches(e, htk_move_key, htk_move_mods)) {
+    HtkWindowMoveBegin(target);
+    return;
+  }
+  if (HtkWindowKeyMatches(e, htk_resize_key, htk_resize_mods)) {
+    HtkWindowResizeBegin(target);
     return;
   }
   if (e->key == TERM_KEY_TAB && e->mods & TERM_MOD_CTRL) {
@@ -858,10 +911,15 @@ Bool HtkStep(I64 timeout)
 
 Bool HtkInit()
 {
+  U8 *termux;
+
   if (htk_started)
     return TRUE;
   if (!TermInit)
     return FALSE;
+  termux = EnvGet("TERMUX_VERSION");
+  htk_touch_titles = termux != NULL;
+  Free(termux);
   HtkThemeDefault;
   HtkSettingsLoad;
   TermMouse;

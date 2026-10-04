@@ -65,12 +65,50 @@ button to bring it back), `[□]` maximizes over the desktop and `[▣]`
 restores, `[■]` closes (`HtkWindowMinimize/Maximize/Restore/Close`).  A
 `HtkStatusbarNew` control draws as an inverse strip, so a box with the
 status bar last gives a docked bar like the GTK/Cocoa/Win32 backends.
-On Termux, touchscreen swipes arrive as wheel events, not held-button
-motion. To reposition a window, tap its top-left system-menu button,
-choose **Move**, then tap where the center of its title bar should go.
-Move also accepts arrow keys, Enter to place and Escape to cancel;
-**Ctrl-G** opens the system menu from the keyboard. Physical mice still
-drag windows by their title bars.
+On Termux, tap or swipe the title text to start **Move**, then tap the
+destination for the title point you grabbed. The bottom row shows the
+Move prompt. Termux reports finger swipes as wheel events at a fixed cell,
+without a press, release or changing drag coordinates, so a continuous
+two-dimensional finger drag cannot reach HTK. Physical mouse drags still
+move windows normally. Wheel events over window contents still scroll.
+The top-left system-menu button also offers **Move**, which places the
+title's center at the destination, and **Resize**, which places the
+bottom-right corner at the destination. **Ctrl-G** opens that menu from
+the keyboard on any terminal.
+The direct title fallback is enabled when `TERMUX_VERSION` is present;
+set `htk_touch_titles` after initialization to override it (for example,
+when using Termux to run HTK through SSH).
+
+**Alt-F7** enters Move directly; **Alt-F8** enters Resize. Arrow keys adjust
+the position or bottom-right corner by one cell, and **Shift+arrows** adjust
+by five cells. **Enter** accepts; **Escape** restores the original position
+and size. Resize respects `HtkWindowSetSizeLimits`. Maximized and minimized
+windows cannot enter either mode. Ordinary mouse title/frame dragging
+continues to work alongside these modes.
+
+Change the activation shortcuts in **App > Settings** (Move shortcut and
+Resize shortcut), then **Save**, or edit the `[htk]` section of `~/htk.ini`:
+
+```ini
+[htk]
+move_key = Alt+m
+resize_key = Alt+r
+```
+
+Bindings accept `Ctrl`, `Alt`, and `Shift` modifiers joined with `+`, a
+letter, `F1` through `F12`, or a named key such as `Home` or `PageUp`.
+`None` disables a shortcut. The two shortcuts must be distinct; malformed
+or conflicting configuration retains the existing bindings. Settings
+**Reset** restores Alt-F7 and Alt-F8. The settings file is available with
+the default desktop layer; `HTK_NODESK` apps can configure keys in code:
+
+```c
+HtkWindowSetKeybinding(HTK_WM_MOVE, 'm', TERM_MOD_ALT);
+HtkWindowSetKeybinding(HTK_WM_RESIZE, 'r', TERM_MOD_ALT);
+// key 0 disables the action; FALSE reports an invalid/conflicting binding.
+```
+
+Call this after `HtkInit` / `UiInit` to override loaded settings.
 The window bar's `[App]` button (and a right click on the desktop) opens
 registered apps, Settings... and Quit. Settings picks a theme preset, the
 desktop/window-bar/border colors, whether the bar is always shown, a clock at

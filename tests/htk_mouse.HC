@@ -193,6 +193,178 @@ U0 TestCanvas()
   UiWindowClose(win);
 }
 
+U0 TestTouchTitle()
+{
+  UiCtl *win = UiWindowNew("Touch title", 320, 160);
+  UiCtl *canvas = UiCanvasNew(160, 80, NULL);
+  HtkCtl *w = UiHtk(win);
+  I64 events = canvas_events;
+
+  htk_touch_titles = TRUE;
+  UiWindowSetChild(win, canvas);
+  UiOnMouse(canvas, &OnMouse);
+  w->x = 10;
+  w->y = 5;
+  HtkWindowLayout(w);
+  // Real Termux finger scrolls have no button press, motion or release,
+  // and every wheel report in the gesture repeats the same coordinates.
+  Mouse("\x1B[<65;17;6M");
+  Mouse("\x1B[<65;17;6M");
+  Mouse("\x1B[<64;17;6M");
+  Check(htk_move == w && !htk_drag && w->x == 10 && w->y == 5,
+    "wheel-only title swipe offers Move without requiring a release");
+  Tap(36, 15);
+  Check(!htk_move && !htk_drag && w->x == 30 && w->y == 15,
+    "title swipe placement preserves the grabbed title offset");
+  Check(canvas_events == events, "title swipe placement does not click canvas");
+
+  Tap(w->x + 8, w->y);
+  Check(htk_move == w && !htk_drag, "title tap offers Move on finger-up");
+  Tap(40, 16);
+  Check(!htk_move && !htk_drag && w->x == 32 && w->y == 16,
+    "title tap placement preserves the grabbed title offset");
+  Tap(w->x + 8, w->y);
+  Key("\x1B[C");
+  Key("\x1B");
+  Check(!htk_move && w->x == 32 && w->y == 16,
+    "Escape cancels title Move and restores its original position");
+
+  Mouse("\x1B[<0;39;17M");
+  Mouse("\x1B[<32;43;19M");
+  Mouse("\x1B[<64;43;19M");
+  Mouse("\x1B[<0;45;20m");
+  Check(!htk_move && !htk_drag && w->x == 38 && w->y == 19,
+    "physical mouse still drags normally on Termux");
+  Mouse("\x1B[<0;45;20M");
+  Mouse("\x1B[<32;45;20M");
+  Mouse("\x1B[<0;45;20m");
+  Check(!htk_move && !htk_drag,
+    "physical motion within one cell does not become a title tap");
+
+  HtkWindowLayout(w);
+  Mouse("\x1B[<65;43;22M");
+  Check(!htk_move && canvas_events == events + 1 &&
+    UiMouseButton(canvas) == TERM_MOUSE_WHEEL_DOWN,
+    "content wheel still reaches the canvas");
+  Tap(w->x + 3, w->y);
+  Check(htk_popup && !htk_move, "touch title system-menu button still opens menu");
+  HtkPopupClose;
+  HtkWindowMaximize(w);
+  HtkWindowLayout(w);
+  Mouse("\x1B[<65;7;1M");
+  Tap(6, 0);
+  Check(!htk_move && !htk_drag, "maximized title cannot enter touch Move");
+  HtkWindowMaximize(w);
+
+  htk_touch_titles = FALSE;
+  Mouse("\x1B[<65;45;20M");
+  Tap(w->x + 6, w->y);
+  Check(!htk_move && !htk_drag && w->x == 38 && w->y == 19,
+    "ordinary terminals keep title wheel and tap behavior");
+  UiWindowClose(win);
+}
+
+U0 TestKeyboardGeometry()
+{
+  UiCtl *win = UiWindowNew("Keyboard", 320, 160);
+  HtkCtl *w = UiHtk(win);
+  HtkCtl *entry = HtkEntryNew("text");
+
+  HtkAdd(w, entry);
+  HtkSetFocus(entry);
+  w->x = 10;
+  w->y = 5;
+  HtkWindowKeysDefault;
+  // Alt-F7 and Alt-F8 go through the terminal's modified-key decoder.
+  Key("\x1B[18;3~");
+  Check(htk_move == w && !htk_move_resize, "Alt-F7 enters Move");
+  Key("\x1B[C");
+  Key("\x1B[1;2B");
+  Check(w->x == 11 && w->y == 10 && !StrCmp(entry->text, "text"),
+    "Move arrows and Shift-arrows consume keys before focused control");
+  Key("\x1B");
+  Check(!htk_move && w->x == 10 && w->y == 5, "keyboard Move cancellation");
+  Key("\x1B[18;3~");
+  Key("\x1B[C");
+  Key("\r");
+  Check(!htk_move && w->x == 11 && w->y == 5, "keyboard Move acceptance");
+
+  HtkWindowSetSizeLimits(w, 38, 8, 42, 16);
+  Key("\x1B[19;3~");
+  Check(htk_move == w && htk_move_resize, "Alt-F8 enters Resize");
+  Key("\x1B[C");
+  Key("\x1B[1;2B");
+  Check(w->w == 41 && w->h == 15 && w->x == 11 && w->y == 5,
+    "Resize arrows move bottom-right corner with fixed origin");
+  Key("\x1B[1;2C");
+  Key("\x1B[1;2B");
+  Check(w->w == 42 && w->h == 16, "keyboard Resize respects maximum size");
+  Key("\x1B");
+  Check(!htk_move && !htk_move_resize && w->w == 40 && w->h == 10,
+    "Escape restores original size after Resize");
+  Key("\x1B[19;3~");
+  Key("\x1B[1;2D");
+  Key("\x1B[1;2A");
+  Check(w->w == 38 && w->h == 8, "keyboard Resize respects minimum size");
+  Key("\r");
+  Check(!htk_move && w->w == 38 && w->h == 8, "Enter accepts Resize");
+  HtkWindowSetSizeLimits(w);
+
+  Key("\x07");
+  Check(htk_popup != NULL, "Ctrl-G opens keyboard window menu");
+  Key("\x1B[B");
+  Key("\r");
+  Check(htk_move == w && htk_move_resize && !htk_popup,
+    "Resize can be selected entirely through keyboard menu");
+  Mouse("\x1B[<65;17;6M");
+  Check(htk_move == w && w->w == 38, "wheel does not place Resize");
+  Tap(w->x + 44, w->y + 14);
+  Check(!htk_move && !htk_drag && w->w == 45 && w->h == 15,
+    "Resize destination tap places bottom-right corner");
+
+  Check(HtkWindowSetKeybinding(HTK_WM_MOVE, 'm', TERM_MOD_ALT) &&
+    HtkWindowSetKeybinding(HTK_WM_RESIZE, 'r', TERM_MOD_ALT),
+    "configure window activation shortcuts");
+  Check(!HtkWindowSetKeybinding(HTK_WM_RESIZE, 'm', TERM_MOD_ALT) &&
+    !HtkWindowSetKeybinding(HTK_WM_MOVE, 'm', 8),
+    "reject conflicting shortcuts and invalid modifiers");
+  Key("\x1B[18;3~");
+  Check(!htk_move, "rebinding removes previous activation shortcut");
+  Key("\x1Bm");
+  Check(htk_move == w && !htk_move_resize, "custom Alt-M starts Move");
+  Key("\x1B");
+  Key("\x1Br");
+  Check(htk_move == w && htk_move_resize, "custom Alt-R starts Resize");
+  Key("\x1B");
+  HtkWindowSetKeybinding(HTK_WM_MOVE, 0);
+  Key("\x1Bm");
+  Check(!htk_move, "zero key disables activation shortcut");
+  HtkWindowKeysDefault;
+
+  HtkWindowMaximize(w);
+  HtkWindowLayout(w);
+  Key("\x1B[18;3~");
+  Key("\x1B[19;3~");
+  Check(!htk_move, "maximized window rejects geometry shortcuts");
+  HtkWindowMenuOpen(w, 2, 1);
+  Check(htk_wm_resize->disabled, "maximized Resize menu item is disabled");
+  HtkPopupClose;
+  HtkWindowMaximize(w);
+  HtkWindowResizeBegin(w);
+  Key("\x1B[C");
+  HtkWindowMenuOpen(w, w->x + 2, w->y + 1);
+  Check(!htk_move && w->w == 45 && w->h == 15,
+    "opening a popup cancels Resize and restores geometry");
+  HtkPopupClose;
+  HtkWindowResizeBegin(w);
+  HtkWindowMinimize(w);
+  Check(!htk_move, "minimizing window ends Resize");
+  HtkWindowRestore(w);
+  HtkWindowResizeBegin(w);
+  UiWindowClose(win);
+  Check(!htk_move, "closing window ends Resize");
+}
+
 I64 saved_input = dup(0)(I32);
 if (pipe(input)(I32) || saved_input < 0 || dup2(input[0], 0)(I32) < 0)
   Exit(1);
@@ -204,6 +376,8 @@ TestSgr;
 TestWindow;
 TestTouchMove;
 TestCanvas;
+TestTouchTitle;
+TestKeyboardGeometry;
 term_started = FALSE;
 dup2(saved_input, 0);
 close(saved_input);

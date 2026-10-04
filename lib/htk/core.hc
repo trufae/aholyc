@@ -117,6 +117,9 @@ U0 HtkThemeDefault()
 #define HTK_EDGE_RIGHT 6
 #define HTK_EDGE_BOTTOM 7
 
+#define HTK_WM_MOVE   1
+#define HTK_WM_RESIZE 2
+
 // Per-window title controls.  MENU enables both the top-left system button
 // and title-bar right-click menu; the remaining bits draw and activate their
 // corresponding title buttons.
@@ -234,8 +237,13 @@ HtkCtl *htk_drag;
 I64 htk_drag_dx, htk_drag_dy;
 I64 htk_drag_resize;   // 0 move, else HTK_CORNER_* being dragged
 Bool htk_drag_scroll;  // a multiline scrollbar thumb is being dragged
-HtkCtl *htk_move;      // window awaiting a destination from the Move menu
+Bool htk_drag_moved;   // title capture received motion, rather than a tap
+Bool htk_touch_titles; // Termux titles use tap/swipe, then tap to place
+HtkCtl *htk_move;      // window awaiting a destination from its title or menu
 I64 htk_move_x, htk_move_y;
+I64 htk_move_dx, htk_move_dy;
+I64 htk_move_w, htk_move_h;
+Bool htk_move_resize;  // the placement mode adjusts the bottom-right corner
 HtkHook *htk_hooks;
 HtkNotice *htk_notices;  // newest first
 HtkApp *htk_apps;        // registered desktop launchers, oldest first
@@ -273,6 +281,7 @@ U0 HtkWindowCycle(I64 direction);
 U0 HtkEnsureFocus();
 U0 HtkWindowSetAlwaysOnTop(HtkCtl *w, Bool on);
 U0 HtkWindowSetControls(HtkCtl *w, I64 controls);
+U0 HtkWindowLayout(HtkCtl *w);
 HtkApp *HtkAppRegister(U8 *name, I64 entry, I64 data=0);
 U0 HtkMultilineSetOptions(HtkCtl *c, I64 options);
 U0 HtkWindowSetSizeLimits(HtkCtl *w, I64 min_w=12, I64 min_h=4,

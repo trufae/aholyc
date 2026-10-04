@@ -68,6 +68,7 @@ class HtkSettingsConfig
 {
   I64 theme, desk_rgb, bar_rgb, frame_rgb;
   I64 bar_always, bar_clock, dim_inactive;
+  I64 move_key, move_mods, resize_key, resize_mods;
 };
 
 I64 HtkSettingsIniNumber(CStrs *text)
@@ -98,10 +99,22 @@ Bool HtkSettingsIniPair(CIni *ini, CStrs *section, CStrs *name,
   CStrs *value)
 {
   HtkSettingsConfig *config = ini->user(HtkSettingsConfig *);
-  I64 number;
+  I64 number, key, mods;
 
   if (!value || !StrsEqualsS(section, "htk"))
     return TRUE;
+  if (StrsEqualsS(name, "move_key") || StrsEqualsS(name, "resize_key")) {
+    if (HtkWindowKeyParse(value, &key, &mods)) {
+      if (StrsEqualsS(name, "move_key")) {
+        config->move_key = key;
+        config->move_mods = mods;
+      } else {
+        config->resize_key = key;
+        config->resize_mods = mods;
+      }
+    }
+    return TRUE;
+  }
   number = HtkSettingsIniNumber(value);
   if (!StrsEqualsS(name, "theme") && number < 0)
     return TRUE;
@@ -131,25 +144,27 @@ I64 HtkSettingsColorFromRgb(I64 rgb)
 
 // Load a deliberately small, forwards-compatible [htk] section from the
 // user's home directory.  Unknown keys are ignored by the inih callback.
-Bool HtkSettingsLoad()
+Bool HtkSettingsLoadText(U8 *text)
 {
   HtkSettingsConfig config;
   CIni ini;
-  U8 *path = EnvHome, *text;
 
-  if (!path)
-    return FALSE;
-  U8 *file = MStrPrint("%s/htk.ini", path);
-  Free(path);
-  text = FileRead(file);
-  Free(file);
   if (!text)
     return FALSE;
   MemSet(&config, 0xFF, sizeof(HtkSettingsConfig));
   ini = IniParseS(text, &HtkSettingsIniPair, &config);
-  Free(text);
   if (!ini.ok)
     return FALSE;
+  if (config.move_key < 0) {
+    config.move_key = htk_move_key;
+    config.move_mods = htk_move_mods;
+  }
+  if (config.resize_key < 0) {
+    config.resize_key = htk_resize_key;
+    config.resize_mods = htk_resize_mods;
+  }
+  HtkWindowSetKeys(config.move_key, config.move_mods,
+    config.resize_key, config.resize_mods);
   if (config.theme >= 0 && config.theme < HTK_THEME_COUNT)
     HtkThemePreset(config.theme);
   if (config.desk_rgb >= 0)
@@ -181,6 +196,22 @@ Bool HtkSettingsLoad()
   return TRUE;
 }
 
+Bool HtkSettingsLoad()
+{
+  U8 *path = EnvHome, *file, *text;
+  Bool ok;
+
+  if (!path)
+    return FALSE;
+  file = MStrPrint("%s/htk.ini", path);
+  Free(path);
+  text = FileRead(file);
+  Free(file);
+  ok = HtkSettingsLoadText(text);
+  Free(text);
+  return ok;
+}
+
 Bool HtkSettingsSaved()
 {
   return htk_settings_saved;
@@ -192,6 +223,7 @@ HtkCtl *htk_settings;  // the open dialog, NULL otherwise
 HtkCtl *htk_set_theme, *htk_set_desk, *htk_set_bar_color, *htk_set_frame_color;
 HtkCtl *htk_set_bar, *htk_set_clock;
 HtkCtl *htk_set_dim;
+HtkCtl *htk_set_move, *htk_set_resize;
 
 U0 HtkSettingsSync();
 
@@ -209,10 +241,21 @@ U0 HtkClockTick(I64 a, I64 b)
     htk_dirty = TRUE;
 }
 
-U0 HtkSettingsApply(HtkCtl *button)
+Bool HtkSettingsApply(HtkCtl *button)
 {
   I64 desk = htk_set_desk->value;
   Bool clock_was = htk_bar_clock;
+  CStrs move, resize;
+  I64 move_key, move_mods, resize_key, resize_mods;
+
+  StrsInitS(&move, htk_set_move->text);
+  StrsInitS(&resize, htk_set_resize->text);
+  if (!HtkWindowKeyParse(&move, &move_key, &move_mods) ||
+    !HtkWindowKeyParse(&resize, &resize_key, &resize_mods) ||
+    !HtkWindowSetKeys(move_key, move_mods, resize_key, resize_mods)) {
+    HtkNotify("Use distinct valid shortcuts, or None to disable", 3000);
+    return FALSE;
+  }
 
   if (htk_set_theme->value >= 0)
     HtkThemePreset(htk_set_theme->value);
@@ -242,6 +285,23 @@ U0 HtkSettingsApply(HtkCtl *button)
   if (htk_bar_clock && !clock_was)
     HtkHookAdd(0, 10000, &HtkClockTick, 0, 0);  // keep HH:MM fresh
   htk_dirty = TRUE;
+  return TRUE;
+}
+
+U8 *HtkSettingsText()
+{
+  U8 *move = HtkWindowKeyName(htk_move_key, htk_move_mods);
+  U8 *resize = HtkWindowKeyName(htk_resize_key, htk_resize_mods);
+  U8 *text = MStrPrint("[htk]\ntheme = %d\ndesk_rgb = %d\nbar_rgb = %d\n"
+    "frame_rgb = %d\nbar_always = %d\nbar_clock = %d\ndim_inactive = %d\n"
+    "move_key = %s\nresize_key = %s\n",
+    htk_desk_theme, TermColorToRgb(htk_theme.desk_bg),
+    TermColorToRgb(htk_theme.bar_bg), TermColorToRgb(htk_theme.frame),
+    htk_bar_always, htk_bar_clock, htk_dim_inactive, move, resize);
+
+  Free(move);
+  Free(resize);
+  return text;
 }
 
 U0 HtkSettingsSave(HtkCtl *button)
@@ -249,7 +309,8 @@ U0 HtkSettingsSave(HtkCtl *button)
   U8 *home, *file, *text;
   Bool ok;
 
-  HtkSettingsApply(button);
+  if (!HtkSettingsApply(button))
+    return;
   home = EnvHome;
   if (!home) {
     HtkNotify("Cannot find the home directory", 3000);
@@ -257,11 +318,7 @@ U0 HtkSettingsSave(HtkCtl *button)
   }
   file = MStrPrint("%s/htk.ini", home);
   Free(home);
-  text = MStrPrint("[htk]\ntheme = %d\ndesk_rgb = %d\nbar_rgb = %d\n"
-    "frame_rgb = %d\nbar_always = %d\nbar_clock = %d\ndim_inactive = %d\n",
-    htk_desk_theme, TermColorToRgb(htk_theme.desk_bg),
-    TermColorToRgb(htk_theme.bar_bg), TermColorToRgb(htk_theme.frame),
-    htk_bar_always, htk_bar_clock, htk_dim_inactive);
+  text = HtkSettingsText;
   ok = FileWrite(file, text);
   Free(text);
   Free(file);
@@ -277,6 +334,7 @@ U0 HtkSettingsReset(HtkCtl *button)
   U8 *home, *file;
 
   HtkThemePreset(0);
+  HtkWindowKeysDefault;
   htk_desk_custom = -1;
   htk_bar_custom = -1;
   htk_frame_custom = -1;
@@ -385,6 +443,8 @@ HtkCtl *HtkSettingsColorRow(HtkCtl *grid, U8 *label, I64 row, I64 *color,
 // stale combobox values behind.
 U0 HtkSettingsSync()
 {
+  U8 *move, *resize;
+
   if (!htk_set_theme)
     return;
   htk_set_theme->value = htk_desk_theme;
@@ -400,12 +460,21 @@ U0 HtkSettingsSync()
   htk_set_bar->value = htk_bar_always;
   htk_set_clock->value = htk_bar_clock;
   htk_set_dim->value = htk_dim_inactive;
+  move = HtkWindowKeyName(htk_move_key, htk_move_mods);
+  resize = HtkWindowKeyName(htk_resize_key, htk_resize_mods);
+  HtkSetText(htk_set_move, move);
+  HtkSetText(htk_set_resize, resize);
+  htk_set_move->cursor = StrLen(move);
+  htk_set_resize->cursor = StrLen(resize);
+  Free(move);
+  Free(resize);
 }
 
 U0 HtkSettingsOpen()
 {
   HtkCtl *box, *grid, *row, *save, *reset, *close, *pick, *spacer;
   I64 i;
+  U8 *move, *resize;
 
   if (htk_settings && !htk_settings->closed) {
     HtkWindowRaise(htk_settings);
@@ -427,6 +496,14 @@ U0 HtkSettingsOpen()
     &htk_theme.bar_bg, &htk_bar_custom, FALSE);
   htk_set_frame_color = HtkSettingsColorRow(grid, "Window border color", 3,
     &htk_theme.frame, &htk_frame_custom, FALSE);
+  move = HtkWindowKeyName(htk_move_key, htk_move_mods);
+  resize = HtkWindowKeyName(htk_resize_key, htk_resize_mods);
+  HtkSettingsLabel(grid, "Move shortcut", 4);
+  htk_set_move = HtkSettingsCell(grid, HtkEntryNew(move, 63), 4);
+  HtkSettingsLabel(grid, "Resize shortcut", 5);
+  htk_set_resize = HtkSettingsCell(grid, HtkEntryNew(resize, 63), 5);
+  Free(move);
+  Free(resize);
   HtkAdd(box, grid);
   htk_set_bar = HtkCheckboxNew("Always show the window bar", htk_bar_always);
   HtkAdd(box, htk_set_bar);
