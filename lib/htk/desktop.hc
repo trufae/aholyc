@@ -470,6 +470,21 @@ U0 HtkSettingsSync()
   Free(resize);
 }
 
+#if UI_HTK_DESKTERM
+U0 HtkTerminalOpen()
+{
+  HtkCtl *term = HtkTerminalNew(HTK_GRID);
+  HtkCtl *win = HtkDialogNew("Terminal", term);
+  win->w = 60;
+  win->h += 10;
+}
+
+U0 HtkAppTerminal(HtkCtl *item)
+{
+  HtkTerminalOpen;
+}
+#endif
+
 U0 HtkSettingsOpen()
 {
   HtkCtl *box, *grid, *row, *save, *reset, *close, *pick, *spacer;
@@ -587,14 +602,17 @@ U0 HtkAppMenuOpen(I64 x, I64 y)
 {
   if (!htk_app_menu) {
     htk_app_menu = HtkContextMenuNew;
-    HtkApp *app = htk_apps;
-
-    while (app) {
-      HtkAppMenuAdd(app);
-      app = app->next;
-    }
-    if (htk_apps)
+    if (htk_apps) {
+      HtkApp *app = htk_apps;
+      while (app) {
+        HtkAppMenuAdd(app);
+        app = app->next;
+      }
       HtkMenuSeparator(htk_app_menu);
+    }
+#if UI_HTK_DESKTERM
+    HtkMenuItem(htk_app_menu, "Terminal...")->changed = &HtkAppTerminal;
+#endif
     HtkMenuItem(htk_app_menu, "Settings...")->changed = &HtkAppSettings;
     HtkMenuItem(htk_app_menu, "Quit")->changed = &HtkAppQuit;
   }
