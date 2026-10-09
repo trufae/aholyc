@@ -31,11 +31,14 @@ U0 HtkSliderDraw(HtkCtl *c)
 {
   I64 i;
   I64 fg = HtkInk(c, HTK_C_DIM);
+  I64 thumb = HtkInk(c, HTK_C_FIELD_BG);
+
+  if (thumb == HTK_C_BG) thumb = HTK_C_FIELD_FG;
 
   for (i = 0; i < c->w; i++)
     HtkChr(c->x + i, c->y, HTK_R_H, fg, HTK_C_BG);
   HtkChr(c->x + HtkSliderThumb(c), c->y, HTK_R_BLOCK,
-    HtkInk(c, HTK_C_FIELD_BG), HTK_C_BG);
+    thumb, HTK_C_BG);
   if (HtkFocused(c))
     HtkChr(c->x + HtkSliderThumb(c), c->y, HTK_R_BLOCK, HTK_C_FOCUS_BG, HTK_C_BG);
 }
@@ -92,7 +95,9 @@ HtkCtl *HtkProgressNew()
 U0 HtkProgressDraw(HtkCtl *c)
 {
   I64 fill = c->value * c->w / 100;
-  I64 i;
+  I64 i, fg = HTK_C_FIELD_BG;
+
+  if (fg == HTK_C_BG) fg = HTK_C_FIELD_FG;
 
   if (fill < 0)
     fill = 0;
@@ -100,7 +105,7 @@ U0 HtkProgressDraw(HtkCtl *c)
     fill = c->w;
   for (i = 0; i < c->w; i++) {
     if (i < fill)
-      HtkChr(c->x + i, c->y, HTK_R_BLOCK, HTK_C_FIELD_BG, HTK_C_BG);
+      HtkChr(c->x + i, c->y, HTK_R_BLOCK, fg, HTK_C_BG);
     else
       HtkChr(c->x + i, c->y, HTK_R_LIGHT, HTK_C_DIM, HTK_C_BG);
   }

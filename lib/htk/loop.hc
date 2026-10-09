@@ -119,6 +119,9 @@ U0 HtkSetFocus(HtkCtl *c)
 {
   if (htk_focus == c)
     return;
+  #ifdef UI_HTK_VIMODE
+  if (htk_focus) htk_focus->vim_kill = FALSE;
+  #endif
   htk_focus = c;
   htk_dirty = TRUE;
 }
@@ -309,6 +312,7 @@ U0 HtkRedraw()
   Bool app_modal = htk_modal && !htk_modal->modal_owner;
 
   HtkEnsureFocus;
+  TermSetCursorShape;
   TermShowCursor(FALSE);
   HtkClipAll;
   htk_paint_dim = app_modal;
@@ -562,6 +566,9 @@ U0 HtkWindowMouse(HtkCtl *w, CTermEvent *e)
         HtkMultilineScrollMouse(hit, e->y);
         htk_drag_scroll = TRUE;
       } else {
+        #ifdef UI_HTK_VIMODE
+        hit->vim_visual = 0; hit->vim_pending = 0; hit->vim_vertical = FALSE;
+        #endif
         HtkMultilineCursorAt(hit, e->x, e->y);
         hit->anchor = hit->cursor;
         hit->scroll_hold = FALSE;
@@ -879,6 +886,9 @@ U0 HtkKey(CTermEvent *e)
   }
   if (e->key == TERM_KEY_TAB &&
     !(htk_focus && htk_focus->kind == HTK_TERM && !(e->mods & TERM_MOD_SHIFT))) {
+      // Custom editors can use Tab for content navigation before focus moves.
+      if (htk_focus && htk_focus->kind != HTK_TERM && htk_focus->keyfn &&
+        htk_focus->keyfn(htk_focus, e)) return;
       if (e->mods & TERM_MOD_SHIFT)  // a terminal keeps plain Tab
         HtkFocusMove(-1);
       else

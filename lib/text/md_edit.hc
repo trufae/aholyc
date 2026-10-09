@@ -20,6 +20,35 @@ class CMdTable
   I64 columns, row, column;
 };
 
+Bool MdTableProbe(CStrs *text, U8 *p, CMdTable *table);
+
+// Walk whole paragraphs/known divs, protecting fenced code and tables.
+U8 *MdParagraphNext(CStrs *text, U8 *p, CStrs *body, I64 *kind)
+{
+  CStrs line, trim;
+  CMdAlignment aligned;
+  CMdBlock code;
+  CMdTable table;
+  U8 *next, *at;
+
+  *kind = 1;
+  if (MdAlignBlock(text, p, &aligned)) { *body = aligned.body; return aligned.source.b; }
+  if (MdCodeAt(text, p, &code)) { *kind = -1; *body = code.source; return code.source.b; }
+  if (MdTableProbe(text, p, &table)) { *kind = -1; *body = table.text; return table.text.b; }
+  next = MdNextLine(text, p, &line); trim = line; StrsTrim(&trim);
+  if (StrsEmpty(&trim)) { *kind = 0; StrsInit(body, p, p); return next; }
+  if (line.a < line.b && *line.a == '\t') { *kind = -1; StrsInit(body, p, next); return next; }
+  if (MdTitleLevel(&line)) { StrsInit(body, p, next); return next; }
+  at = next;
+  while (at < text->b) {
+    next = MdNextLine(text, at, &line); trim = line; StrsTrim(&trim);
+    if (StrsEmpty(&trim) || MdAlignOpen(&line) || MdAlignClose(&line) ||
+        MdTitleLevel(&line) || MdCodeAt(text, at, &code) || MdTableProbe(text, at, &table)) break;
+    at = next;
+  }
+  StrsInit(body, p, at); return at;
+}
+
 // Probe only this line, keeping export and full-document walks linear.
 Bool MdTableProbe(CStrs *text, U8 *p, CMdTable *table)
 {
@@ -46,10 +75,65 @@ Bool MdTableProbe(CStrs *text, U8 *p, CMdTable *table)
   return TRUE;
 }
 
+Bool MdEditAlign(CEdit *edit, I64 align)
+{
+  CStrs region, body;
+  CStrBuf out;
+  U8 *p = edit->text.a, *next;
+  I64 start, end, a = StrsLen(&edit->text) + 1, b = 0, kind, base, content;
+  I64 cursor = edit->cursor, anchor = edit->anchor, mapped_cursor = cursor, mapped_anchor = anchor, delta;
+  Bool selected, hit, change;
+
+  if (edit->readonly || align < 0 || align > MD_ALIGN_JUSTIFY) return FALSE;
+  EditSelection(edit, &start, &end); selected = start != end;
+  while (p < edit->text.b) {
+    next = MdParagraphNext(&edit->text, p, &body, &kind);
+    hit = next - edit->text.a > start && p - edit->text.a < end;
+    if (!selected) hit = start >= p - edit->text.a &&
+      (start < next - edit->text.a || start == StrsLen(&edit->text) && next == edit->text.b);
+    if (hit && (kind > 0 || !kind && !selected)) {
+      a = MinI64(a, p - edit->text.a); b = next - edit->text.a;
+    }
+    p = next;
+  }
+  if (StrsEmpty(&edit->text)) a = b = 0;
+  if (a > b) return FALSE;
+  StrsInit(&region, edit->text.a + a, edit->text.a + b);
+  StrBufInit(&out); p = region.a;
+  do {
+    kind = 0; body.a = body.b = p; next = p;
+    if (p < region.b) next = MdParagraphNext(&region, p, &body, &kind);
+    base = StrsLen(&out);
+    if (kind > 0 || !selected && !kind) {
+      StrBufPrintf(&out, "%s\n", md_align_fences[align]);
+      base = StrsLen(&out); content = StrsLen(&body);
+      if (content && body.b[-1] == '\n') content--;
+      if (cursor >= p - edit->text.a && cursor <= next - edit->text.a)
+        mapped_cursor = a + base + MaxI64(0, MinI64(content, cursor - (body.a - edit->text.a)));
+      if (anchor >= p - edit->text.a && anchor <= next - edit->text.a)
+        mapped_anchor = a + base + MaxI64(0, MinI64(content, anchor - (body.a - edit->text.a)));
+      StrBufPutStrs(&out, &body);
+      if (StrsEmpty(&body) || body.b[-1] != '\n') StrBufPutC(&out, '\n');
+      StrBufPutS(&out, ":::\n");
+    } else {
+      if (cursor >= p - edit->text.a && cursor <= next - edit->text.a) mapped_cursor = a + base + cursor - (p - edit->text.a);
+      if (anchor >= p - edit->text.a && anchor <= next - edit->text.a) mapped_anchor = a + base + anchor - (p - edit->text.a);
+      StrBufPutN(&out, p, next - p);
+    }
+    p = next;
+  } while (p < region.b);
+  delta = StrsLen(&out) - (b - a);
+  if (cursor > b) mapped_cursor = cursor + delta;
+  if (anchor > b) mapped_anchor = anchor + delta;
+  change = EditReplace(edit, a, b, &out);
+  if (change) { edit->cursor = mapped_cursor; edit->anchor = mapped_anchor; }
+  StrBufFini(&out); return change;
+}
+
 // Locate a table and the cell containing a source byte; ignore fenced code.
 Bool MdTableAt(CStrs *text, I64 at, CMdTable *table)
 {
-  U8 *p = text->a, *next;
+  U8 *p = text->a, *next, *start;
   CStrs line, cells[MD_TABLE_MAX_COLS];
   I64 n, row, i;
   CMdFence fence;
@@ -65,8 +149,11 @@ Bool MdTableAt(CStrs *text, I64 at, CMdTable *table)
           if (at >= p - text->a && at <= line.b - text->a) {
             table->row = row;
             n = MdTableSplitRow(&line, cells, MD_TABLE_MAX_COLS);
-            for (i = 0; i < n && i < table->columns; i++)
-              if (at >= cells[i].a - text->a) table->column = i;
+            for (i = 0; i < n && i < table->columns; i++) {
+              start = cells[i].a;
+              while (start > line.a && (start[-1] == ' ' || start[-1] == '\t')) start--;
+              if (at >= start - text->a) table->column = i;
+            }
             return TRUE;
           }
           row++;
@@ -79,6 +166,42 @@ Bool MdTableAt(CStrs *text, I64 at, CMdTable *table)
     p = next;
   }
   return FALSE;
+}
+
+// Move in row order, skipping the Markdown alignment row. At either end the
+// caret stays in the table; navigation never changes its contents or history.
+Bool MdTableMove(CEdit *edit, Bool back=FALSE)
+{
+  CMdTable table;
+  CStrs line, cells[MD_TABLE_MAX_COLS];
+  U8 *p;
+  I64 row = 0, i, n, previous = -1, at;
+  Bool found = FALSE;
+
+  if (!MdTableAt(&edit->text, edit->cursor, &table) || table.row == 1) return FALSE;
+  p = table.text.a;
+  while (p < table.text.b) {
+    p = MdNextLine(&table.text, p, &line);
+    if (row != 1) {
+      n = MdTableSplitRow(&line, cells, MD_TABLE_MAX_COLS);
+      for (i = 0; i < n; i++) {
+        at = cells[i].a - edit->text.a;
+        // Keep an empty cell's caret between its padding spaces when possible.
+        if (StrsEmpty(&cells[i]) && cells[i].a > line.a &&
+          (cells[i].a[-1] == ' ' || cells[i].a[-1] == '\t')) at--;
+        if (found || row == table.row && i == table.column && back) {
+          if (back && previous >= 0) at = previous;
+          edit->cursor = at; edit->anchor = -1; edit->typing = FALSE;
+          return TRUE;
+        }
+        if (row == table.row && i == table.column) found = TRUE;
+        previous = at;
+      }
+    }
+    row++;
+  }
+  if (found) { edit->cursor = previous; edit->anchor = -1; edit->typing = FALSE; }
+  return found;
 }
 
 Bool MdEditTable(CEdit *edit, I64 action, I64 border=0)

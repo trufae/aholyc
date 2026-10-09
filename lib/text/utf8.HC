@@ -129,7 +129,9 @@ I64 Utf8CellWidth(I64 rune)
     rune >= 0xFF01 && rune <= 0xFF60 || rune >= 0xFFE0 && rune <= 0xFFE6 ||
     rune >= 0x1F300 && rune <= 0x1FAFF || rune >= 0x20000 && rune <= 0x3FFFD))
     return 2;
-  if (rune == 0x2615 || rune == 0x2705 || rune == 0x2728 || rune == 0x274C ||
+  // Unicode's wide trigram symbols include the outline/menu glyph U+2630.
+  if (rune >= 0x2630 && rune <= 0x2637 ||
+    rune == 0x2615 || rune == 0x2705 || rune == 0x2728 || rune == 0x274C ||
     rune == 0x274E || rune == 0x2757 || rune >= 0x2753 && rune <= 0x2755)
     return 2;
   return 1;

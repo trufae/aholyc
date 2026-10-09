@@ -4,14 +4,14 @@
 #include "file.hc"
 #include "../text/strs.hc"
 
-extern I64 rename(U8 *from, U8 *to);
-extern I64 remove(U8 *path);
+extern I32 rename(U8 *from, U8 *to);
+extern I32 remove(U8 *path);
 #ifdef IS_WINDOWS
-extern I64 MoveFileExA(U8 *from, U8 *to, I64 flags);
+extern I32 MoveFileExA(U8 *from, U8 *to, U32 flags);
 #endif
 
 #ifdef IS_WINDOWS
-extern I64 GetFullPathNameA(U8 *path, I64 length, U8 *out, U0 *part);
+extern U32 GetFullPathNameA(U8 *path, U32 length, U8 *out, U8 **part);
 #else
 extern U8 *realpath(U8 *path, U8 *out);
 #endif

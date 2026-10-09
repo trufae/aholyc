@@ -18,7 +18,8 @@ Closing the last document leaves the desktop available; Quit exits.
 
 ## Editing
 
-The two square toolbar toggles are independent:
+The bottom-right status-bar buttons show the current view and editing modes.
+Click **Render / Source** or **Edit / View** to change them independently:
 
 | Source | Editable | View |
 | --- | --- | --- |
@@ -28,10 +29,17 @@ The two square toolbar toggles are independent:
 | On | On | Markdown source, editable |
 
 Drag or use Shift+arrows to select text. Formatting buttons apply to that
-selection. B/I/U toggle bold, italic and underline; FG/BG insert HTML color
-spans. Font reuses the Unicode alphabet converter, and Emoji opens a grid
-picker. Unicode styles alter the actual characters. Underline uses `<u>`.
-The toolbar wraps as the window is resized; all actions also have menus.
+selection. B/I/U toggle bold, italic and underline. The remaining toolbar
+symbols are **☺** (emoji picker), **↗** (link), **⌕** (find/replace), and **V**
+(Vim mode). **Outline**, **Render/Source**, and **Edit/View** sit at the bottom
+right of the status bar. The window has one menubar row and one toolbar
+row, with distinct backgrounds. New, Open and Save live in the File menu.
+Text/background colors and Unicode Font styles remain in Format. Unicode
+styles alter the actual characters; underline uses `<u>`.
+
+The status bar counts whitespace-separated words and Unicode characters in
+the Markdown source, including markup and line breaks. It also shows the
+source line/column, editing mode, and an asterisk for unsaved changes.
 
 | Shortcut | Action |
 | --- | --- |
@@ -39,7 +47,7 @@ The toolbar wraps as the window is resized; all actions also have menus.
 | Ctrl+S / Ctrl+Shift+S | Save / save as |
 | Ctrl+W / Ctrl+Q | Close window / quit |
 | Ctrl+C / Ctrl+X / Ctrl+V | Copy / cut / paste |
-| Ctrl+A / Ctrl+F | Select all / find |
+| Ctrl+A / Ctrl+F | Select all / find and replace |
 | Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z | Undo / redo |
 | Ctrl+B / Ctrl+I / Ctrl+U | Bold / italic / underline |
 | Shift+arrows | Extend selection |
@@ -47,6 +55,8 @@ The toolbar wraps as the window is resized; all actions also have menus.
 | PageUp / PageDown, mouse wheel | Navigate / scroll |
 | Alt+Left / Alt+Right | Horizontal scroll |
 | Ctrl+G | HTK window menu |
+| F10 / Alt+M | Window menubar; arrows navigate, Enter activates, Esc dismisses |
+| Alt+A / Alt+F10 | Desktop App menu |
 
 Some terminals send Ctrl+I as Tab and cannot distinguish shifted control
 letters. Use the corresponding menu or button there. Copies always populate
@@ -54,8 +64,39 @@ HTK's shared, length-bounded clipboard and also emit OSC 52 in the application;
 host clipboard support depends on the terminal. Ctrl+V uses the HTK clipboard.
 Terminal paste can enter text from other applications.
 
+Find performs literal, case-sensitive searches and wraps at the document end.
+Enable **Replace** in the same dialog to replace the selected/next match, or
+enable **Replace all matches**. An empty replacement deletes matches; Replace
+all is one undo step. Read-only documents still allow searching.
+
+**Edit > Toggle Vim mode**, the **V** button, and **App > Settings** use HTK's
+shared Vim setting, including other multiline editors and new windows.
+This example defines `UI_HTK_VIMODE`; other HTK apps enable this optional
+feature with `-D UI_HTK_VIMODE` or the same define before including HTK.
+Normal mode supports `h/j/k/l`, `w/b/W/B`, `0/^/$`, `gg/G`, `i/a/I/A`, `o/O`, `J`,
+`x`, `dd`, `yy`, `dw`, `cw`, `p/P`, `u`, and Ctrl+R. `J` joins source lines,
+trims the next line's indentation, and adds Vim-style spacing. `cw` preserves
+following spaces. Esc leaves Insert mode. Motions use UTF-8 boundaries and
+source lines; vertical moves keep the display column across short lines.
+Ctrl-F/PageDown and Ctrl-B/PageUp page in every Vim mode; the page height
+excludes the top ruler and footer. Paging follows wrapped/rendered rows.
+In Insert mode, Ctrl-A/E move to line start/end, Ctrl-P/N move between source
+lines, Ctrl-D/H delete characters, Ctrl-K/U/W cut to line end/start or the
+previous word, Ctrl-Y pastes, and Ctrl-T transposes characters. Consecutive
+cuts combine in the clipboard. These editor bindings take precedence while
+the Vim editor has focus; Find, Bold, New, Close and other app actions remain
+available through the menus. Outside Vim mode, app shortcuts are unchanged.
+`V` selects whole source lines; `v` selects characters. Motions extend the
+selection, `o` swaps its active end, and `y`/`d`/`c` copy/delete/change it.
+Esc cancels Visual selection. The statusbar shows `V-LINE` or `VISUAL`.
+The cursor is a block in Normal/Visual modes and a thin vertical `|` in
+Insert or ordinary editing mode.
+Save the preference in HTK Settings to retain it between launches.
+
 Undo retains up to 128 edit deltas per document. Adjacent typing is grouped
-until a space, navigation, command or save boundary. Formatting and table
+until a space, navigation, command or save boundary. In Vim Insert mode,
+spaces, line breaks, deletions and the initiating `cw` or `o/O` command share
+one undo step; navigation, Esc, commands and saving end that group. Formatting and table
 operations are individual history steps. **Edit > History...** restores
 through a chosen undo/redo entry. Editing after undo discards the redo branch.
 Read-only mode blocks all changes, including undo and redo. Save status tracks
@@ -89,11 +130,36 @@ Relative files resolve beside the current document. Heading fragments use
 lowercase heading text with spaces replaced by hyphens. Images display their
 alt text in the terminal; the system handler opens the actual image.
 
+## Paragraph alignment
+
+The toolbar's **L**, **C**, **R**, and **J** buttons align the current paragraph
+left, center, right, or justify it across the column width. Full labels are
+in **Format → Paragraph alignment**. A selection applies the alignment to
+each selected paragraph, preserving code blocks and tables. Wrapped justified
+lines expand word spacing; the final line stays left aligned. Each action
+is one undo step, and applying another alignment replaces the existing one.
+
+Alignment is saved using Pandoc fenced divs, for example:
+
+```markdown
+::: {.htk-align-center style="text-align:center"}
+Centered paragraph.
+:::
+```
+
+The rendered editor and HTML/PDF exports honor these settings. Plain text
+and Gemtext retain the text without the div markers.
+
 ## Tables and export
 
-Place the cursor in a table to add/delete rows or columns, align the current
+New tables have empty header and body cells. Place the cursor in a table to
+add/delete rows or columns, align the current
 column, or change its border style. The header and final column cannot be
 deleted. Escaped pipes, pipes in inline code, and empty cells are supported.
+While editing a cell, Tab advances to the next cell and Shift+Tab returns to
+the previous cell, in both rendered and source views. They skip the alignment
+row and stay in the table at its first/last cell. Outside a table, Tab moves
+keyboard focus normally.
 Fit mode wraps cells to the viewport; natural-width mode preserves widths and
 uses Alt+Left/Right or the bottom `< >` controls to scroll. If even minimum
 column widths cannot fit, horizontal scrolling remains available. Tables
@@ -109,10 +175,20 @@ before the table preserves the preference, for example:
 | Example | 42 |
 ```
 
-**File > Export** writes HTML, Gemini Gemtext (`.gem`), or plain text.
+**File > Export** writes HTML, Gemini Gemtext (`.gem`), plain text, or PDF.
 HTML uses semantic headings/tables, safe links, images and color spans;
 Gemtext emits `=>` links and fenced tables. Relative export links remain
 relative, so export beside the document to preserve their destinations.
+**PDF...** opens page settings before asking for a destination. Choose A4,
+A5, Letter or Legal, portrait/landscape, independent margins in whole
+millimeters, a 10–12 pt body font, and an optional table of contents.
+**PDF settings...** edits these choices independently; each document window
+keeps its own settings for the session. PDF export uses Pandoc plus the chosen
+XeLaTeX (default), PDFLaTeX or LuaLaTeX engine, which must be on `PATH`.
+It exports the current buffer, including unsaved edits, resolves image paths
+beside the Markdown file, and preserves the destination if conversion fails.
+Pandoc controls PDF formatting; HTK's terminal-only table border hints and
+HTML-only formatting may differ in the PDF.
 Save writes a temporary sibling and renames it over the destination only
 after a successful write. Unsaved changes prompt on close, replace and quit.
 
@@ -139,8 +215,10 @@ explicitly. The existing HTK context/clipboard remains shared across windows.
 | `lib/htk/choice.hc`, `history.hc`, `filepick.hc` | Grid/list choices, emoji/history dialogs, file browser |
 | `lib/io/replace.hc` | Length-bounded replacement writes and path comparison |
 
-`HtkToolButtonNew` is a compact selectable button; `HTK_FLOW` wraps toolbar
-children. `HtkCtl.keyfn` permits control/window key handling, `closing` can veto
+`HtkToolButtonNew` is a compact selectable button; `HtkToolbarNew` keeps the
+editor's actions on one row. `HtkStatusbarNew` can contain a flexible stats
+label and mode buttons. `HtkCtl.keyfn` permits control/window key handling,
+`closing` can veto
 window close/quit, and a window's `submit` runs after close. `HtkDestroy` frees
 a detached tree and invokes payload `destroy` callbacks. Close a window first;
 callbacks should defer destruction until their event has finished.

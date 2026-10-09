@@ -7,7 +7,7 @@
 #include "../io/file.hc"
 #include "../inih/inih.hc"
 
-extern I64 remove(U8 *path);
+extern I32 remove(U8 *path);
 
 #define HTK_THEME_COUNT 7
 U8 *htk_theme_names[HTK_THEME_COUNT] = {"Borland", "Dark", "Light", "Teal", "Modern", "Serial", "Light Borland"};
@@ -76,39 +76,41 @@ U0 HtkThemePreset(I64 index)
     htk_theme.menu_bg = TERM_BLUE;
     htk_theme.tool_bg = TERM_MAGENTA;
     htk_theme.tool_fg = TERM_BRIGHT_WHITE;
-  } else if (index == 4) {  // Modern: slate surfaces with a cyan accent
+  } else if (index == 4) {  // Modern: charcoal surfaces with a muted sage accent
     htk_theme.desk_fg = TERM_BLACK;
     htk_theme.desk_bg = TERM_BLACK;
     htk_theme.bg = TERM_BLACK;
     htk_theme.fg = TERM_WHITE;
     htk_theme.dim = TERM_GRAY;
-    htk_theme.frame = TERM_CYAN;
+    htk_theme.frame = TERM_GREEN;
     htk_theme.title = TERM_BRIGHT_WHITE;
-    htk_theme.btn_bg = TERM_BLUE;
+    htk_theme.btn_bg = TERM_GRAY;
     htk_theme.btn_fg = TERM_BRIGHT_WHITE;
-    htk_theme.focus_bg = TERM_BLUE;
+    htk_theme.focus_bg = TERM_GREEN;
     htk_theme.field_bg = TERM_BLACK;
     htk_theme.field_fg = TERM_BRIGHT_WHITE;
-    htk_theme.sel_bg = TERM_CYAN;
-    htk_theme.sel_fg = TERM_BLACK;
-    htk_theme.bar_bg = TERM_BLUE;
+    htk_theme.sel_bg = TERM_GREEN;
+    htk_theme.sel_fg = TERM_BRIGHT_WHITE;
+    htk_theme.bar_bg = TERM_GRAY;
     htk_theme.bar_fg = TERM_BRIGHT_WHITE;
-    htk_theme.menu_bg = TERM_BLUE;
+    htk_theme.menu_bg = TERM_GRAY;
     htk_theme.menu_fg = TERM_BRIGHT_WHITE;
-    htk_theme.tool_bg = TERM_GRAY;
-    htk_theme.tool_fg = TERM_BRIGHT_WHITE;
-    htk_theme.accent = TERM_CYAN;
+    htk_theme.tool_bg = TERM_WHITE;
+    htk_theme.tool_fg = TERM_BLACK;
+    htk_theme.accent = TERM_GREEN;
     if (TermColorDepth > 16) {
-      htk_theme.desk_bg = TermColorRgb(11, 16, 26);
+      htk_theme.desk_bg = TermColorRgb(16, 17, 16);
       htk_theme.desk_fg = htk_theme.desk_bg;
-      htk_theme.bg = TermColorRgb(17, 24, 39);
-      htk_theme.field_bg = TermColorRgb(15, 23, 42);
-      htk_theme.menu_bg = TermColorRgb(30, 41, 59);
-      htk_theme.tool_bg = TermColorRgb(51, 65, 85);
+      htk_theme.bg = TermColorRgb(24, 26, 24);
+      htk_theme.field_bg = TermColorRgb(18, 20, 18);
+      htk_theme.menu_bg = TermColorRgb(40, 44, 41);
+      htk_theme.tool_bg = TermColorRgb(56, 63, 58);
+      htk_theme.tool_fg = TERM_BRIGHT_WHITE;
       htk_theme.bar_bg = htk_theme.menu_bg;
       htk_theme.btn_bg = htk_theme.tool_bg;
-      htk_theme.focus_bg = TermColorRgb(37, 99, 150);
-      htk_theme.sel_bg = TermColorRgb(103, 232, 249);
+      htk_theme.focus_bg = TermColorRgb(64, 88, 72);
+      htk_theme.sel_bg = TermColorRgb(157, 188, 166);
+      htk_theme.sel_fg = TERM_BLACK;
       htk_theme.frame = htk_theme.sel_bg;
       htk_theme.accent = htk_theme.sel_bg;
     }
@@ -142,7 +144,10 @@ U0 HtkThemePreset(I64 index)
 class HtkSettingsConfig
 {
   I64 theme, desk_rgb, bar_rgb, frame_rgb;
-  I64 bar_always, bar_clock, dim_inactive, vim_mode;
+  I64 bar_always, bar_clock, dim_inactive, window_shadow;
+  #ifdef UI_HTK_VIMODE
+  I64 vim_mode;
+  #endif
   I64 move_key, move_mods, resize_key, resize_mods;
 };
 
@@ -207,8 +212,12 @@ Bool HtkSettingsIniPair(CIni *ini, CStrs *section, CStrs *name,
     config->bar_clock = number;
   else if (StrsEqualsS(name, "dim_inactive"))
     config->dim_inactive = number;
+  #ifdef UI_HTK_VIMODE
   else if (StrsEqualsS(name, "vim_mode") && number <= 1)
     config->vim_mode = number;
+  #endif
+  else if (StrsEqualsS(name, "window_shadow") && number <= 1)
+    config->window_shadow = number;
   return TRUE;
 }
 
@@ -258,8 +267,12 @@ Bool HtkSettingsLoadText(U8 *text)
     htk_bar_clock = config.bar_clock != 0;
   if (config.dim_inactive >= 0)
     htk_dim_inactive = config.dim_inactive != 0;
+  #ifdef UI_HTK_VIMODE
   if (config.vim_mode >= 0)
     HtkVimSet(config.vim_mode != 0);
+  #endif
+  if (config.window_shadow >= 0)
+    htk_window_shadow = config.window_shadow != 0;
   if (htk_bar_clock)
     HtkHookAdd(0, 10000, &HtkClockTick, 0, 0);
   htk_desk_custom = -1;
@@ -301,7 +314,10 @@ Bool HtkSettingsSaved()
 HtkCtl *htk_settings;  // the open dialog, NULL otherwise
 HtkCtl *htk_set_theme, *htk_set_desk, *htk_set_bar_color, *htk_set_frame_color;
 HtkCtl *htk_set_bar, *htk_set_clock;
-HtkCtl *htk_set_dim, *htk_set_vim;
+HtkCtl *htk_set_dim, *htk_set_shadow;
+#ifdef UI_HTK_VIMODE
+HtkCtl *htk_set_vim;
+#endif
 HtkCtl *htk_set_move, *htk_set_resize;
 
 U0 HtkSettingsSync();
@@ -361,7 +377,10 @@ Bool HtkSettingsApply(HtkCtl *button)
   htk_bar_always = htk_set_bar->value;
   htk_bar_clock = htk_set_clock->value;
   htk_dim_inactive = htk_set_dim->value;
+  htk_window_shadow = htk_set_shadow->value;
+  #ifdef UI_HTK_VIMODE
   HtkVimSet(htk_set_vim->value != 0);
+  #endif
   if (htk_bar_clock && !clock_was)
     HtkHookAdd(0, 10000, &HtkClockTick, 0, 0);  // keep HH:MM fresh
   htk_dirty = TRUE;
@@ -374,10 +393,18 @@ U8 *HtkSettingsText()
   U8 *resize = HtkWindowKeyName(htk_resize_key, htk_resize_mods);
   U8 *text = MStrPrint("[htk]\ntheme = %d\ndesk_rgb = %d\nbar_rgb = %d\n"
     "frame_rgb = %d\nbar_always = %d\nbar_clock = %d\ndim_inactive = %d\n"
-    "move_key = %s\nresize_key = %s\nvim_mode = %d\n",
+    "move_key = %s\nresize_key = %s\nwindow_shadow = %d\n"
+    #ifdef UI_HTK_VIMODE
+    "vim_mode = %d\n"
+    #endif
+    ,
     htk_desk_theme, TermColorToRgb(htk_theme.desk_bg),
     TermColorToRgb(htk_theme.bar_bg), TermColorToRgb(htk_theme.frame),
-    htk_bar_always, htk_bar_clock, htk_dim_inactive, move, resize, htk_vim_mode);
+    htk_bar_always, htk_bar_clock, htk_dim_inactive, move, resize, htk_window_shadow
+    #ifdef UI_HTK_VIMODE
+    , htk_vim_mode
+    #endif
+    );
 
   Free(move);
   Free(resize);
@@ -421,7 +448,10 @@ U0 HtkSettingsReset(HtkCtl *button)
   htk_bar_always = TRUE;
   htk_bar_clock = FALSE;
   htk_dim_inactive = FALSE;
+  htk_window_shadow = TRUE;
+  #ifdef UI_HTK_VIMODE
   HtkVimSet(FALSE);
+  #endif
   htk_settings_saved = FALSE;
   HtkSettingsSync;
   home = EnvHome;
@@ -441,6 +471,12 @@ U0 HtkSettingsTheme(HtkCtl *combo)
 {
   if (combo->value >= 0 && combo->value < HTK_THEME_COUNT)
     HtkThemePreset(combo->value);
+}
+
+U0 HtkSettingsShadow(HtkCtl *button)
+{
+  htk_window_shadow = button->value != 0;
+  htk_dirty = TRUE;
 }
 
 // Shared picker action for every named-color settings row.
@@ -541,7 +577,10 @@ U0 HtkSettingsSync()
   htk_set_bar->value = htk_bar_always;
   htk_set_clock->value = htk_bar_clock;
   htk_set_dim->value = htk_dim_inactive;
+  #ifdef UI_HTK_VIMODE
   htk_set_vim->value = htk_vim_mode;
+  #endif
+  htk_set_shadow->value = htk_window_shadow;
   move = HtkWindowKeyName(htk_move_key, htk_move_mods);
   resize = HtkWindowKeyName(htk_resize_key, htk_resize_mods);
   HtkSetText(htk_set_move, move);
@@ -608,8 +647,13 @@ U0 HtkSettingsOpen()
   HtkAdd(box, htk_set_clock);
   htk_set_dim = HtkCheckboxNew("Dim unfocused windows", htk_dim_inactive);
   HtkAdd(box, htk_set_dim);
+  htk_set_shadow = HtkCheckboxNew("Window shadows", htk_window_shadow);
+  htk_set_shadow->changed = &HtkSettingsShadow;
+  HtkAdd(box, htk_set_shadow);
+  #ifdef UI_HTK_VIMODE
   htk_set_vim = HtkCheckboxNew("Vim mode for text editors", htk_vim_mode);
   HtkAdd(box, htk_set_vim);
+  #endif
   spacer = HtkNew(HTK_LABEL);  // takes the spare height, so the buttons
   spacer->expand = TRUE;       // stay anchored to the bottom-right corner
   HtkAdd(box, spacer);

@@ -18,7 +18,7 @@ U0 HtkButtonMeasure(HtkCtl *c)
 U0 HtkButtonDraw(HtkCtl *c)
 {
   I64 bg = HTK_C_BTN_BG;
-  I64 fg = HtkInk(c, HTK_C_FG);
+  I64 fg = HtkInk(c, HTK_C_BTN_FG);
   I64 pad;
 
   if (c->parent && c->parent->kind == HTK_TOOLBAR) {
@@ -26,6 +26,8 @@ U0 HtkButtonDraw(HtkCtl *c)
     fg = HtkInk(c, HTK_C_TOOL_FG);
   }
   bg = HtkBg(c, bg);
+  if (HtkFocused(c)) fg = HtkInk(c, HTK_C_FG);
+  if (fg == bg) fg = HTK_C_BTN_FG;
   HtkRect(c->x, c->y, c->w, 1, ' ', fg, bg);
   pad = (c->w - HtkRunes(c->text)) / 2;
   if (pad < 0)
@@ -72,11 +74,12 @@ U0 HtkToolButtonDraw(HtkCtl *c)
     bg = HtkBg(c, HTK_C_DIM);
     fg = HtkInk(c, HTK_C_TITLE);
   }
-  if (c->value) {
+  if (c->value || HtkFocused(c)) {
     bg = HTK_C_SEL_BG;
     fg = HTK_C_SEL_FG;
     attr = TERM_BOLD;
   }
+  if (fg == bg) fg = HTK_C_SEL_FG;
   HtkRect(c->x, c->y, c->w, 1, ' ', fg, bg);
   HtkChr(c->x, c->y, '[', fg, bg);
   HtkStr(c->x + 1, c->y, c->text, fg, bg, attr);

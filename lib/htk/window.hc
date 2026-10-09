@@ -538,7 +538,7 @@ U0 HtkWindowDraw(HtkCtl *w)
     HtkChr(at + 1, w->y, HTK_R_CLOSE, HTK_C_BTN_BG, HTK_C_BG);
     HtkChr(at + 2, w->y, ']', frame, HTK_C_BG);
   }
-  if (!w->maximized) {
+  if (!w->maximized && htk_window_shadow) {
     HtkShade(w->x + 2, w->y + w->h, w->w, 1);
     HtkShade(w->x + w->w, w->y + 1, 2, w->h);
   }
@@ -575,13 +575,14 @@ HtkCtl *HtkTaskbar(I64 x, Bool draw)
 {
   HtkCtl *w = htk_windows;
   I64 at = HTK_BAR_APP - htk_bar_scroll, y = TermHeight - 1, width;
-  I64 right = TermWidth;
+  I64 right = TermWidth, bracket_fg = HTK_C_DIM;
   U8 clock[8];
 
   if (!HtkTaskbarHeight)
     return NULL;
   if (htk_bar_clock)
     right = TermWidth - 7;
+  if (bracket_fg == HTK_C_BAR_BG) bracket_fg = HTK_C_BAR_FG;
   if (draw) {
     HtkRect(0, y, TermWidth, 1, ' ', HTK_C_BAR_FG, HTK_C_BAR_BG);
     if (htk_bar_clock) {
@@ -596,9 +597,9 @@ HtkCtl *HtkTaskbar(I64 x, Bool draw)
       if (x >= HTK_BAR_APP && x < right && x >= at && x < at + width)
         return w;
       if (draw) {
-        HtkStr(at, y, "[ ", HTK_C_DIM, HTK_C_BAR_BG);
+        HtkStr(at, y, "[ ", bracket_fg, HTK_C_BAR_BG);
         HtkStr(at + 2, y, w->text, HTK_C_BAR_FG, HTK_C_BAR_BG, TERM_BOLD);
-        HtkStr(at + 2 + HtkRunes(w->text), y, " ]", HTK_C_DIM, HTK_C_BAR_BG);
+        HtkStr(at + 2 + HtkRunes(w->text), y, " ]", bracket_fg, HTK_C_BAR_BG);
       }
       at += width + 1;
     }

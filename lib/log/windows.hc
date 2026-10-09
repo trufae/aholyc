@@ -7,16 +7,16 @@
 // delete, so external tools can rotate them) and every line is one
 // WriteFile, which appends atomically like O_APPEND does on POSIX.
 
-extern U8 *GetStdHandle(I64 which);
+extern U8 *GetStdHandle(U32 which);
 extern I64 GetConsoleMode(U8 *handle, U32 *mode);
 extern I64 SetConsoleMode(U8 *handle, U32 mode);
-extern I64 WriteFile(U8 *handle, U8 *data, U32 count, U32 *written,
+extern I32 WriteFile(U8 *handle, U8 *data, U32 count, U32 *written,
   U8 *overlapped);
 extern U8 *CreateFileA(U8 *path, U32 access, U32 share, U8 *security,
   U32 disposition, U32 flags, U8 *template);
-extern I64 CloseHandle(U8 *handle);
+extern I32 CloseHandle(U8 *handle);
 extern I64 GetFileSizeEx(U8 *handle, I64 *size);
-extern I64 MoveFileExA(U8 *from, U8 *to, U32 flags);
+extern I32 MoveFileExA(U8 *from, U8 *to, U32 flags);
 extern I64 DeleteFileA(U8 *path);
 extern I64 GetTickCount64();
 extern I64 SwitchToThread();

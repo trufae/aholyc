@@ -173,8 +173,8 @@ Bool R2PipeOpen(CR2Pipe *r2, U8 *target=NULL)
 
 #if R2PIPE_USE_FDS
 #ifdef IS_UNIX
-extern I64 read(I64 fd, U8 *buffer, I64 count);
-extern I64 write(I64 fd, U8 *buffer, I64 count);
+extern I64 read(I32 fd, U8 *buffer, U64 count);
+extern I64 write(I32 fd, U8 *buffer, U64 count);
 Bool R2PipeFdNumber(U8 *text, I64 *result)
 {
   I64 value = 0;

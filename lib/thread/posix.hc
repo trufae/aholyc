@@ -25,7 +25,7 @@ extern U8 *pthread_getspecific(U32 key);
 extern I64 pthread_setspecific(U32 key, U8 *value);
 
 extern I64 sched_yield();
-extern I64 usleep(U32 microseconds);
+extern I32 usleep(U32 microseconds);
 
 Bool ThreadNativeCreate(CThread *thread, ThreadMain *entry,
   U8 *data)

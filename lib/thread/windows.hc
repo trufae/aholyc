@@ -8,7 +8,7 @@
 extern U8 *CreateThread(U8 *attributes, U64 stack_size,
   ThreadMain *entry, U8 *data, U32 flags, U32 *thread_id);
 extern U32 WaitForSingleObject(U8 *handle, U32 milliseconds);
-extern Bool CloseHandle(U8 *handle);
+extern I32 CloseHandle(U8 *handle);
 extern U32 GetCurrentThreadId();
 extern Bool SwitchToThread();
 extern U32 SleepEx(U32 milliseconds, Bool alertable);

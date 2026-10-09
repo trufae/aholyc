@@ -340,7 +340,7 @@ extern I64 recvfrom(I64 socket, U8 *data, I64 size, I64 flags,
 extern I64 sendto(I64 socket, U8 *data, I64 size, I64 flags,
   U8 *address, I64 address_length);
 extern I64 shutdown(I64 socket, I64 how);
-extern I64 close(I64 socket);
+extern I32 close(I32 socket);
 extern I64 setsockopt(I64 socket, I64 level, I64 option,
   U8 *value, I64 value_size);
 extern I64 getsockopt(I64 socket, I64 level, I64 option,

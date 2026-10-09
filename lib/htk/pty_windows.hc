@@ -2,7 +2,7 @@
 // (CreatePseudoConsole) with %COMSPEC% (cmd.exe) attached through pipes.
 // int-returning Win32 calls are narrowed with (I32).
 
-extern I64 CreatePipe(I64 *read_end, I64 *write_end, U8 *security, U32 size);
+extern I32 CreatePipe(U8 **read_end, U8 **write_end, U8 *security, U32 size);
 extern I64 CreatePseudoConsole(I64 size, I64 input, I64 output, U32 flags,
   I64 *console);
 extern I64 ResizePseudoConsole(I64 console, I64 size);
@@ -11,18 +11,18 @@ extern I64 InitializeProcThreadAttributeList(U8 *list, U32 count, U32 flags,
   I64 *size);
 extern I64 UpdateProcThreadAttribute(U8 *list, U32 flags, I64 attribute,
   U8 *value, I64 size, U8 *previous, I64 *returned);
-extern I64 CreateProcessA(U8 *application, U8 *command_line, U8 *pattr,
-  U8 *tattr, I64 inherit, U32 flags, U8 *environment, U8 *directory,
+extern I32 CreateProcessA(U8 *application, U8 *command_line, U8 *pattr,
+  U8 *tattr, I32 inherit, U32 flags, U8 *environment, U8 *directory,
   U8 *startup, U8 *process_information);
 extern I64 PeekNamedPipe(I64 pipe, U8 *buffer, U32 size, U32 *read,
   U32 *available, U32 *left);
-extern I64 ReadFile(I64 handle, U8 *buffer, U32 count, U32 *read,
+extern I32 ReadFile(U8 *handle, U8 *buffer, U32 count, U32 *read,
   U8 *overlapped);
-extern I64 WriteFile(I64 handle, U8 *data, U32 count, U32 *written,
+extern I32 WriteFile(U8 *handle, U8 *data, U32 count, U32 *written,
   U8 *overlapped);
 extern U32 WaitForSingleObject(U8 *handle, U32 milliseconds);  // as lib/term
-extern I64 TerminateProcess(I64 handle, U32 code);
-extern I64 CloseHandle(U8 *handle);
+extern I32 TerminateProcess(U8 *handle, U32 code);
+extern I32 CloseHandle(U8 *handle);
 
 #define HTK_PTY_ATTR_PSEUDOCONSOLE 0x20016
 #define HTK_PTY_EXTENDED_STARTUPINFO 0x80000
@@ -34,7 +34,7 @@ I64 HtkPtyCoord(I64 cols, I64 rows)
 
 Bool HtkPtySpawn(CHtkTerm *t, I64 cols, I64 rows)
 {
-  I64 in_read, in_write, out_read, out_write;
+  U8 *in_read, *in_write, *out_read, *out_write;
   I64 size = 0;
   U8 *shell = getenv("COMSPEC");
   U8 *list;
@@ -45,7 +45,7 @@ Bool HtkPtySpawn(CHtkTerm *t, I64 cols, I64 rows)
   if (!CreatePipe(&in_read, &in_write, NULL, 0)(I32) ||
     !CreatePipe(&out_read, &out_write, NULL, 0)(I32))
     return FALSE;
-  if (CreatePseudoConsole(HtkPtyCoord(cols, rows), in_read, out_write, 0,
+  if (CreatePseudoConsole(HtkPtyCoord(cols, rows), in_read(I64), out_write(I64), 0,
       &t->hpc)(I32))
     return FALSE;
   CloseHandle(in_read(U8 *));
@@ -72,8 +72,8 @@ Bool HtkPtySpawn(CHtkTerm *t, I64 cols, I64 rows)
   q = info;
   t->hproc = q[0];
   CloseHandle(q[1](U8 *));  // thread handle
-  t->hin = in_write;
-  t->hout = out_read;
+  t->hin = in_write(I64);
+  t->hout = out_read(I64);
   t->fd = 1;            // "open" marker for the portable code
   Free(list);
   return TRUE;
@@ -88,7 +88,7 @@ I64 HtkPtyRead(CHtkTerm *t, U8 *buffer, I64 capacity)
     return 0;
   if (available < capacity)
     capacity = available;
-  if (!ReadFile(t->hout, buffer, capacity, &got, NULL)(I32))
+  if (!ReadFile(t->hout(U8 *), buffer, capacity, &got, NULL)(I32))
     return 0;
   return got;
 }
@@ -98,7 +98,7 @@ U0 HtkPtyWrite(CHtkTerm *t, U8 *bytes, I64 count)
   U32 written = 0;
 
   if (t->fd >= 0)
-    WriteFile(t->hin, bytes, count, &written, NULL);
+    WriteFile(t->hin(U8 *), bytes, count, &written, NULL);
 }
 
 U0 HtkPtyResize(CHtkTerm *t, I64 cols, I64 rows)
@@ -119,7 +119,7 @@ U0 HtkPtyClose(CHtkTerm *t)
   if (t->fd < 0)
     return;
   if (!t->exited)
-    TerminateProcess(t->hproc, 0);
+    TerminateProcess(t->hproc(U8 *), 0);
   ClosePseudoConsole(t->hpc);
   CloseHandle(t->hin(U8 *));
   CloseHandle(t->hout(U8 *));

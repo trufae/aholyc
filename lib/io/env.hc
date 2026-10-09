@@ -5,15 +5,16 @@
 // callers must Free, so their values are safe to retain.
 
 #ifdef IS_WINDOWS
+// DWORD is a 32-bit count on Win32/Win64; the string goes into value.
 extern U32 GetEnvironmentVariableA(U8 *name, U8 *value, U32 size);
-extern Bool SetEnvironmentVariableA(U8 *name, U8 *value);
+extern I32 SetEnvironmentVariableA(U8 *name, U8 *value);
 
 // Set name to value. Omitting value, or passing NULL, removes name.
 Bool EnvSet(U8 *name, U8 *value = NULL)
 {
   if (!name || !name[0])
     return FALSE;
-  return SetEnvironmentVariableA(name, value);
+  return SetEnvironmentVariableA(name, value) != 0;
 }
 
 U8 *EnvGet(U8 *name)
@@ -37,8 +38,8 @@ U8 *EnvGet(U8 *name)
 }
 #else
 extern U8 *getenv(U8 *name);
-extern I64 setenv(U8 *name, U8 *value, I64 overwrite);
-extern I64 unsetenv(U8 *name);
+extern I32 setenv(U8 *name, U8 *value, I32 overwrite);
+extern I32 unsetenv(U8 *name);
 
 // Set name to value. Omitting value, or passing NULL, removes name.
 Bool EnvSet(U8 *name, U8 *value = NULL)

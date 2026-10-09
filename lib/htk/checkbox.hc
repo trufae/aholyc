@@ -68,6 +68,8 @@ U0 HtkSwitchDraw(HtkCtl *c)
     state = "[ ON  ]";
     switch_bg = HtkBg(c, HTK_C_BTN_BG);
     switch_fg = HtkInk(c, HTK_C_BTN_FG);
+    if (HtkFocused(c)) switch_fg = HtkInk(c, HTK_C_FG);
+    if (switch_fg == switch_bg) switch_fg = HTK_C_BTN_FG;
   }
   HtkRect(c->x, c->y, c->w, 1, ' ', HtkInk(c, HTK_C_FG), bg);
   HtkStr(c->x, c->y, state, switch_fg, switch_bg);

@@ -22,13 +22,13 @@ class CHtkFindData
   U8 alternate[14];
   U16 padding;
 };
-extern I64 FindFirstFileA(U8 *pattern, CHtkFindData *data);
-extern I64 FindNextFileA(I64 handle, CHtkFindData *data);
-extern I64 FindClose(I64 handle);
-extern I64 GetFileAttributesA(U8 *path);
+extern U8 *FindFirstFileA(U8 *pattern, CHtkFindData *data);
+extern I32 FindNextFileA(U8 *handle, CHtkFindData *data);
+extern I32 FindClose(U8 *handle);
+extern U32 GetFileAttributesA(U8 *path);
 #else
 extern U8 *opendir(U8 *path);
-extern I64 closedir(U8 *dir);
+extern I32 closedir(U8 *dir);
 extern U8 *readdir(U8 *dir);
 #endif
 
@@ -67,7 +67,7 @@ U0 HtkFileFill(CHtkFilePick *pick, U8 *path)
   #ifdef IS_WINDOWS
   CHtkFindData entry;
   U8 *pattern = MStrPrint("%s/*", path);
-  I64 handle = FindFirstFileA(pattern, &entry);
+  U8 *handle = FindFirstFileA(pattern, &entry);
 
   Free(pattern);
   #else
@@ -84,7 +84,7 @@ U0 HtkFileFill(CHtkFilePick *pick, U8 *path)
   HtkSetText(pick->entry, owned);
   pick->entry->cursor = StrLen(owned);
   #ifdef IS_WINDOWS
-  if (handle == -1) return;
+  if (handle == -1(U8 *)) return;
   do {
     name = entry.name;
     #else
