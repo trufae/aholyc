@@ -67,8 +67,9 @@ static const char *value_ctype(Type *ty) {
 	return ty->kind == TY_F64? "hc_f64": "hc_i64";
 }
 
-static const char *extern_ctype(Type *ty) {
-	return is_ptr (ty)? "void *": value_ctype (ty);
+static const char *extern_ctype(Type *ty, bool native) {
+	return is_ptr (ty)? "void *":
+		native && ty->kind == TY_INT? scalar_ctype (ty): value_ctype (ty);
 }
 
 static bool signed_i1(Type *ty) {
@@ -76,6 +77,9 @@ static bool signed_i1(Type *ty) {
 }
 
 static void emit_bits_begin(CGen *cg, Type *ty) {
+	if (cg->cc->target_amiga) {
+		error (cg->cc, "Amiga GCC does not support @bits; use -fno-hints");
+	}
 	if (signed_i1 (ty)) {
 		sb_printf (cg->out, "-(hc_i64)(");
 	} else {
@@ -155,7 +159,9 @@ static void emit_rt_arg(CGen *cg, Node *a, Type *pty) {
 		emit_val (cg, a);
 	} else if (a->kind == ND_STR) {
 		sb_printf (cg->out, "hcs%d", a->str_id);
-	} else if (a->kind == ND_ADDR && a->lhs->kind == ND_VAR) {
+	} else if (a->kind == ND_ADDR && a->lhs->kind == ND_VAR &&
+			!(cg->cc->target_amiga && a->lhs->var->is_param &&
+			  a->lhs->ty->kind == TY_INT && a->lhs->ty->size < 8)) {
 		sb_printf (cg->out, "%s%s", is_agg (a->lhs->ty)? "": "&", objname (cg, a->lhs->var));
 	} else {
 		sb_printf (cg->out, "(void *)(intptr_t)");
@@ -299,6 +305,15 @@ static void emit_load(CGen *cg, Node *n) {
 	Type *ty = n->ty;
 	if (is_agg (ty)) {
 		emit_addr (cg, n);
+		return;
+	}
+	if (cg->cc->target_amiga) {
+		if (ty->bits) emit_bits_begin (cg, ty);
+		if (ty->kind == TY_INT && ty->size < 8) sb_printf (cg->out, "(hc_i64)");
+		sb_printf (cg->out, "hc_load_%s(", scalar_ctype (ty));
+		emit_addr (cg, n);
+		sb_printf (cg->out, ")");
+		if (ty->bits) emit_bits_end (cg, ty);
 		return;
 	}
 	if (ty->kind == TY_F64) {
@@ -450,6 +465,14 @@ static void emit_val(CGen *cg, Node *n) {
 			sb_printf (cg->out, ")");
 			break;
 		}
+		if (cg->cc->target_amiga) {
+			sb_printf (cg->out, "hc_store_%s(", scalar_ctype (l->ty));
+			emit_addr (cg, l);
+			sb_printf (cg->out, ", ");
+			emit_narrowed (cg, n->rhs, l->ty);
+			sb_printf (cg->out, ")");
+			break;
+		}
 		sb_printf (cg->out, "(*(%s *)(intptr_t)", scalar_ctype (l->ty));
 		emit_addr (cg, l);
 		sb_printf (cg->out, " = ");
@@ -577,7 +600,14 @@ static void emit_addr(CGen *cg, Node *n) {
 		if (is_agg (n->var->ty)) {
 			sb_printf (cg->out, "(hc_i64)(intptr_t)%s", objname (cg, n->var));
 		} else {
+			bool narrow_param = cg->cc->target_amiga && n->var->is_param &&
+				n->var->ty->kind == TY_INT && n->var->ty->size < 8;
+			if (narrow_param) sb_printf (cg->out, "(");
 			sb_printf (cg->out, "(hc_i64)(intptr_t)&%s", objname (cg, n->var));
+			if (narrow_param) {
+				/* Narrow parameters live in the low bytes of an I64 slot. */
+				sb_printf (cg->out, " + %d)", 8 - n->var->ty->size);
+			}
 		}
 		break;
 	case ND_DEREF:
@@ -792,7 +822,8 @@ static void emit_stmt(CGen *cg, Node *n, int ind) {
 		ind_ (cg, ind);
 		sb_printf (cg->out, "{ void *hjb = __hc_try_push();\n");
 		ind_ (cg, ind);
-		sb_printf (cg->out, "if (!_setjmp(*(jmp_buf *)hjb)) {\n");
+		sb_printf (cg->out, "if (!%s(*(jmp_buf *)hjb)) {\n",
+			cg->cc->target_amiga? "setjmp": "_setjmp");
 		cg->try_depth++;
 		push_handler (cg, true, 0);
 		emit_inner (cg, n->then, ind + 1);
@@ -901,14 +932,17 @@ static void emit_extern_decls(CGen *cg, bool only_user) {
 		}
 		Type *ret = f->ty->base;
 		bool cva = is_c_varargs (f);
+		/* C imports need their actual widths on the 32-bit Amiga ABI.
+		 * Separately compiled HolyC interfaces retain I64 value slots. */
+		bool native = cg->cc->target_amiga && !f->from_prelude;
 		sb_printf (cg->out, "extern %s%s%s %s(",
 			f->hints & HINT_INLINE? "inline ": "",
 			f->hints & HINT_NOINLINE? "__attribute__((noinline)) ": "",
-			ret->kind == TY_VOID? "void": extern_ctype (ret),
+			ret->kind == TY_VOID? "void": extern_ctype (ret, native),
 			objname (cg, f));
 		int np = 0;
 		for (Obj *p = f->params; p; p = p->next, np++) {
-			sb_printf (cg->out, "%s%s", np? ", ": "", extern_ctype (p->ty));
+			sb_printf (cg->out, "%s%s", np? ", ": "", extern_ctype (p->ty, native));
 		}
 		if (cva) {
 			sb_printf (cg->out, "%s...)", np? ", ": "");
@@ -944,7 +978,9 @@ static void emit_obj_preamble(CGen *cg) {
 		sb_printf (cg->out, "#include <setjmp.h>\n");
 	}
 	sb_printf (cg->out,
-		"#if defined(_WIN32)\n"
+		"#if defined(__amigaos__)\n"
+		"#define HC_TLS\n"
+		"#elif defined(_WIN32)\n"
 		"#define HC_TLS __declspec(thread)\n"
 		"#elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L\n"
 		"#define HC_TLS _Thread_local\n"
@@ -990,6 +1026,19 @@ static void c_emit(Aholyc *cc, Program *prog, StrBuf *out,
 		sb_printf (cg->out, "#define HC_API static\n");
 		sb_puts (cg->out, aholyc_i_rt_c_src);
 		emit_extern_decls (cg, true);
+	}
+	if (cc->target_amiga) {
+		/* HolyC classes are packed; the 68000 traps on odd word accesses.
+		 * memcpy also lets the C compiler retain the target's byte order. */
+		sb_printf (cg->out,
+			"#define HC_ACCESS(t) \\\n"
+			"static t hc_load_##t(hc_i64 a){t v;memcpy(&v,(void *)(intptr_t)a,sizeof v);return v;} \\\n"
+			"static t hc_store_##t(hc_i64 a,t v){memcpy((void *)(intptr_t)a,&v,sizeof v);return v;}\n"
+			"HC_ACCESS(int8_t) HC_ACCESS(uint8_t)\n"
+			"HC_ACCESS(int16_t) HC_ACCESS(uint16_t)\n"
+			"HC_ACCESS(int32_t) HC_ACCESS(uint32_t)\n"
+			"HC_ACCESS(hc_i64) HC_ACCESS(hc_f64)\n"
+			"#undef HC_ACCESS\n");
 	}
 	sb_printf (cg->out, "\n/* ---- program ---- */\n");
 	sb_printf (cg->out, "static hc_i64 hc_f2b(hc_f64 d){hc_i64 v;memcpy(&v,&d,8);return v;}\n");

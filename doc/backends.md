@@ -47,6 +47,12 @@ Clang and are target-specific. The backend also executes `#exe{}` blocks for
 every output backend, including JS: each block is emitted as C, built into a
 shared library, and dlopened into the compiler process (see `doc/exe.md`).
 
+`-t amiga` uses this backend with `m68k-amigaos-gcc` to produce classic
+Amiga Hunk executables. It supplies alignment-safe packed-memory accesses
+for the 68000 and uses target-specific runtime and toolchain settings.
+See [usage.md](usage.md#amiga-cross-compilation) for the ABI, byte order,
+tool overrides, and supported modes.
+
 In whole-program mode the runtime is injected with `#define HC_API
 static`, so the C compiler discards every runtime function the program
 never uses; combined with `--gc-sections` (both native backends) a

@@ -301,8 +301,23 @@ void pkgconfig_push(Aholyc *cc, const char *pkgs) {
 	arg_push_words (cc, &cc->ccflags, xstrdup (cc, buf));
 }
 
+const char *amiga_tool(Aholyc *cc, bool archive) {
+	const char *env = archive? "AMIGA_AR": "AMIGA_CC";
+	const char *tool = getenv (env);
+	if (tool && *tool) return tool;
+	tool = archive? "m68k-amigaos-ar": "m68k-amigaos-gcc";
+	if (have_cmd (cc, tool)) return tool;
+	const char *path = xasprintf (cc, "/opt/amiga/bin/%s", tool);
+	if (!access (path, X_OK)) return path;
+	error (cc, "%s not found; set %s to its path", tool, env);
+	return NULL;
+}
+
 int run_cc(Aholyc *cc, const char *tool, const char *opt, const char *out,
 		const char *const inputs[], int ninputs, bool object, bool gc) {
+	if ((!tool || !*tool) && cc->target_amiga) {
+		tool = amiga_tool (cc, false);
+	}
 	if (!tool || !*tool) {
 		tool = getenv ("CC");
 	}
@@ -312,10 +327,14 @@ int run_cc(Aholyc *cc, const char *tool, const char *opt, const char *out,
 	Argv a = { 0 };
 	arg_push (cc, &a, tool); arg_push (cc, &a, opt);
 	arg_push (cc, &a, "-w"); arg_push (cc, &a, "-fno-strict-aliasing");
+	if (cc->target_amiga) {
+		arg_push (cc, &a, "-mcpu=68000");
+		arg_push (cc, &a, "-std=gnu99");
+	}
 	if (object) {
 		arg_push (cc, &a, "-c");
 	}
-	if (gc) {
+	if (gc && !cc->target_amiga) {
 		arg_push (cc, &a, "-ffunction-sections");
 		arg_push (cc, &a, "-fdata-sections");
 		if (!object) {
@@ -334,16 +353,16 @@ int run_cc(Aholyc *cc, const char *tool, const char *opt, const char *out,
 		arg_push_env (cc, &a, "LDFLAGS");
 		arg_push (cc, &a, "-lm");
 	}
-	if (cc->use_pic) {
+	if (cc->use_pic && !cc->target_amiga) {
 		arg_push (cc, &a, "-fPIC");
 	}
 	if (cc->shared && !object) {
 		arg_push (cc, &a, "-shared");
 	}
-	if (!cc->use_stack_protector) {
+	if (!cc->use_stack_protector && !cc->target_amiga) {
 		arg_push (cc, &a, "-fno-stack-protector");
 	}
-	if (!cc->use_pic) {
+	if (!cc->use_pic && !cc->target_amiga) {
 #ifdef __APPLE__
 		/* Darwin keeps -fno-pic relocatable; dynamic-no-pic is its
 		 * actual non-relocatable code model. */

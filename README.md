@@ -21,6 +21,17 @@ $ ./hello
 Hello World!
 ```
 
+Cross-compile for classic m68k AmigaOS using the C backend:
+
+```console
+$ aholyc -t amiga hello.HC -o hello-amiga
+```
+
+The driver finds `m68k-amigaos-gcc` in `PATH` or `/opt/amiga/bin`;
+`AMIGA_CC` selects another installation. See [Amiga usage](doc/usage.md#amiga-cross-compilation).
+The [UI library](lib/ui/README.md) selects native Intuition/GadTools on Amiga:
+`aholyc -t amiga examples/ui/amiga.hc -o holy-ui`.
+
 ## Highlights
 
 * Written in portable C99. **Zero external dependencies** — building aholyc

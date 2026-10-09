@@ -280,6 +280,7 @@ struct Aholyc {
 	int exe_serial;
 	bool verbose, keep, shared, archive, use_hints, use_asm, use_pic;
 	bool use_exceptions, use_stack_protector, strict_fnptr, error_active;
+	bool target_amiga;
 };
 
 /* ---------------------------------------------------------------- lexer */
@@ -291,6 +292,7 @@ Token *token_join(Token *a, Token *b);
 void lex_add_include_dir(Aholyc *cc, const char *dir);
 bool lex_set_cwd(Aholyc *cc, const char *path);
 void lex_reset(Aholyc *cc);
+void lex_platform(Aholyc *cc);
 /* comment hints (lexhints.c) */
 void lex_hints_scan_comment(Aholyc *cc, LexHints *pending,
 	const char *start, const char *end, const char *fname, int line);
@@ -384,6 +386,7 @@ void arg_push(Aholyc *cc, Argv *a, const char *s);
 int run_cmd(Aholyc *cc, char *const argv[]);
 int run_cc(Aholyc *cc, const char *tool, const char *opt, const char *out,
 	const char *const inputs[], int ninputs, bool object, bool gc);
+const char *amiga_tool(Aholyc *cc, bool archive);
 bool have_cmd(Aholyc *cc, const char *name);
 void arg_push_words(Aholyc *cc, Argv *a, char *s);
 void pkgconfig_push(Aholyc *cc, const char *pkgs);

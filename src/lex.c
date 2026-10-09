@@ -27,6 +27,7 @@ static void clear_config(Aholyc *cc) {
 void lex_reset(Aholyc *cc) {
 	clear_config (cc);
 	cc->verbose = cc->keep = cc->shared = cc->archive = false;
+	cc->target_amiga = false;
 	cc->use_hints = true;
 	cc->use_asm = true;
 	cc->use_pic = true;
@@ -41,7 +42,21 @@ void lex_reset(Aholyc *cc) {
 	cc->cwd = xstrdup (cc, cwd? cwd: ".");
 	if (cwd) cleanup_pop (cc);
 	free (cwd);
+}
+
+void lex_platform(Aholyc *cc) {
 	/* expose HolyC platform names, rather than the compiler's C macros */
+	if (cc->target_amiga) {
+		lex_define (cc, "IS_AMIGA", "1");
+		lex_define (cc, "IS_M68K", "1");
+		lex_define (cc, "IS_BIG_ENDIAN", "1");
+		return;
+	}
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+	lex_define (cc, "IS_BIG_ENDIAN", "1");
+#else
+	lex_define (cc, "IS_LITTLE_ENDIAN", "1");
+#endif
 #if defined(__s390__) || defined(__s390x__)
 	lex_define (cc, "IS_S390", "1");
 #elif defined(__x86_64__) || defined(_M_X64)

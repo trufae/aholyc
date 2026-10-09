@@ -1532,6 +1532,10 @@ else
 	fail=1
 fi
 
+if ! sh tests/amiga.sh; then
+	fail=1
+fi
+
 if [ "$fail" = 0 ]; then
 	echo "all tests passed"
 fi
