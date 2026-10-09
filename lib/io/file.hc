@@ -12,11 +12,16 @@
 //   Free(data);
 
 extern U8 *fopen(U8 *path, U8 *mode);
-extern I64 fread(U8 *data, I64 size, I64 count, U8 *stream);
-extern I64 fwrite(U8 *data, I64 size, I64 count, U8 *stream);
-extern I64 fseek(U8 *stream, I64 offset, I64 whence);
+extern U64 fread(U8 *data, U64 size, U64 count, U8 *stream);
+extern U64 fwrite(U8 *data, U64 size, U64 count, U8 *stream);
+#ifdef IS_WINDOWS
+extern I32 fseek(U8 *stream, I32 position, I32 whence);
+extern I32 ftell(U8 *stream); // Windows long stays 32-bit on Win64
+#else
+extern I32 fseek(U8 *stream, I64 position, I32 whence);
 extern I64 ftell(U8 *stream);
-extern I64 fclose(U8 *stream);
+#endif
+extern I32 fclose(U8 *stream);
 
 #define FILE_SEEK_SET 0
 #define FILE_SEEK_END 2

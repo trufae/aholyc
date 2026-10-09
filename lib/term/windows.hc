@@ -21,15 +21,16 @@
 #define TERM_WIN_UTF8          65001
 #define TERM_WIN_WAIT_SLICE    100
 
-extern U8 *GetStdHandle(I64 which);
+extern U8 *GetStdHandle(U32 which);
 extern I64 GetConsoleMode(U8 *handle, U32 *mode);
 extern I64 SetConsoleMode(U8 *handle, U32 mode);
 I64 TermWinCtrl(U32 kind); // console control handler, defined below
 extern I64 SetConsoleCtrlHandler(TermWinCtrl *handler, I64 add);
 extern I64 GetConsoleScreenBufferInfo(U8 *handle, U8 *info);
-extern I64 SetConsoleCursorPosition(U8 *handle, U32 position);
-extern I64 GetConsoleCursorInfo(U8 *handle, U8 *info);
-extern I64 SetConsoleCursorInfo(U8 *handle, U8 *info);
+class CTermWinCursor;
+extern I32 SetConsoleCursorPosition(U8 *handle, U32 position);
+extern I32 GetConsoleCursorInfo(U8 *handle, CTermWinCursor *info);
+extern I32 SetConsoleCursorInfo(U8 *handle, CTermWinCursor *info);
 extern I64 SetConsoleTextAttribute(U8 *handle, U16 attribute);
 extern I64 WriteConsoleA(U8 *handle, U8 *text, U32 count, U32 *written,
   U8 *reserved);
@@ -103,6 +104,8 @@ U32 term_win_saved_in_mode;
 U32 term_win_saved_out_mode;
 U32 term_win_saved_cp;
 U16 term_win_saved_attr;
+CTermWinCursor term_win_saved_cursor;
+Bool term_win_saved_cursor_valid;
 Bool term_win_legacy;
 Bool term_win_raw;
 Bool term_win_mouse_on;
@@ -147,6 +150,7 @@ Bool TermNativeInit()
     return FALSE;
   term_win_legacy = !SetConsoleMode(term_win_out,
     term_win_saved_out_mode | TERM_WIN_VT)(I32);
+  term_win_saved_cursor_valid = GetConsoleCursorInfo(term_win_out, &term_win_saved_cursor) != 0;
   term_win_saved_cp = GetConsoleOutputCP;
   if (!term_win_legacy)
     SetConsoleOutputCP(TERM_WIN_UTF8);
@@ -173,6 +177,8 @@ Bool TermNativeInit()
 
 U0 TermNativeFini()
 {
+  if (term_win_legacy && term_win_saved_cursor_valid)
+    SetConsoleCursorInfo(term_win_out, &term_win_saved_cursor);
   SetConsoleCtrlHandler(&TermWinCtrl, FALSE);
   SetConsoleMode(term_win_in, term_win_saved_in_mode);
   SetConsoleMode(term_win_out, term_win_saved_out_mode);
@@ -291,7 +297,7 @@ U0 TermNativeBlit(I64 x, I64 y, U64 *cells, I64 count)
     count & 0xFFFF | 0x10000, 0, region);
 }
 
-U0 TermNativeCursor(I64 x, I64 y, Bool visible)
+U0 TermNativeCursor(I64 x, I64 y, Bool visible, I64 shape=TERM_CURSOR_DEFAULT)
 {
   CTermWinCursor cursor;
   CTermWinInfo info;
@@ -301,8 +307,11 @@ U0 TermNativeCursor(I64 x, I64 y, Bool visible)
     y += info.top;
   }
   SetConsoleCursorPosition(term_win_out, x & 0xFFFF | y << 16);
-  if (GetConsoleCursorInfo(term_win_out, &cursor)(I32)) {
+  if (GetConsoleCursorInfo(term_win_out, &cursor)) {
     cursor.visible = visible;
+    if (shape == TERM_CURSOR_BLOCK) cursor.size = 100;
+    else if (shape == TERM_CURSOR_BAR) cursor.size = 25; // old consoles only expose cursor height
+    else if (term_win_saved_cursor_valid) cursor.size = term_win_saved_cursor.size;
     SetConsoleCursorInfo(term_win_out, &cursor);
   }
 }

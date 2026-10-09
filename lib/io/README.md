@@ -62,10 +62,14 @@ the shutdown terminates the shell only.
 
 U8 *home = EnvHome;  // MAlloc'd HOME / USERPROFILE value; Free when done
 U8 *value = EnvGet("MY_SETTING");
-SetEnv("MY_SETTING", "enabled");
-SetEnv("MY_SETTING"); // value defaults to NULL, which unsets it
+EnvSet("MY_SETTING", "enabled");
+EnvSet("MY_SETTING"); // value defaults to NULL, which unsets it
 ```
 
 `EnvHome` uses `HOME` on POSIX and `GetEnvironmentVariableA("USERPROFILE")`
-on Windows. `EnvGet` and `EnvHome` return `NULL` when unavailable.
-`SetEnv` returns `TRUE` on success; a `NULL` value removes the variable.
+on Windows. C `getenv` returns a borrowed string pointer; the Windows API
+fills a supplied buffer and returns a `DWORD` character count (`U32`, also on
+Win64). `EnvGet` wraps both APIs with an owned `U8 *` result. Win32 `BOOL`
+results use `I32` at the native boundary, then convert to HolyC `Bool`.
+`EnvGet` and `EnvHome` return `NULL` when unavailable.
+`EnvSet` returns `TRUE` on success; a `NULL` value removes the variable.

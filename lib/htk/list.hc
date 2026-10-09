@@ -49,10 +49,11 @@ U0 HtkPickDraw(HtkCtl *p)
       HtkRect(p->x + 1, p->y + 1 + i, p->w - 2, 1, HTK_R_H,
         HTK_C_DIM, bg);
     } else if (i == p->value) {
-      fg = TERM_BRIGHT_WHITE;
-      bg = HTK_C_BTN_BG;
+      fg = HTK_C_SEL_FG;
+      bg = HTK_C_SEL_BG;
       if (k->disabled)
         fg = HTK_C_DIM;
+      if (fg == bg) fg = HTK_C_SEL_FG;
       HtkRect(p->x + 1, p->y + 1 + i, p->w - 2, 1, ' ', fg, bg);
       HtkStr(p->x + 2, p->y + 1 + i, k->text, fg, bg);
       if (k->kind == HTK_MENU)  // submenu marker

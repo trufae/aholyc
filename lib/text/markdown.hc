@@ -5,8 +5,9 @@
 // titles, horizontal rules, pipe tables, fenced and tab-indented code blocks,
 // `code spans`, **bold**, *italic* and ~~strike~~, wraps long lines at
 // md->width columns and streams the result as events: laid out text slices
-// and MD_STYLE_* on/off notifications. It never allocates and never emits
-// escape codes; the caller passes the callbacks of an output backend such as
+// and MD_STYLE_* on/off notifications. It never emits
+// escape codes; aligned blocks temporarily store widths per rendered row.
+// The caller passes the callbacks of an output backend such as
 // lib/text/md_ansi.hc.
 //
 //   #include "lib/text/markdown.hc"
@@ -51,6 +52,7 @@
 #define MD_ALIGN_LEFT 0
 #define MD_ALIGN_RIGHT 1
 #define MD_ALIGN_CENTER 2
+#define MD_ALIGN_JUSTIFY 3
 #define MD_TABLE_MAX_COLS 32
 
 class CMarkdown
@@ -70,6 +72,9 @@ class CMarkdown
   U8 *link_start;
   U8 *link_end;
   I64 fg, bg, depth;
+  I64 align_depth;
+  Bool alignment_ignore; // plain exports omit alignment padding
+  Bool word_wrap; // wrap at word boundaries, including aligned paragraphs
   // render state
   U8 *end;
   I64 col;
@@ -747,6 +752,9 @@ I64 MdRenderTitle(CMarkdown *md, U8 *b)
 
 #include "md_block.hc"
 
+U0 MarkdownRenderStrs(CMarkdown *md, CStrs *input);
+#include "md_align.hc"
+
 // --- main loop -------------------------------------------------------------
 
 U0 MdCodeBlockStart(CMarkdown *md)
@@ -796,8 +804,10 @@ U0 MarkdownRenderStrs(CMarkdown *md, CStrs *input)
   I64 n;
   I64 code_cols, rune;
   CMdBlock block;
-  CStrs line;
+  CMdAlignment aligned;
+  CStrs line, word;
   U8 *next_line;
+  U8 *word_start, *word_end;
   Bool comment;
 
   md->end = input->b;
@@ -845,6 +855,12 @@ U0 MarkdownRenderStrs(CMarkdown *md, CStrs *input)
         b = next_line;
         goto next;
       }
+      if (md->align_depth < 16 && MdAlignBlock(input, b, &aligned)) {
+        MdAlignRender(md, &aligned);
+        md->col = 0;
+        b = aligned.source.b;
+        goto next;
+      }
     }
     if (ch == '\n') {
       MdNewline(md);
@@ -865,7 +881,17 @@ U0 MarkdownRenderStrs(CMarkdown *md, CStrs *input)
       b++;
       goto next;
     }
-    if (md->col > md->width) {
+    if (md->word_wrap && !md->codeblock && ch == ' ' && md->col > 0) {
+      word_start = b;
+      while (word_start < md->end && *word_start == ' ') word_start++;
+      word_end = word_start;
+      while (word_end < md->end && *word_end != ' ' && *word_end != '\n' && *word_end != '\r') word_end++;
+      StrsInit(&word, word_start, word_end);
+      if (!StrsEmpty(&word) && md->col + 1 + MdInlineWidth(&word) > md->width) {
+        MdNewline(md); b = word_start; goto next;
+      }
+    }
+    if ((!md->word_wrap || md->codeblock) && md->col > md->width) {
       // soft wrap: break at a space, or hyphenate
       if (ch == ' ') {
         MdNewline(md);
@@ -873,7 +899,7 @@ U0 MarkdownRenderStrs(CMarkdown *md, CStrs *input)
       } else {
         if (md->codeblock)
           md->col = 1;
-        else
+        else if (!md->word_wrap)
           MdTextS(md, "-");
         MdNewline(md);
       }
@@ -922,7 +948,7 @@ U0 MarkdownRenderStrs(CMarkdown *md, CStrs *input)
       n = MdEmphasis(md, b, &md->bold, &md->italic);
       if (n > 0) {
         b += n;
-        md->col++;
+        if (!md->word_wrap) md->col++;
         goto next;
       }
     }
@@ -930,11 +956,16 @@ U0 MarkdownRenderStrs(CMarkdown *md, CStrs *input)
       n = MdStrikethrough(md, b, &md->strike);
       if (n > 0) {
         b += n;
-        md->col++;
+        if (!md->word_wrap) md->col++;
         goto next;
       }
     }
     n = MaxI64(1, Utf8DecodeRune(b, md->end - b, &rune));
+    if (md->word_wrap && !md->codeblock && md->col + Utf8CellWidth(rune) > md->width) {
+      MdNewline(md);
+      if (ch == ' ') b++;
+      goto next;
+    }
     md->col += Utf8CellWidth(rune);
     MdText(md, b, b + n);
     b += n;

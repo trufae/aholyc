@@ -19,6 +19,10 @@ class CEdit
   CEditChange *redo;
   I64 cursor, anchor, revision, serial, saved;
   Bool readonly, typing;
+  // Optional view observer. Called after each splice, including undo/redo;
+  // observers may adjust their positions but must not edit the document.
+  U0 (*spliced)(CEdit *edit, I64 a, I64 b, I64 size);
+  I64 user;
 };
 
 U0 EditChangesFree(CEditChange *change)
@@ -107,6 +111,7 @@ U0 EditSplice(CEdit *edit, I64 a, I64 b, CStrs *insert)
   *edit->text.b = 0; // CStrBuf interop only; never used to find the document end.
   edit->cursor = a + n;
   edit->anchor = -1;
+  if (edit->spliced) edit->spliced(edit, a, b, n);
 }
 
 Bool EditReplace(CEdit *edit, I64 a, I64 b, CStrs *insert)
@@ -190,22 +195,46 @@ I64 EditReplaceAll(CEdit *edit, CStrs *query, CStrs *replacement)
   return count;
 }
 
-// Coalesce adjacent typing until a space, navigation, command or save boundary.
+// Merge touching deltas, preserving the cursor and revision before the group.
+// This also groups a change/open command with its subsequent Insert-mode text.
+Bool EditGroup(CEdit *edit)
+{
+  CEditChange *change = edit->undo, *previous;
+  CStrBuf before, after;
+  I64 a, end, previous_end, change_end;
+
+  if (!change || !change->next) return FALSE;
+  previous = change->next;
+  previous_end = previous->at + StrsLen(&previous->after);
+  change_end = change->at + StrsLen(&change->before);
+  if (change->at > previous_end || change_end < previous->at) return FALSE;
+  a = MinI64(previous->at, change->at);
+  end = MaxI64(previous_end, change_end);
+  StrBufInit(&before); StrBufInit(&after);
+  if (change->at < previous->at)
+    StrBufPutN(&before, change->before.a, previous->at - change->at);
+  StrBufPutStrs(&before, &previous->before);
+  if (change_end > previous_end)
+    StrBufPutN(&before, change->before.a + previous_end - change->at, change_end - previous_end);
+  StrBufPutN(&after, edit->text.a + a,
+    end - a + StrsLen(&change->after) - StrsLen(&change->before));
+  StrBufClear(&previous->before); StrBufPutStrs(&previous->before, &before);
+  StrBufClear(&previous->after); StrBufPutStrs(&previous->after, &after);
+  previous->at = a;
+  StrBufFini(&before); StrBufFini(&after);
+  edit->undo = previous;
+  change->next = NULL;
+  EditChangesFree(change);
+  return TRUE;
+}
+
+// Ordinary typing groups until a space, navigation, command or save boundary.
 Bool EditType(CEdit *edit, CStrs *text)
 {
   Bool join = edit->typing && edit->anchor < 0 && edit->revision != edit->saved;
-  CEditChange *change, *previous;
 
   if (!EditInsert(edit, text)) return FALSE;
-  change = edit->undo;
-  previous = change->next;
-  if (join && previous && StrsEmpty(&change->before) && StrsEmpty(&previous->before) &&
-    change->at == previous->at + StrsLen(&previous->after)) {
-      StrBufPutStrs(&previous->after, &change->after);
-      edit->undo = previous;
-      change->next = NULL;
-      EditChangesFree(change);
-    }
+  if (join) EditGroup(edit);
   edit->typing = StrsLen(text) && text->b[-1] > ' ';
   return TRUE;
 }

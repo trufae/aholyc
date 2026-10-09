@@ -206,7 +206,8 @@ U0 HtkSplitMeasure(HtkCtl *c)
     c->pw++;
 }
 
-// First pane keeps its preferred size, the second takes the rest.
+// value 1..999 sets the first pane's share in thousandths. By default the
+// first pane keeps its preferred size and the second takes the rest.
 U0 HtkSplitLayout(HtkCtl *c)
 {
   HtkCtl *one = c->kids;
@@ -225,8 +226,10 @@ U0 HtkSplitLayout(HtkCtl *c)
   one->y = c->y;
   if (c->vertical) {
     keep = one->ph;
+    if (c->value > 0 && c->value < 1000) keep = (c->h - 1) * c->value / 1000;
     if (keep > c->h - 2)
       keep = c->h / 2;
+    keep = MaxI64(0, MinI64(keep, c->h - 1));
     one->w = c->w;
     one->h = keep;
     if (two) {
@@ -237,8 +240,10 @@ U0 HtkSplitLayout(HtkCtl *c)
     }
   } else {
     keep = one->pw;
+    if (c->value > 0 && c->value < 1000) keep = (c->w - 1) * c->value / 1000;
     if (keep > c->w - 2)
       keep = c->w / 2;
+    keep = MaxI64(0, MinI64(keep, c->w - 1));
     one->w = keep;
     one->h = c->h;
     if (two) {

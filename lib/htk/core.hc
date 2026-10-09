@@ -2,7 +2,9 @@
 // drawing over lib/term cells.  Every widget is one HtkCtl; behavior lives
 // in per-widget files and is dispatched by kind in loop.hc.
 
+#ifdef UI_HTK_VIMODE
 #include "../text/edit.hc"
+#endif
 
 #define HTK_WINDOW    0
 #define HTK_BOX       1
@@ -195,12 +197,17 @@ class HtkCtl
   Bool (*keyfn)(HtkCtl *c, CTermEvent *e); // optional key override
   Bool (*closing)(HtkCtl *c); // window close veto, including application quit
   U0 (*destroy)(HtkCtl *c); // release caller-owned payload on HtkDestroy
+  #ifdef UI_HTK_VIMODE
   U0 (*vim_changed)(HtkCtl *c); // editor mode change notification
+  U0 (*vim_page)(HtkCtl *c, CEdit *edit, I64 direction); // adapter's visual-row paging
   CEdit *text_edit;    // multiline history; text stays owned by ->text at rest
-  Bool vim_editor, vim_mode, vim_insert;
-  I64 vim_pending;
+  Bool vim_editor, vim_mode, vim_insert, vim_vertical, vim_kill;
+  I64 vim_pending, vim_column, vim_at;
+  I64 vim_visual, vim_start, vim_head; // inclusive logical caret, exclusive CEdit selection
+  #endif
   I64 fn, data;      // canvas draw callback / table cell callback + data
   I64 user;          // adapter's UiCtl
+  I64 cursor_shape;  // TERM_CURSOR_*, overridden by Vim's active mode
   I64 value;         // state: checked, position, selection, tab index
   I64 controls;      // HTK_WINDOW_* title controls, meaningful for windows
   I64 low, high;     // bounds; table: high = row count; window: low=dismissable
@@ -327,11 +334,16 @@ Bool HtkSettingsLoad();
 Bool HtkSettingsSaved();
 U0 HtkOpsInit();                 // fills the per-kind tables (loop.hc)
 Bool htk_ops_ready;
+#ifdef UI_HTK_VIMODE
 Bool htk_vim_mode;       // default/global setting for textarea editors
 U0 HtkVimSet(Bool enabled);
 U0 HtkVimMode(HtkCtl *c, Bool enabled);
 Bool HtkVimKey(HtkCtl *c, CEdit *edit, CTermEvent *e);
+Bool HtkVimVisualKey(HtkCtl *c, CEdit *edit, CTermEvent *e);
+U0 HtkVimCancel(HtkCtl *c, CEdit *edit);
+I64 HtkVimCaret(HtkCtl *c, I64 fallback);
 Bool HtkTextVimKey(HtkCtl *c, CTermEvent *e);
+#endif
 
 HtkCtl *HtkNew(I64 kind)
 {
@@ -345,6 +357,21 @@ HtkCtl *HtkNew(I64 kind)
   c->text = htk_empty;
   c->anchor = -1;
   return c;
+}
+
+U0 HtkShowCursor(HtkCtl *c, I64 x, I64 y)
+{
+  I64 shape = c->cursor_shape;
+
+  #ifdef UI_HTK_VIMODE
+  if (c->vim_editor && c->vim_mode) {
+    shape = TERM_CURSOR_BLOCK;
+    if (c->vim_insert) shape = TERM_CURSOR_BAR;
+  }
+  #endif
+  TermSetCursorShape(shape);
+  TermGotoXY(x, y);
+  TermShowCursor(TRUE);
 }
 
 // Unlink a node from a singly-linked sibling list.
@@ -386,7 +413,10 @@ U0 HtkAdd(HtkCtl *parent, HtkCtl *kid)
 
 U0 HtkFreeText(HtkCtl *c)
 {
+  #ifdef UI_HTK_VIMODE
   if (c->text_edit) { EditFini(c->text_edit); EditInit(c->text_edit); }
+  c->vim_visual = 0; c->vim_pending = 0; c->vim_vertical = FALSE; c->vim_kill = FALSE;
+  #endif
   if (c->text != htk_empty)
     Free(c->text);
   c->text = htk_empty;
@@ -427,7 +457,9 @@ U0 HtkDestroy(HtkCtl *c)
     c->destroy(c);
   HtkDestroy(c->menu);
   HtkFreeText(c);
+  #ifdef UI_HTK_VIMODE
   if (c->text_edit) { EditFini(c->text_edit); Free(c->text_edit); }
+  #endif
   Free(c);
 }
 
@@ -462,6 +494,7 @@ Bool htk_bar_always = TRUE;
 #endif
 Bool htk_bar_clock;
 Bool htk_dim_inactive;   // paint unfocused windows with dim foregrounds
+Bool htk_window_shadow = TRUE;
 Bool htk_paint_dim;      // set while such a window is being drawn
 
 // The window bar takes the bottom row when always on or while any window
@@ -603,6 +636,10 @@ I64 HtkDimColor(I64 color)
 U0 HtkChr(I64 x, I64 y, I64 rune, I64 fg, I64 bg, I64 attr=0)
 {
   rune = HtkGlyph(rune);
+  if (htk_theme.ascii) {
+    if (fg >= 8) fg = TermRgbToBasic(TermColorToRgb(fg)) & 7;
+    if (bg >= 8) bg = TermRgbToBasic(TermColorToRgb(bg)) & 7;
+  }
   if (htk_paint_dim) {  // inactive window: everything a shade darker
     fg = HtkDimColor(fg);
     bg = HtkDimColor(bg);

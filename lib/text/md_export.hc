@@ -128,11 +128,12 @@ U0 MdExportColorText(CMarkdown *md, CStrs *text)
 }
 
 // HTML uses semantic headings/tables. Gemtext uses fenced tables and => links.
-U0 MarkdownExport(CStrs *source, CStrBuf *out, I64 format)
+U0 MarkdownExport(CStrs *source, CStrBuf *out, I64 format, Bool fragment=FALSE)
 {
   CMdExport export;
   CMarkdown md;
   CMdTable table;
+  CMdAlignment aligned;
   CStrs line, cells[MD_TABLE_MAX_COLS];
   CStrBuf slug;
   U8 *p = source->a, *next, *row, *tag;
@@ -150,12 +151,13 @@ U0 MarkdownExport(CStrs *source, CStrBuf *out, I64 format)
   if (format == MD_EXPORT_TEXT) {
     md.width = 1000000;
     md.code_pad = FALSE;
+    md.alignment_ignore = TRUE;
     MarkdownRenderStrs(&md, source);
     StrBufFini(&export.links);
     StrBufFini(&slug);
     return;
   }
-  if (html) StrBufPutS(out, "<!doctype html>\n<html><head><meta charset=\"utf-8\"><title>Document</title><style>body{max-width:80ch;margin:2em auto;font-family:system-ui}table{border-collapse:collapse;display:block;overflow:auto}td,th{border:1px solid;padding:.3em}.border-3 td,.border-3 th{border:0}.border-1{border-radius:.5em}img{max-width:100%}pre{overflow:auto}</style></head><body>\n");
+  if (html && !fragment) StrBufPutS(out, "<!doctype html>\n<html><head><meta charset=\"utf-8\"><title>Document</title><style>body{max-width:80ch;margin:2em auto;font-family:system-ui}table{border-collapse:collapse;display:block;overflow:auto}td,th{border:1px solid;padding:.3em}.border-3 td,.border-3 th{border:0}.border-1{border-radius:.5em}img{max-width:100%}pre{overflow:auto}</style></head><body>\n");
   while (p < source->b) {
     next = MdNextLine(source, p, &line);
     transition = MdFenceStep(&fence, &line);
@@ -167,6 +169,11 @@ U0 MarkdownExport(CStrs *source, CStrBuf *out, I64 format)
     } else if (fence.count) {
       MdExportText(&md, &line);
       StrBufPutC(out, '\n');
+    } else if (MdAlignBlock(source, p, &aligned)) {
+      if (html) StrBufPrintf(out, "<div style=\"text-align:%s\">\n", md_align_names[aligned.align]);
+      MarkdownExport(&aligned.body, out, format, TRUE);
+      if (html) StrBufPutS(out, "</div>\n");
+      next = aligned.source.b;
     } else if (StrsLen(&line) == 3 && !MemCmp(line.a, "---", 3)) {
       if (html) StrBufPutS(out, "<hr>\n");
       else StrBufPutS(out, "---\n");
@@ -240,7 +247,7 @@ U0 MarkdownExport(CStrs *source, CStrBuf *out, I64 format)
     if (html) StrBufPutS(out, "</code></pre>\n");
     else StrBufPutS(out, "```\n");
   }
-  if (html) StrBufPutS(out, "</body></html>\n");
+  if (html && !fragment) StrBufPutS(out, "</body></html>\n");
   StrBufFini(&export.links);
   StrBufFini(&slug);
 }

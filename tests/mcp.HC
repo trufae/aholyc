@@ -7,7 +7,7 @@
 
 #define MCP_TEST_PORT 18765
 
-extern I64 usleep(U32 microseconds);
+extern I32 usleep(U32 microseconds);
 
 I64 failures = 0;
 

@@ -65,7 +65,17 @@ U0 HtkToolbarDraw(HtkCtl *c)
 
 U0 HtkStatusMeasure(HtkCtl *c)
 {
-  if (c->kids) HtkBoxMeasure(c);
+  HtkCtl *kid;
+
+  if (c->kids) {
+    HtkBoxMeasure(c);
+    // Flexible statistics yield their width to the right-side mode controls.
+    kid = c->kids;
+    while (kid) {
+      if (kid->expand) { c->pw -= kid->pw; kid->pw = 0; }
+      kid = kid->sib;
+    }
+  }
   else { HtkLabelMeasure(c); c->pw += 2; }
 }
 

@@ -68,6 +68,9 @@ tools/file2c: tools/file2c.c
 word: aholyc
 	./aholyc examples/word.hc -o word
 
+vim: aholyc
+	./aholyc examples/vim.hc -o vim
+
 tests/lib_instances: tests/lib_instances.c libaholyc.a include/aholyc.h
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/lib_instances.c libaholyc.a -ldl -pthread
 
@@ -80,7 +83,7 @@ fmt: aholyc
 	./aholyc fmt -w examples/*.HC tests/*.HC runtime/*.hc
 
 clean:
-	rm -f aholyc word libaholyc.a tests/lib_instances $(OBJ) src/embed.c src/config.h tools/file2c
+	rm -f aholyc word vim libaholyc.a tests/lib_instances $(OBJ) src/embed.c src/config.h tools/file2c
 	rm -rf tests/out
 
 install: aholyc libaholyc.a
@@ -100,4 +103,4 @@ uninstall:
 
 FORCE:
 
-.PHONY: all test word clean install uninstall FORCE
+.PHONY: all test word vim clean install uninstall FORCE

@@ -23,8 +23,8 @@ class CHtkMarkdown
   I64 caret_x, caret_y, distance;
   I64 gutter, inset, height, viewport, column_width, page_lines, layout;
   I64 page_row, page_number, section_at, range_a, range_b;
-  I64 guide_y, line_at, line_number, code_a, code_b, code_hit_a, code_hit_b;
-  Bool line_numbers, ruler_top, ruler_left;
+  I64 guide_y, line_at, line_number, code_a, code_b, code_hit_a, code_hit_b, tab_width;
+  Bool line_numbers, ruler_top, ruler_left, no_wrap, hide_status;
   I64 query_x, query_y, hit, hit_distance, link_a, link_b;
   I64 attr, fg, bg, link_start, link_end, press_at;
   CStrs target, hit_target;
@@ -39,7 +39,7 @@ U0 HtkMdPage(CHtkMarkdown *view)
   U8 *label;
 
   view->page_number++;
-  if (view->paint && y >= view->inset && y < c->h - 1) {
+  if (view->paint && y >= view->inset && y < c->h - !view->hide_status) {
     HtkRect(c->x + view->gutter, c->y + y, view->viewport, 1, 0x2500, HTK_C_DIM, HTK_C_BG);
     label = MStrPrint(" Page %d ", view->page_number);
     HtkStr(c->x + view->gutter + 2, c->y + y, label, HTK_C_DIM, HTK_C_BG);
@@ -72,7 +72,7 @@ U0 HtkMdGuide(CHtkMarkdown *view, I64 at)
   while (view->line_at > at) {
     if (view->edit->text.a[--view->line_at] == '\n') view->line_number--;
   }
-  if (!view->paint || y < view->inset || y >= c->h - 1) return;
+  if (!view->paint || y < view->inset || y >= c->h - !view->hide_status) return;
   if (view->line_numbers) {
     label = MStrPrint("%4d ", view->line_number);
     HtkStr(c->x, c->y + y, label, HTK_C_DIM, HTK_C_BG);
@@ -102,7 +102,7 @@ U0 HtkMdStyle(CMarkdown *md, I64 style, I64 on)
       view->code_hit_b = view->code_b;
     }
     y = view->y - c->top + view->inset;
-    if (view->paint && y >= view->inset && y < c->h - 1) {
+    if (view->paint && y >= view->inset && y < c->h - !view->hide_status) {
       HtkStr(c->x + view->gutter, c->y + y, "[Copy]", HTK_C_SEL_FG, HTK_C_SEL_BG);
       label = MAlloc(StrsLen(&md->language) + 1);
       MemCpy(label, md->language.a, StrsLen(&md->language));
@@ -150,8 +150,12 @@ U0 HtkMdText(CMarkdown *md, CStrs *text)
   HtkCtl *c = view->ctl;
   U8 *p = text->a;
   I64 rune, n, at, distance, a, b, fg, bg, attr, x, y, cells, j;
+  I64 caret = edit->cursor;
   Bool source;
 
+  #ifdef UI_HTK_VIMODE
+  caret = HtkVimCaret(c, caret);
+  #endif
   EditSelection(edit, &a, &b);
   while (p < text->b) {
     n = MaxI64(1, Utf8DecodeRune(p, text->b - p, &rune));
@@ -161,12 +165,12 @@ U0 HtkMdText(CMarkdown *md, CStrs *text)
     if (source) at = p - edit->text.a;
     at = MaxI64(0, MinI64(StrsLen(&edit->text), at));
     cells = Utf8CellWidth(rune);
-    if (rune == '\t') cells = 4 - view->x % 4;
-    if ((view->mode & HTK_MD_SOURCE) && view->x + cells > view->width && rune != '\n') {
+    if (rune == '\t') cells = view->tab_width - view->x % view->tab_width;
+    if ((view->mode & HTK_MD_SOURCE) && !view->no_wrap && view->x + cells > view->width && rune != '\n') {
       HtkMdNewline(view);
     }
     HtkMdGuide(view, at);
-    distance = AbsI64(at - edit->cursor);
+    distance = AbsI64(at - caret);
     if (distance < view->distance || source && distance == view->distance) {
       view->distance = distance;
       view->caret_x = view->x;
@@ -190,11 +194,21 @@ U0 HtkMdText(CMarkdown *md, CStrs *text)
       rune = ' ';
     }
     if (rune == '\n') {
+      #ifdef UI_HTK_VIMODE
+      if (view->paint && c->vim_visual && at >= a && at < b) {
+        x = MaxI64(0, view->x - view->left);
+        y = view->y - c->top + view->inset;
+        if (x < view->viewport && y >= view->inset && y < c->h - !view->hide_status)
+          HtkRect(c->x + view->gutter + x, c->y + y,
+            1 + (view->viewport - x - 1) * (c->vim_visual == 2), 1,
+            ' ', HTK_C_SEL_FG, HTK_C_SEL_BG);
+      }
+      #endif
       HtkMdNewline(view);
     } else {
       x = view->x - view->left;
       y = view->y - c->top + view->inset;
-      if (view->paint && x >= 0 && x < view->viewport && y >= view->inset && y < c->h - 1) {
+      if (view->paint && x >= 0 && x < view->viewport && y >= view->inset && y < c->h - !view->hide_status) {
         fg = HTK_C_FIELD_FG;
         bg = HTK_C_FIELD_BG;
         attr = view->attr;
@@ -222,15 +236,19 @@ U0 HtkMdRender(CHtkMarkdown *view, Bool paint=FALSE)
   CMarkdown md;
   CEdit *edit = view->edit;
   I64 distance;
+  I64 caret = edit->cursor;
   CStrs source = edit->text;
 
+  #ifdef UI_HTK_VIMODE
+  caret = HtkVimCaret(view->ctl, caret);
+  #endif
   view->paint = paint;
   view->x = 0;
   view->y = 0;
   view->columns = 0;
   view->gutter = 6 * view->line_numbers + 3 * view->ruler_left;
   view->inset = view->ruler_top;
-  view->height = MaxI64(1, view->ctl->h - view->inset - 1);
+  view->height = MaxI64(1, view->ctl->h - view->inset - !view->hide_status);
   view->viewport = MaxI64(1, view->ctl->w - view->gutter);
   view->width = view->viewport;
   if (view->column_width) view->width = MaxI64(8, MinI64(view->width, view->column_width));
@@ -257,7 +275,7 @@ U0 HtkMdRender(CHtkMarkdown *view, Bool paint=FALSE)
   view->target.a = NULL; view->target.b = NULL;
   if (view->mode & HTK_MD_SOURCE) HtkMdText(&md, &source);
   else MarkdownRenderStrs(&md, &source);
-  if (edit->cursor == view->range_b) {
+  if (caret == view->range_b) {
     view->caret_x = view->x;
     view->caret_y = view->y;
   }
@@ -300,7 +318,7 @@ U0 HtkMdDraw(HtkCtl *c)
   HtkRect(c->x, c->y, c->w, c->h, ' ', HTK_C_FIELD_FG, HTK_C_FIELD_BG);
   // Guides must extend through empty rows, including a trailing empty line.
   if (view->ruler_left) {
-    for (y = view->inset; y < c->h - 1; y++) {
+    for (y = view->inset; y < c->h - !view->hide_status; y++) {
       row = c->top + y - view->inset;
       status = StrNew("  | ");
       if (!(row % 5)) { Free(status); status = MStrPrint("%2d|", row % 100); }
@@ -309,6 +327,13 @@ U0 HtkMdDraw(HtkCtl *c)
     }
   }
   HtkMdRender(view, TRUE);
+  #ifdef UI_HTK_VIMODE
+  if (c->vim_visual == 2 && view->edit->anchor == view->edit->cursor) {
+    x = view->caret_x - view->left; y = view->caret_y - c->top + view->inset;
+    if (x >= 0 && x < view->viewport && y >= view->inset && y < c->h - !view->hide_status)
+      HtkChr(c->x + view->gutter + x, c->y + y, ' ', HTK_C_SEL_FG, HTK_C_SEL_BG);
+  }
+  #endif
   HtkMdGuide(view, view->range_b);
   if (view->ruler_top) {
     for (x = 0; x < view->viewport; x++) {
@@ -320,15 +345,16 @@ U0 HtkMdDraw(HtkCtl *c)
       HtkChr(c->x + view->gutter + x, c->y, y, HTK_C_DIM, HTK_C_BG);
     }
   }
-  status = MStrPrint("< >  %d/%d  byte %d/%d", c->top + 1, view->rows,
-    view->edit->cursor, StrsLen(&view->edit->text));
-  HtkStr(c->x, c->y + c->h - 1, status, HTK_C_DIM, HTK_C_BG);
-  Free(status);
+  if (!view->hide_status) {
+    status = MStrPrint("< >  %d/%d  byte %d/%d", c->top + 1, view->rows,
+      view->edit->cursor, StrsLen(&view->edit->text));
+    HtkStr(c->x, c->y + c->h - 1, status, HTK_C_DIM, HTK_C_BG);
+    Free(status);
+  }
   x = view->caret_x - view->left;
   y = view->caret_y - c->top + view->inset;
-  if (HtkFocused(c) && !view->edit->readonly && x >= 0 && x < view->viewport && y >= view->inset && y < c->h - 1) {
-    TermGotoXY(c->x + view->gutter + x, c->y + y);
-    TermShowCursor(TRUE);
+  if (HtkFocused(c) && !view->edit->readonly && x >= 0 && x < view->viewport && y >= view->inset && y < c->h - !view->hide_status) {
+    HtkShowCursor(c, c->x + view->gutter + x, c->y + y);
   }
 }
 
@@ -366,7 +392,19 @@ Bool HtkMdKey(HtkCtl *c, CTermEvent *e)
   CStrs text;
   U8 bytes[4];
 
+  if (key == TERM_KEY_TAB && !(e->mods & (TERM_MOD_CTRL | TERM_MOD_ALT))) {
+    #ifdef UI_HTK_VIMODE
+    if (c->vim_visual) return TRUE;
+    #endif
+    if (edit->readonly || !MdTableMove(edit, e->mods & TERM_MOD_SHIFT)) return FALSE;
+    #ifdef UI_HTK_VIMODE
+    c->vim_pending = 0; c->vim_vertical = FALSE;
+    #endif
+    HtkMdChanged(c); return TRUE;
+  }
+  #ifdef UI_HTK_VIMODE
   if (HtkVimKey(c, edit, e)) { HtkMdChanged(c); return TRUE; }
+  #endif
   HtkMdRender(view);
   if (ctrl && key == 'a') { edit->anchor = 0; edit->cursor = StrsLen(&edit->text); }
   else if (ctrl && key == 'c') HtkMdCopy(c);
@@ -444,7 +482,7 @@ U0 HtkMdMouse(HtkCtl *c)
   }
   if (c->mouse_button != TERM_MOUSE_LEFT) return;
   edit->typing = FALSE;
-  if (c->mouse_y == c->h - 1) {
+  if (!view->hide_status && c->mouse_y == c->h - 1) {
     if (c->mouse_pressed && !c->mouse_motion) {
       at = 4;
       if (c->mouse_x < 2) at = -4;
@@ -467,6 +505,9 @@ U0 HtkMdMouse(HtkCtl *c)
     return;
   }
   if (c->mouse_pressed && !c->mouse_motion) {
+    #ifdef UI_HTK_VIMODE
+    if (c->vim_visual) HtkVimCancel(c, edit);
+    #endif
     view->press_at = at;
     view->dragging = FALSE;
     if (!(c->mouse_mods & TERM_MOD_SHIFT) || edit->anchor < 0) edit->anchor = at;
@@ -485,6 +526,27 @@ U0 HtkMdDestroy(HtkCtl *c)
   Free(c->data);
 }
 
+#ifdef UI_HTK_VIMODE
+U0 HtkMdVimPage(HtkCtl *c, CEdit *edit, I64 direction)
+{
+  CHtkMarkdown *view = c->data(CHtkMarkdown *);
+  I64 step, x, y, top = c->top;
+
+  HtkMdRender(view);
+  step = MaxI64(1, view->height - 2);
+  x = view->caret_x; y = view->caret_y;
+  edit->cursor = HtkMdHit(view, x, y + direction * step);
+  c->top = MaxI64(0, MinI64(MaxI64(0, view->rows - view->height), top + direction * step));
+  c->vim_vertical = FALSE;
+}
+
+U0 HtkMdVimChanged(HtkCtl *c)
+{
+  if (c->vim_visual) HtkVimCancel(c, c->data(CHtkMarkdown *)->edit);
+  HtkMdChanged(c);
+}
+#endif
+
 HtkCtl *HtkMarkdownNew(CEdit *edit)
 {
   CHtkMarkdown *view = CAlloc(sizeof(CHtkMarkdown));
@@ -496,14 +558,19 @@ HtkCtl *HtkMarkdownNew(CEdit *edit)
   view->follow = TRUE;
   view->mode = HTK_MD_EDIT;
   view->page_lines = 60;
+  view->tab_width = 4;
   c->expand = TRUE;
   c->focusable = TRUE;
+  c->cursor_shape = TERM_CURSOR_BAR;
   c->keyfn = &HtkMdKey;
   c->changed = &HtkMdMouse;
   c->destroy = &HtkMdDestroy;
+  #ifdef UI_HTK_VIMODE
   c->vim_editor = TRUE;
   c->vim_mode = htk_vim_mode;
-  c->vim_changed = &HtkMdChanged;
+  c->vim_changed = &HtkMdVimChanged;
+  c->vim_page = &HtkMdVimPage;
+  #endif
   return c;
 }
 

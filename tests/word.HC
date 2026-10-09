@@ -21,6 +21,14 @@ U0 Key(CWordDoc *doc, I64 key, I64 mods=0)
   HtkMdKey(doc->view, &event);
 }
 
+U0 WindowKey(I64 key, I64 mods=0)
+{
+  CTermEvent event;
+
+  event.type = TERM_EVENT_KEY; event.key = key; event.mods = mods;
+  HtkKey(&event);
+}
+
 U0 TestEdit()
 {
   CEdit edit;
@@ -168,22 +176,40 @@ U0 TestWindow()
   HtkCtl *bar = HtkWindowContent(doc->window)->kids, *button = bar->kids;
   Check(bar->kind == HTK_TOOLBAR && bar->h == 1 && bar->y == doc->window->y + 2,
     "one toolbar row below the menubar");
-  Check(HtkKidCount(bar) == 8 && doc->status->h == 1 &&
+  Check(HtkKidCount(bar) == 11 && doc->status->h == 1 &&
     doc->status->y == doc->window->y + doc->window->h - 2, "compact toolbar and docked statusbar");
-  Check(doc->source->parent == doc->status && doc->editable->parent == doc->status &&
+  Check(doc->outline_button->parent == doc->status &&
+    !StrCmp(doc->outline_button->text, "Outline") &&
+    doc->outline_button->sib == doc->source &&
+    doc->source->parent == doc->status && doc->editable->parent == doc->status &&
     doc->editable->x + doc->editable->w == doc->status->x + doc->status->w,
     "view modes dock at the statusbar bottom right");
   while (button) {
+    Check(button->data != WORD_OUTLINE, "outline lives in the statusbar");
     Check(button->data != WORD_NEW && button->data != WORD_OPEN && button->data != WORD_SAVE,
       "file actions only in menus");
     button = button->sib;
   }
+  HtkClipAll; HtkStr(0, 0, "☰]V", HTK_C_FG, HTK_C_BG);
+  Check(TermCellChar(term_back[0]) == 0x2630 &&
+    TermCellChar(term_back[1]) == TERM_CELL_CONT &&
+    TermCellChar(term_back[2]) == ']' && TermCellChar(term_back[3]) == 'V',
+    "wide trigram rendering preserves following characters");
+  Check(Utf8CellWidth(0x2630) == 2 && Utf8CellWidth(0x2637) == 2 && Utf8CellWidth(0x2638) == 1,
+    "trigram width range ends before the neighboring narrow symbols");
   doc->window->w = doc->window->min_w;
   HtkWindowLayout(doc->window);
-  Check(doc->vim->x + doc->vim->w <= bar->x + bar->w && bar->h == 1,
+  Check(doc->alignment[MD_ALIGN_JUSTIFY]->x + doc->alignment[MD_ALIGN_JUSTIFY]->w <= bar->x + bar->w && bar->h == 1,
     "toolbar fits the minimum window width");
+  Check(doc->editable->x + doc->editable->w == doc->status->x + doc->status->w &&
+    doc->stats->x + doc->stats->w < doc->outline_button->x,
+    "status modes stay right aligned in a narrow window");
   doc->window->w = 100;
   HtkWindowLayout(doc->window);
+  WordAction(doc, WORD_OUTLINE);
+  Check(doc->outline->hidden && !doc->outline_button->value, "statusbar outline toggle hides the tree");
+  WordAction(doc, WORD_OUTLINE);
+  Check(!doc->outline->hidden && doc->outline_button->value, "statusbar outline toggle restores the tree");
   Check(HtkTreeCount(doc->outline) == 1, "heading outline");
   HtkMdRender(view);
   Check(view->rows > 6, "rendered table rows");
@@ -379,6 +405,364 @@ U0 TestSearch()
   HtkWindowClose(doc->window); WordDispose(doc, 0);
 }
 
+U0 WordKeys(CWordDoc *doc, U8 *keys)
+{
+  I64 rune, n;
+
+  while (*keys) {
+    n = Utf8DecodeRune(keys, StrLen(keys), &rune);
+    if (rune == 27) rune = TERM_KEY_ESCAPE;
+    else if (rune == '\n') rune = TERM_KEY_ENTER;
+    Key(doc, rune); keys += n;
+  }
+}
+
+U0 TestMarkdownVim()
+{
+  CWordApp app;
+  CWordDoc *doc = WordNew(&app);
+  I64 mode;
+
+  HtkVimMode(doc->view, TRUE);
+  for (mode = HTK_MD_EDIT; mode <= HTK_MD_SOURCE; mode++) {
+    HtkMarkdownMode(doc->view, mode);
+    EditFini(&doc->edit); EditInit(&doc->edit);
+    StrBufPutS(&doc->edit.text, "é\n  😀\nlast");
+    doc->view->vim_insert = FALSE; doc->view->vim_at = 0;
+    HtkWindowLayout(doc->window); HtkSetFocus(doc->view); HtkClipAll; HtkMdDraw(doc->view);
+    Check(term_cursor_shape == TERM_CURSOR_BLOCK, "Word Normal cursor is block in both views");
+    WordKeys(doc, "i"); HtkMdDraw(doc->view);
+    Check(term_cursor_shape == TERM_CURSOR_BAR && doc->edit.cursor == 0,
+      "Word Insert cursor changes to bar without moving the caret");
+    Key(doc, TERM_KEY_ESCAPE); HtkMdDraw(doc->view);
+    Check(term_cursor_shape == TERM_CURSOR_BLOCK, "Word Escape restores block cursor");
+    WordKeys(doc, "J");
+    Check(Equal(&doc->edit.text, "é 😀\nlast") && doc->edit.cursor == 2,
+      "Markdown Vim J joins source lines in rendered and source views");
+    Check(MemMem(doc->stats->text, StrLen(doc->stats->text), "NORMAL", 6) != NULL,
+      "Vim status tracks normal mode after joining");
+    WordKeys(doc, "u");
+    Check(Equal(&doc->edit.text, "é\n  😀\nlast"), "Markdown Vim join undo");
+    EditFini(&doc->edit); EditInit(&doc->edit);
+    StrBufPutS(&doc->edit.text, "one two"); doc->view->vim_at = 0;
+    WordKeys(doc, "cwnew word\x1b");
+    Check(Equal(&doc->edit.text, "new word two") && !doc->view->vim_insert,
+      "Markdown Vim cw preserves following spaces");
+    WordKeys(doc, "u");
+    Check(Equal(&doc->edit.text, "one two"), "Markdown Vim cw is a single undo step");
+    WordKeys(doc, "i"); Key(doc, TERM_KEY_END); Key(doc, '!'); Key(doc, TERM_KEY_ESCAPE);
+    Check(Equal(&doc->edit.text, "one two!"), "Markdown Insert End and typing agree in both views");
+    doc->edit.cursor = 1; doc->edit.anchor = -1;
+    WordKeys(doc, "V"); HtkMdRender(doc->view->data);
+    HtkMdDraw(doc->view);
+    Check(term_cursor_shape == TERM_CURSOR_BLOCK, "Word Visual cursor stays block");
+    Check(doc->view->vim_visual == 2 && doc->edit.anchor == 0 && doc->edit.cursor == 8 &&
+      MemMem(doc->stats->text, StrLen(doc->stats->text), "V-LINE", 6),
+      "Markdown Visual line selection and status work in source and rendered modes");
+    Key(doc, TERM_KEY_ESCAPE);
+    Check(!doc->view->vim_visual && doc->edit.cursor == 1 && doc->edit.anchor == -1,
+      "Markdown Visual Escape keeps logical source caret");
+    WordKeys(doc, "vld");
+    Check(Equal(&doc->edit.text, "o two!"), "Markdown Visual character deletion includes both endpoints");
+    WordKeys(doc, "u"); Check(Equal(&doc->edit.text, "one two!"), "Markdown Visual delete undo");
+  }
+  doc->window->closing = NULL; doc->window->submit = NULL;
+  HtkWindowClose(doc->window); WordDispose(doc, 0);
+}
+
+U0 TestTableNavigation()
+{
+  CWordApp app;
+  CWordDoc *doc = WordNew(&app);
+  CTermEvent e;
+  CStrs cells[3], row;
+  U8 *p;
+  I64 positions[6], count = 0, i, mode, revision, source;
+
+  StrBufPutS(&doc->edit.text, "| A | B | C |\n| --- | :---: | ---: |\n| é😀 |  | `a|b` |\n\nafter");
+  p = MdNextLine(&doc->edit.text, doc->edit.text.a, &row);
+  MdTableSplitRow(&row, cells, 3);
+  for (i = 0; i < 3; i++) positions[count++] = cells[i].a - doc->edit.text.a;
+  p = MdNextLine(&doc->edit.text, p, &row);
+  MdNextLine(&doc->edit.text, p, &row); MdTableSplitRow(&row, cells, 3);
+  for (i = 0; i < 3; i++) positions[count++] = cells[i].a - doc->edit.text.a;
+  positions[4]--; // Between the two padding spaces in the empty body cell.
+  e.key = TERM_KEY_TAB;
+  revision = doc->edit.revision;
+  for (mode = HTK_MD_EDIT; mode <= HTK_MD_SOURCE; mode++) {
+    HtkMarkdownMode(doc->view, mode); HtkSetFocus(doc->view);
+    doc->edit.cursor = positions[0]; doc->edit.anchor = -1;
+    for (i = 1; i < 6; i++) {
+      e.mods = 0; HtkKey(&e);
+      Check(htk_focus == doc->view && doc->edit.cursor == positions[i] && doc->edit.anchor < 0,
+        "Tab moves between cells and skips separator in both views");
+    }
+    HtkKey(&e); Check(doc->edit.cursor == positions[5], "Tab at last cell stays in table");
+    for (i = 4; i >= 0; i--) {
+      e.mods = TERM_MOD_SHIFT; HtkKey(&e);
+      Check(htk_focus == doc->view && doc->edit.cursor == positions[i],
+        "Shift-Tab moves back through table cells");
+    }
+    HtkKey(&e); Check(doc->edit.cursor == positions[0], "Shift-Tab at first cell stays in table");
+  }
+  Check(doc->edit.revision == revision && !doc->edit.undo, "cell navigation preserves document history");
+  doc->edit.cursor = positions[4]; Key(doc, 'X');
+  Check(MdFind(doc->edit.text.a, doc->edit.text.b, "| X |") != NULL,
+    "typing after Tab inserts inside an empty cell");
+  Key(doc, 'z', TERM_MOD_CTRL);
+  HtkVimMode(doc->view, TRUE); doc->view->vim_insert = TRUE;
+  doc->edit.cursor = positions[0]; e.mods = 0; HtkKey(&e);
+  Check(doc->edit.cursor == positions[1] && doc->view->vim_insert && htk_focus == doc->view,
+    "cell navigation preserves Vim Insert mode");
+  HtkVimMode(doc->view, FALSE);
+  doc->edit.cursor = StrsLen(&doc->edit.text); HtkKey(&e);
+  Check(htk_focus != doc->view, "Tab outside a table moves focus normally");
+  HtkSetFocus(doc->view); HtkMarkdownMode(doc->view, HTK_MD_READ);
+  doc->edit.cursor = positions[0]; HtkKey(&e);
+  Check(htk_focus != doc->view && doc->edit.cursor == positions[0], "readonly Tab moves focus normally");
+  HtkMarkdownMode(doc->view, HTK_MD_EDIT); HtkSetFocus(doc->view);
+  EditFini(&doc->edit); EditInit(&doc->edit); MdEditTable(&doc->edit, MD_TABLE_INSERT);
+  source = doc->edit.cursor; HtkKey(&e);
+  Check(doc->edit.cursor > source && htk_focus == doc->view, "Tab reaches another newly inserted empty cell");
+  e.mods = TERM_MOD_SHIFT; HtkKey(&e);
+  Check(doc->edit.cursor == source, "Shift-Tab returns to the new table's first cell");
+  doc->window->closing = NULL; doc->window->submit = NULL;
+  HtkWindowClose(doc->window); WordDispose(doc, 0);
+}
+
+U0 TestVimShortcuts()
+{
+  CWordApp app;
+  CWordDoc *doc = WordNew(&app);
+  CHtkMarkdown *view = doc->view->data;
+  I64 i, step, y, top;
+
+  HtkVimMode(doc->view, TRUE); HtkMarkdownMode(doc->view, HTK_MD_SOURCE);
+  HtkWindowLayout(doc->window); HtkSetFocus(doc->view);
+  doc->view->h = 8; view->ruler_top = TRUE; view->no_wrap = TRUE;
+  for (i = 0; i < 40; i++) StrBufPutS(&doc->edit.text, "é😀x\n");
+  doc->edit.cursor = 2; HtkMdDraw(doc->view);
+  WindowKey('f', TERM_MOD_CTRL); HtkMdDraw(doc->view);
+  Check(doc->edit.cursor == 34 && doc->view->top == 4 && htk_focus == doc->view &&
+    !doc->edit.undo, "Word Ctrl-F pages using height excluding ruler and footer, without opening Search");
+  WindowKey('b', TERM_MOD_CTRL); HtkMdDraw(doc->view);
+  Check(doc->edit.cursor == 2 && doc->view->top == 0 && !doc->edit.undo,
+    "Word Ctrl-B pages instead of applying Bold");
+  WindowKey('V'); WindowKey('f', TERM_MOD_CTRL); HtkMdDraw(doc->view);
+  Check(doc->view->vim_visual == 2 && doc->view->vim_head == 34 && doc->view->top == 4,
+    "Word window shortcuts retain Visual page selection");
+  WindowKey(TERM_KEY_ESCAPE); WindowKey('i'); WindowKey('b', TERM_MOD_CTRL);
+  Check(doc->view->vim_insert && doc->edit.cursor == 2, "Word also pages in Insert mode");
+  WindowKey('a', TERM_MOD_CTRL); WindowKey('e', TERM_MOD_CTRL);
+  Check(doc->edit.cursor == 7 && doc->edit.anchor == -1, "Word Insert Ctrl-A/E move within the line");
+  WindowKey('n', TERM_MOD_CTRL);
+  Check(doc->edit.cursor == 15 && app.docs == doc && !doc->next,
+    "Word Insert Ctrl-N moves down instead of creating a document");
+  WindowKey('p', TERM_MOD_CTRL); WindowKey('w', TERM_MOD_CTRL);
+  Check(app.docs == doc && doc->edit.cursor == 6 && htk_focus == doc->view,
+    "Word Insert Ctrl-W cuts a word instead of closing its window");
+  WindowKey('y', TERM_MOD_CTRL);
+  Check(doc->edit.cursor == 7 && StrsLen(&doc->edit.text) == 320,
+    "Word Insert Ctrl-Y pastes instead of redoing");
+  WindowKey('u', TERM_MOD_CTRL);
+  Check(doc->edit.cursor == 0 && doc->edit.text.a[0] == '\n',
+    "Word Insert Ctrl-U cuts to line start instead of underlining");
+  WindowKey('y', TERM_MOD_CTRL);
+
+  // A wrapped source line pages in display rows, not entire source lines.
+  EditFini(&doc->edit); EditInit(&doc->edit);
+  for (i = 0; i < 10; i++) StrBufPutS(&doc->edit.text, "abcdefgh");
+  doc->view->vim_insert = FALSE; doc->view->vim_at = 0; doc->view->top = 0;
+  view->no_wrap = FALSE; view->column_width = 8;
+  HtkMdDraw(doc->view); WindowKey('f', TERM_MOD_CTRL); HtkMdDraw(doc->view);
+  Check(doc->edit.cursor == 32 && view->caret_y == 4 && doc->view->top == 4,
+    "Word Ctrl-F advances four wrapped display rows");
+  WindowKey('b', TERM_MOD_CTRL); HtkMdDraw(doc->view);
+  Check(doc->edit.cursor == 0 && doc->view->top == 0, "wrapped source Ctrl-B returns to start");
+
+  // Rendered code maps display rows back to source positions with syntax hidden.
+  EditFini(&doc->edit); EditInit(&doc->edit); StrBufPutS(&doc->edit.text, "```\n");
+  for (i = 0; i < 40; i++) StrBufPutS(&doc->edit.text, "é😀x\n");
+  StrBufPutS(&doc->edit.text, "```\n"); doc->edit.cursor = 6; doc->view->vim_at = 6;
+  view->column_width = 0; HtkMarkdownMode(doc->view, HTK_MD_EDIT);
+  doc->view->top = 0; HtkMdDraw(doc->view);
+  y = view->caret_y; top = doc->view->top; step = view->height - 2;
+  WindowKey('f', TERM_MOD_CTRL); HtkMdDraw(doc->view);
+  Check(view->caret_y == y + step && doc->view->top == top + step &&
+    EditBoundary(&doc->edit, doc->edit.cursor) && !doc->edit.undo,
+    "rendered Word paging moves the viewport and a valid source caret together");
+  WindowKey('b', TERM_MOD_CTRL); HtkMdDraw(doc->view);
+  Check(doc->edit.cursor == 6 && doc->view->top == 0, "rendered Ctrl-B returns to original Unicode caret");
+
+  HtkVimMode(doc->view, FALSE); doc->edit.cursor = 4;
+  WindowKey('a', TERM_MOD_CTRL);
+  Check(doc->edit.anchor == 0 && doc->edit.cursor == StrsLen(&doc->edit.text),
+    "disabling Vim restores Word's ordinary Select All shortcut");
+  doc->window->closing = NULL; doc->window->submit = NULL;
+  HtkWindowClose(doc->window); WordDispose(doc, 0);
+}
+
+U0 TestAlignment()
+{
+  CWordApp app;
+  CWordDoc *doc = WordNew(&app);
+  CEdit *edit = &doc->edit;
+  CHtkMarkdown *view = doc->view->data;
+  CMdAlignment aligned;
+  CMarkdown md;
+  CMdExport export;
+  CStrBuf out, pdf;
+  CStrs input, row;
+  U8 *p;
+  I64 a, b, old_cursor, revision, x, y;
+
+  StrBufInit(&out); StrBufInit(&pdf); StrBufInit(&export.links);
+  export.out = &out; export.format = MD_EXPORT_TEXT;
+  StrBufPutS(&edit->text, "Hello **world** é.\n\nSecond paragraph.\n");
+  edit->cursor = old_cursor = 7;
+  WordAction(doc, WORD_ALIGN + MD_ALIGN_CENTER);
+  Check(MdAlignAt(&edit->text, edit->cursor, &aligned) && aligned.align == MD_ALIGN_CENTER &&
+    Equal(&aligned.body, "Hello **world** é.\n"), "center formats current paragraph without changing its text");
+  Check(edit->cursor == old_cursor + StrLen(md_align_fences[MD_ALIGN_CENTER]) + 1 && edit->anchor < 0 &&
+    doc->alignment[MD_ALIGN_CENTER]->value, "alignment preserves cursor and highlights toolbar state");
+  MarkdownInit(&md, &MdExportText, NULL, &export); md.width = 20;
+  MarkdownRenderStrs(&md, &aligned.source);
+  Check(Equal(&out, "     Hello world é.\n"), "center measures styled Unicode text");
+  StrBufClear(&out); WordAction(doc, WORD_ALIGN + MD_ALIGN_RIGHT);
+  MdAlignAt(&edit->text, edit->cursor, &aligned); MarkdownRenderStrs(&md, &aligned.source);
+  Check(Equal(&out, "        Hello world é.\n"), "right alignment fills available width");
+  revision = edit->revision; WordAction(doc, WORD_ALIGN + MD_ALIGN_RIGHT);
+  Check(edit->revision == revision, "reapplying alignment does not nest divs or create history");
+  WordAction(doc, WORD_ALIGN + MD_ALIGN_LEFT);
+  StrBufClear(&out); MdAlignAt(&edit->text, edit->cursor, &aligned); MarkdownRenderStrs(&md, &aligned.source);
+  Check(Equal(&out, "  Hello world é.\n"), "left resets paragraph alignment");
+  Check(EditUndo(edit) && MdAlignAt(&edit->text, edit->cursor, &aligned) && aligned.align == MD_ALIGN_RIGHT,
+    "alignment is one undo step");
+  StrBufClear(&out); MarkdownExport(&edit->text, &out, MD_EXPORT_HTML);
+  Check(MdFind(out.a, out.b, "<div style=\"text-align:right\">") &&
+    MdFind(out.a, out.b, "<strong>world</strong>") && !MdFind(out.a, out.b, "htk-align"),
+    "HTML exports alignment with semantic inline formatting");
+  StrBufClear(&out); MarkdownExport(&edit->text, &out, MD_EXPORT_TEXT);
+  Check(StrsLen(&out) < 100 && MdFind(out.a, out.b, "Hello world é.") && !MdFind(out.a, out.b, ":::") ,
+    "plain text exports omit div syntax and alignment padding");
+  MdPdfInput(&edit->text, &pdf);
+  Check(MdFind(pdf.a, pdf.b, "\\begin{flushright}") && MdFind(pdf.a, pdf.b, "\\end{flushright}") &&
+    MdFind(pdf.a, pdf.b, "Hello **world** é."), "PDF input preserves Markdown inside alignment environments");
+
+  EditFini(edit); EditInit(edit);
+  StrBufPutS(&edit->text, "one two three four five six seven eight nine ten\n");
+  WordAction(doc, WORD_ALIGN + MD_ALIGN_JUSTIFY);
+  StrBufClear(&out); md.width = 12; MarkdownRenderStrs(&md, &edit->text);
+  Check(MdStarts(out.a, out.b, "  one      two\n  three   four\n"), "wide alignment expands gaps in wrapped lines");
+  p = out.a;
+  while (p < out.b) {
+    p = MdNextLine(&out, p, &row);
+    Check(MdWidth(&row) <= 14, "justified paragraph stays inside its width");
+  }
+  Check(MdFind(out.a, out.b, "  nine ten\n"), "last paragraph line stays left aligned");
+  HtkWindowLayout(doc->window); view->column_width = 15;
+  a = MdFind(edit->text.a, edit->text.b, "two") - edit->text.a;
+  edit->cursor = a + 2; HtkMdRender(view); x = view->caret_x; y = view->caret_y;
+  Check(HtkMdHit(view, x, y) == a + 2 && EditBoundary(edit, HtkMdHit(view, x + 1, y)),
+    "justified hit testing retains source positions");
+  WordAction(doc, WORD_ALL); WordAction(doc, WORD_ALIGN + MD_ALIGN_CENTER);
+  Check(MdAlignAt(&edit->text, edit->cursor, &aligned) && aligned.align == MD_ALIGN_CENTER,
+    "formatting selection of an existing div changes its alignment");
+
+  EditFini(edit); EditInit(edit);
+  StrBufPutS(&edit->text, "first\n\nsecond\n\n```\nuntouched\n```\n\nlast\n");
+  edit->anchor = 0; edit->cursor = StrsLen(&edit->text);
+  Check(MdEditAlign(edit, MD_ALIGN_RIGHT), "align selected paragraphs as one operation");
+  Check(MdFind(edit->text.a, edit->text.b, "```\nuntouched\n```\n") &&
+    EditUndo(edit) && Equal(&edit->text, "first\n\nsecond\n\n```\nuntouched\n```\n\nlast\n"),
+    "selected code remains untouched and alignment undoes together");
+  a = MdFind(edit->text.a, edit->text.b, "untouched") - edit->text.a;
+  edit->cursor = a; edit->anchor = -1;
+  Check(!MdEditAlign(edit, MD_ALIGN_CENTER), "alignment does not edit fenced code");
+  EditFini(edit); EditInit(edit);
+  Check(MdEditAlign(edit, MD_ALIGN_CENTER) && MdAlignAt(&edit->text, edit->cursor, &aligned) &&
+    Equal(&aligned.body, "\n"), "empty paragraph can be aligned before typing");
+  edit->readonly = TRUE; revision = edit->revision;
+  Check(!MdEditAlign(edit, MD_ALIGN_LEFT) && edit->revision == revision, "readonly protects paragraph formatting");
+  StrBufClear(&pdf);
+  StrsInitS(&input, "```\n::: {.htk-align-center style=\"text-align:center\"}\ntext\n:::\n```\n");
+  MdPdfInput(&input, &pdf);
+  Check(Equal(&pdf, input.a), "PDF does not interpret alignment inside code fences");
+  StrBufFini(&out); StrBufFini(&pdf); StrBufFini(&export.links);
+  doc->window->closing = NULL; doc->window->submit = NULL;
+  HtkWindowClose(doc->window); WordDispose(doc, 0);
+}
+
+U0 TestPdf()
+{
+  CWordApp app;
+  CWordDoc *doc = WordNew(&app);
+  CWordPdfDialog dialog;
+  CMdPdf options;
+  HtkCtl *window = WordPdfDialog(doc, &dialog);
+  CStrBuf command, error;
+  CStrs text;
+  U8 *bytes, *old_path;
+  I64 size, i;
+  Bool ok;
+
+  Check(WordPdfRead(&dialog, &options) && options.paper == 0 && options.font_size == 11 &&
+    options.margins[0] == 20, "PDF settings defaults");
+  HtkSetText(dialog.margins[0], "12.5");
+  Check(!WordPdfRead(&dialog, &options), "PDF margins require whole millimeters");
+  HtkSetText(dialog.margins[0], "15"); dialog.paper->value = 1;
+  HtkSetText(dialog.margins[1], "70"); HtkSetText(dialog.margins[3], "70");
+  Check(!WordPdfRead(&dialog, &options), "PDF margins must leave printable area");
+  HtkSetText(dialog.margins[1], "10"); HtkSetText(dialog.margins[3], "12");
+  dialog.orientation->value = 1; dialog.font_size->value = 2; dialog.toc->value = TRUE;
+  Check(WordPdfRead(&dialog, &options), "PDF accepts landscape with independent margins");
+  StrBufInit(&command); StrBufInit(&error);
+  Check(MdPdfCommand(&command, &options, "tests/out/layout.pdf", "folder with spaces") &&
+    MdFind(command.a, command.b, "papersize=a5") && MdFind(command.a, command.b, "fontsize=12pt") &&
+    MdFind(command.a, command.b, "top=15mm,right=10mm,bottom=20mm,left=12mm,landscape") &&
+    MdFind(command.a, command.b, " --toc"), "PDF command applies page layout settings");
+  HtkCtl *apply = window->link;
+  WordPdfApply(apply);
+  Check(dialog.applied && window->closed && doc->pdf.landscape && doc->pdf.paper == 1,
+    "PDF settings apply to this document");
+  HtkDestroy(window);
+  #ifndef IS_WINDOWS
+  old_path = StrNew(getenv("PATH"));
+  StrsInitS(&text, "#!/bin/sh\nprintf '%s\n' \"$@\" > tests/out/pdf-args.txt\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = '--output' ]; then shift; output=$1; fi\n  shift\ndone\n/bin/cat > tests/out/pdf-stdin.md\nprintf '%s\n' '%PDF-1.7 fixture' > \"$output\"\n");
+  Check(FileReplace("tests/out/pandoc", &text) && !system("/bin/chmod +x tests/out/pandoc")(I32),
+    "prepare PDF process fixture");
+  setenv("PATH", "tests/out", 1);
+  U8 raw[5] = {'a', 0, 'b', '\n', 'c'};
+  StrsInitN(&text, raw, sizeof(raw));
+  ok = MdPdfExport(&text, "tests/out/word 'quoted' $(not-a-command).pdf", "folder 'quoted'", &options, &error);
+  setenv("PATH", old_path, 1);
+  Check(ok && StrsEmpty(&error), "PDF export quotes paths and replaces destination after success");
+  bytes = FileRead("tests/out/pdf-stdin.md", &size);
+  Check(bytes && size == sizeof(raw) && !MemCmp(bytes, raw, size), "PDF receives bounded unsaved Markdown bytes");
+  Free(bytes);
+  bytes = FileRead("tests/out/pdf-args.txt", &size);
+  Check(bytes && MemMem(bytes, size, "folder 'quoted'", 15), "PDF keeps resource path as one argument");
+  Free(bytes);
+  StrsInitS(&text, "keep original"); FileReplace("tests/out/word-pdf-failure.pdf", &text);
+  setenv("PATH", "/nonexistent", 1);
+  ok = MdPdfExport(&text, "tests/out/word-pdf-failure.pdf", ".", &options, &error);
+  setenv("PATH", old_path, 1); Free(old_path);
+  Check(!ok && MdFind(error.a, error.b, "pandoc"), "missing Pandoc reports captured diagnostics");
+  bytes = FileRead("tests/out/word-pdf-failure.pdf", &size);
+  Check(bytes && size == 13 && !MemCmp(bytes, "keep original", 13), "failed PDF export preserves existing file");
+  Free(bytes);
+  // Optional integration check; regular tests do not require Pandoc/TeX.
+  if (getenv("WORD_TEST_PDF")) {
+    MdPdfDefault(&options); options.paper = 1; options.landscape = TRUE;
+    StrsInitS(&text, "# PDF export\n\nCurrent **unsaved** text with é.\n\n::: {.htk-align-center style=\"text-align:center\"}\nCentered paragraph.\n:::\n\n::: {.htk-align-right style=\"text-align:right\"}\nRight paragraph.\n:::\n\n::: {.htk-align-justify style=\"text-align:justify\"}\nJustified paragraph has enough text to fill a line and carry its remaining words over to the next line in this PDF.\n:::\n\n| A | B |\n| --- | --- |\n| one | two |\n");
+    Check(MdPdfExport(&text, "tests/out/word-real.pdf", ".", &options, &error), "real Pandoc PDF export");
+  }
+  #endif
+  StrBufFini(&command); StrBufFini(&error);
+  doc->window->closing = NULL; doc->window->submit = NULL;
+  HtkWindowClose(doc->window); WordDispose(doc, 0);
+}
+
 TestEdit;
 TestMarkdown;
 TestWindow;
@@ -386,5 +770,10 @@ TestWindow;
 TermBuffersAlloc;
 TestTableEditing;
 TestSearch;
+TestMarkdownVim;
+TestTableNavigation;
+TestVimShortcuts;
+TestAlignment;
+TestPdf;
 Free(term_back); Free(term_front);
 "ok word\n";

@@ -99,7 +99,9 @@ Free(text.a);
 engine parses and lays out the text at `md.width` columns (75 by default)
 and calls back with text slices and `MD_STYLE_*` on/off events (bold, italic,
 strike, code, code block line, title and title mark with the heading level,
-banner, rule, table border). It never allocates and never emits escape codes;
+banner, rule, table border). It never emits escape codes; ordinary rendering
+does not allocate, while aligned fenced divs temporarily store widths and
+word-gap counts per rendered row.
 `md.utf8` selects box drawing for rules and tables and `md.slide_titles`
 draws headings as full width bands. Each backend is a separate include, so a
 program includes the engine plus the backend it wants and passes the
@@ -130,6 +132,14 @@ U0 MyStyle(CMarkdown *md, I64 style, I64 on) { ... }
 MarkdownInit(&md, &MyText, &MyStyle, my_widget);
 MarkdownRenderStrs(&md, &slice);   // any [a, b) slice, no NUL needed
 ```
+
+`MdEditAlign(edit, MD_ALIGN_LEFT/RIGHT/CENTER/JUSTIFY)` applies a saved Pandoc
+fenced-div alignment to the current or selected paragraphs as one undo step.
+The renderer preserves source positions through padding and expanded word
+spacing, and HTML/PDF exports keep the alignment. Plain exports omit padding.
+The optional `word_wrap` flag wraps at word boundaries; aligned blocks enable
+it automatically. `CEdit.spliced` optionally observes replacements, including
+undo/redo, for multiple views sharing one document.
 
 `font.hc` maps ASCII letters and supported digits to Unicode text styles.
 Other valid UTF-8 runes are preserved. `FontStyleFromNameS` selects a style

@@ -1,4 +1,5 @@
 // HolyC Markdown word processor. Build: aholyc examples/word.hc -o word
+#define UI_HTK_VIMODE
 #define TERM_CTRL_Z_KEY
 #ifndef WORD_TEST
 #define HTK_NATIVE_CLIPBOARD
@@ -7,13 +8,15 @@
 #include "../lib/htk/history.hc"
 #include "../lib/htk/filepick.hc"
 #include "../lib/text/md_export.hc"
+#include "../lib/text/md_pdf.hc"
 #include "../lib/text/font.hc"
 #include "../lib/io/replace.hc"
 extern I64 system(U8 *command);
 #ifdef IS_WINDOWS
 extern U8 *LoadLibraryA(U8 *name);
 extern U8 *GetProcAddress(U8 *module, U8 *name);
-extern I64 FreeLibrary(U8 *module);
+extern I32 FreeLibrary(U8 *module);
+U8 *WordShellOpen(U8 *window, U8 *operation, U8 *file, U8 *params, U8 *dir, I32 show);
 #endif
 
 #define WORD_NEW 1
@@ -71,6 +74,9 @@ extern I64 FreeLibrary(U8 *module);
 #define WORD_PAGE_BREAK 81
 #define WORD_CODE_BLOCK 82
 #define WORD_VIM 83
+#define WORD_PDF 84
+#define WORD_PDF_SETTINGS 85
+#define WORD_ALIGN 86 // + MD_ALIGN_LEFT/RIGHT/CENTER/JUSTIFY
 
 class CWordApp;
 class CWordDoc
@@ -78,13 +84,16 @@ class CWordDoc
   CWordDoc *next;
   CWordApp *app;
   CEdit edit;
+  CMdPdf pdf;
   HtkCtl *window;
   HtkCtl *view;
   HtkCtl *outline;
   HtkCtl *source;
   HtkCtl *editable;
   HtkCtl *vim;
+  HtkCtl *alignment[4];
   HtkCtl *status;
+  HtkCtl *outline_button;
   HtkCtl *stats;
   HtkCtl *link_menu;
   CStrBuf path, target;
@@ -105,6 +114,7 @@ U0 WordStatus(CWordDoc *doc)
 {
   CEdit *edit = &doc->edit;
   I64 at = 0, next, rune, words = 0, chars = 0, line = 1, column = 1;
+  I64 caret = HtkVimCaret(doc->view, edit->cursor);
   Bool in_word = FALSE, space;
   U8 *mode = "EDIT", *dirty = "", *text;
 
@@ -116,7 +126,7 @@ U0 WordStatus(CWordDoc *doc)
     if (!space && !in_word) words++;
     in_word = !space;
     chars++;
-    if (at < edit->cursor) {
+    if (at < caret) {
       if (rune == '\n') { line++; column = 1; }
       else column++;
     }
@@ -125,6 +135,8 @@ U0 WordStatus(CWordDoc *doc)
   if (doc->view->vim_mode) {
     mode = "NORMAL";
     if (doc->view->vim_insert) mode = "INSERT";
+    else if (doc->view->vim_visual == 1) mode = "VISUAL";
+    else if (doc->view->vim_visual == 2) mode = "V-LINE";
   }
   if (edit->readonly) mode = "READ";
   if (edit->revision != edit->saved) dirty = " *";
@@ -175,6 +187,11 @@ U0 WordRefresh(HtkCtl *view)
   if (doc->editable->value) HtkSetText(doc->editable, "Edit");
   else HtkSetText(doc->editable, "View");
   doc->vim->value = doc->view->vim_mode;
+  doc->outline_button->value = !doc->outline_hidden;
+  CMdAlignment aligned;
+  level = MD_ALIGN_LEFT;
+  if (MdAlignAt(&doc->edit.text, doc->edit.cursor, &aligned)) level = aligned.align;
+  for (i = 0; i < 4; i++) doc->alignment[i]->value = i == level;
   WordStatus(doc);
   HtkSetText(doc->window, title);
   Free(title);
@@ -435,9 +452,9 @@ U0 WordSystem(CWordDoc *doc)
   if (MdFind(target.a, target.b, ":")) path = StrNew(doc->target.a);
   else path = WordResolve(doc, &target);
   U8 *module = LoadLibraryA("shell32.dll");
-  I64 (*open)(U0 *window, U8 *operation, U8 *file, U8 *params, U8 *dir, I64 show);
-  if (module) open = GetProcAddress(module, "ShellExecuteA");
-  if (!open || open(NULL, "open", path, NULL, NULL, 1) <= 32)
+  WordShellOpen *open = NULL;
+  if (module) open = GetProcAddress(module, "ShellExecuteA")(WordShellOpen *);
+  if (!open || open(NULL, "open", path, NULL, NULL, 1)(I64) <= 32)
     HtkNotify("System handler could not open the link", 3000);
   if (module) FreeLibrary(module);
   Free(path);
@@ -506,13 +523,128 @@ U0 WordLinkEdit(CWordDoc *doc, Bool existing, Bool image=FALSE)
   Free(url);
 }
 
+class CWordPdfDialog
+{
+  CWordDoc *doc;
+  HtkCtl *window;
+  HtkCtl *paper;
+  HtkCtl *orientation;
+  HtkCtl *engine;
+  HtkCtl *font_size;
+  HtkCtl *margins[4];
+  HtkCtl *toc;
+  HtkCtl *message;
+  Bool applied;
+};
+
+HtkCtl *WordPdfField(HtkCtl *grid, U8 *label, HtkCtl *field, I64 row)
+{
+  HtkCtl *text = HtkNew(HTK_LABEL);
+
+  HtkSetText(text, label); text->row = row;
+  HtkAdd(grid, text);
+  field->col = 1; field->row = row; field->expand = TRUE;
+  HtkAdd(grid, field);
+  return field;
+}
+
+Bool WordPdfRead(CWordPdfDialog *dialog, CMdPdf *options)
+{
+  I64 i, value;
+  U8 *p;
+
+  MdPdfDefault(options);
+  options->paper = dialog->paper->value;
+  options->engine = dialog->engine->value;
+  options->font_size = dialog->font_size->value + 10;
+  options->landscape = dialog->orientation->value == 1;
+  options->toc = dialog->toc->value != 0;
+  for (i = 0; i < 4; i++) {
+    p = dialog->margins[i]->text; value = 0;
+    if (!*p) return FALSE;
+    while (*p) {
+      if (*p < '0' || *p > '9') return FALSE;
+      value = value * 10 + *p++ - '0';
+      if (value > 100) return FALSE;
+    }
+    options->margins[i] = value;
+  }
+  return MdPdfValid(options);
+}
+
+U0 WordPdfApply(HtkCtl *button)
+{
+  CWordPdfDialog *dialog = button->user;
+  CMdPdf options;
+
+  if (!WordPdfRead(dialog, &options)) {
+    HtkSetText(dialog->message, "Use margins from 0 to 100 mm; leave room for text.");
+    return;
+  }
+  MemCpy(&dialog->doc->pdf, &options, sizeof(CMdPdf));
+  dialog->applied = TRUE;
+  HtkWindowClose(dialog->window);
+}
+
+HtkCtl *WordPdfDialog(CWordDoc *doc, CWordPdfDialog *dialog)
+{
+  HtkCtl *box = HtkNew(HTK_BOX), *grid = HtkNew(HTK_GRID), *row = HtkButtonBarNew, *apply;
+  U8 *papers[4] = {"A4", "A5", "Letter", "Legal"};
+  U8 *engines[3] = {"XeLaTeX", "PDFLaTeX", "LuaLaTeX"};
+  U8 *margins[4] = {"Top margin (mm)", "Right margin (mm)", "Bottom margin (mm)", "Left margin (mm)"};
+  U8 *value;
+  I64 i;
+
+  MemSet(dialog, 0, sizeof(CWordPdfDialog)); dialog->doc = doc;
+  box->vertical = TRUE;
+  dialog->paper = WordPdfField(grid, "Page size", HtkComboNew, 0);
+  for (i = 0; i < 4; i++) HtkComboAdd(dialog->paper, papers[i]);
+  dialog->paper->value = doc->pdf.paper;
+  dialog->orientation = WordPdfField(grid, "Orientation", HtkComboNew, 1);
+  HtkComboAdd(dialog->orientation, "Portrait"); HtkComboAdd(dialog->orientation, "Landscape");
+  dialog->orientation->value = doc->pdf.landscape;
+  for (i = 0; i < 4; i++) {
+    value = MStrPrint("%d", doc->pdf.margins[i]);
+    dialog->margins[i] = WordPdfField(grid, margins[i], HtkEntryNew(value, 3), i + 2);
+    Free(value);
+  }
+  dialog->font_size = WordPdfField(grid, "Body font size", HtkComboNew, 6);
+  HtkComboAdd(dialog->font_size, "10 pt"); HtkComboAdd(dialog->font_size, "11 pt");
+  HtkComboAdd(dialog->font_size, "12 pt"); dialog->font_size->value = doc->pdf.font_size - 10;
+  dialog->engine = WordPdfField(grid, "PDF engine", HtkComboNew, 7);
+  for (i = 0; i < 3; i++) HtkComboAdd(dialog->engine, engines[i]);
+  dialog->engine->value = doc->pdf.engine;
+  HtkAdd(box, grid);
+  dialog->toc = HtkCheckboxNew("Table of contents", doc->pdf.toc);
+  HtkAdd(box, dialog->toc);
+  dialog->message = HtkNew(HTK_LABEL);
+  HtkSetText(dialog->message, "Requires Pandoc and the selected LaTeX engine.");
+  HtkAdd(box, dialog->message);
+  apply = HtkButtonNew("Apply"); apply->user = dialog; apply->changed = &WordPdfApply;
+  HtkAdd(row, apply); HtkAdd(row, HtkDialogButton("Cancel", FALSE)); HtkAdd(box, row);
+  dialog->window = HtkDialogNew("PDF settings", box); dialog->window->link = apply;
+  return dialog->window;
+}
+
+Bool WordPdfSettings(CWordDoc *doc)
+{
+  CWordPdfDialog dialog;
+  HtkCtl *window = WordPdfDialog(doc, &dialog);
+
+  HtkSetFocus(dialog.paper); HtkModalFor(window, doc->window); HtkDestroy(window);
+  return dialog.applied;
+}
+
 U0 WordExport(CWordDoc *doc, I64 format)
 {
-  U8 *path;
+  U8 *path, *resources;
   CStrBuf output;
+  CStrs directory;
   Bool ok;
 
-  path = HtkPromptFor(doc->window, "Export", "Destination (.html, .gem or .txt):", "");
+  if (format == 3 && !WordPdfSettings(doc)) return;
+  if (format == 3) path = HtkPromptFor(doc->window, "Export PDF", "Destination (.pdf):", "");
+  else path = HtkPromptFor(doc->window, "Export", "Destination (.html, .gem or .txt):", "");
   if (!path || !*path) { Free(path); return; }
   if (FileSamePath(path, doc->path.a)) {
     HtkMsgBoxFor(doc->window, "Export", "Choose a different path from the Markdown source.");
@@ -522,9 +654,16 @@ U0 WordExport(CWordDoc *doc, I64 format)
     Free(path); return;
   }
   StrBufInit(&output);
-  MarkdownExport(&doc->edit.text, &output, format);
-  ok = FileReplace(path, &output);
+  if (format == 3) {
+    StrsInitS(&directory, "."); resources = WordResolve(doc, &directory);
+    ok = MdPdfExport(&doc->edit.text, path, resources, &doc->pdf, &output);
+    Free(resources);
+  } else {
+    MarkdownExport(&doc->edit.text, &output, format);
+    ok = FileReplace(path, &output);
+  }
   if (ok) HtkNotify("Export saved", 2000);
+  else if (format == 3) HtkMsgBoxFor(doc->window, "PDF export failed", output.a);
   else HtkMsgBoxFor(doc->window, "Export failed", "Check the destination and permissions.");
   StrBufFini(&output);
   Free(path);
@@ -642,6 +781,7 @@ U0 WordAction(CWordDoc *doc, I64 action)
   I64 i, a, b, size, rgb;
   CEdit *edit = &doc->edit;
   CHtkMarkdown *view = doc->view->data(CHtkMarkdown *);
+  I64 revision = edit->revision, cursor = edit->cursor, anchor = edit->anchor;
 
   edit->typing = FALSE;
   if (action == WORD_QUIT) { HtkQuit; return; }
@@ -655,6 +795,8 @@ U0 WordAction(CWordDoc *doc, I64 action)
   if (action == WORD_SAVE_AS) { WordSave(doc, TRUE); return; }
   if (action == WORD_CLOSE) { HtkWindowClose(doc->window); return; }
   if (action >= WORD_HTML && action <= WORD_TEXT) { WordExport(doc, action - WORD_HTML); return; }
+  if (action == WORD_PDF) { WordExport(doc, 3); return; }
+  if (action == WORD_PDF_SETTINGS) { WordPdfSettings(doc); return; }
   if (action == WORD_SOURCE || action == WORD_EDITABLE) {
     i = HTK_MD_SOURCE;
     if (action == WORD_EDITABLE) i = HTK_MD_READ;
@@ -712,6 +854,7 @@ U0 WordAction(CWordDoc *doc, I64 action)
   else if (action == WORD_UNDO || action == WORD_REDO) EditUndo(edit, action == WORD_REDO);
   else if (action == WORD_CUT) HtkMdCopy(doc->view, TRUE);
   else if (action == WORD_PASTE) { HtkClipboardGet(&slice); EditInsert(edit, &slice); }
+  else if (action >= WORD_ALIGN && action < WORD_ALIGN + 4) MdEditAlign(edit, action - WORD_ALIGN);
   else if (action == WORD_BOLD) WordWrap(doc, "**", "**");
   else if (action == WORD_ITALIC) WordWrap(doc, "*", "*");
   else if (action == WORD_UNDERLINE) WordWrap(doc, "<u>", "</u>");
@@ -766,6 +909,10 @@ U0 WordAction(CWordDoc *doc, I64 action)
     if (!MdEditTable(edit, action - WORD_TABLE)) HtkNotify("This table action is unavailable at the cursor", 2500);
   } else if (action >= WORD_BORDER && action < WORD_BORDER + 4)
     MdEditTable(edit, MD_TABLE_BORDER, action - WORD_BORDER);
+  if (doc->view->vim_visual && (edit->revision != revision ||
+    edit->cursor != cursor || edit->anchor != anchor)) {
+    doc->view->vim_visual = 0; doc->view->vim_pending = 0;
+  }
   HtkMdChanged(doc->view);
   HtkSetFocus(doc->view);
 }
@@ -775,6 +922,8 @@ Bool WordKey(HtkCtl *window, CTermEvent *e)
   CWordDoc *doc = window->user(CWordDoc *);
   I64 action = 0;
 
+  if (htk_focus == doc->view && HtkVimControl(doc->view, e))
+    return HtkMdKey(doc->view, e);
   if (e->mods & TERM_MOD_CTRL) {
     if (e->key == 'n') action = WORD_NEW;
     if (e->key == 'o') action = WORD_OPEN;
@@ -812,15 +961,16 @@ CWordDoc *WordNew(CWordApp *app, U8 *path=NULL)
     "Background color...", "Font...", "Emoji...", "Link..."};
   I64 format_actions[8] = {WORD_BOLD, WORD_ITALIC, WORD_UNDERLINE, WORD_FG,
     WORD_BG, WORD_FONT, WORD_EMOJI, WORD_LINK};
-  U8 *tools[7] = {"B", "I", "U", "☺", "↗", "⌕", "☰"};
-  I64 tool_actions[7] = {WORD_BOLD, WORD_ITALIC, WORD_UNDERLINE, WORD_EMOJI,
-    WORD_LINK, WORD_FIND, WORD_OUTLINE};
+  U8 *tools[6] = {"B", "I", "U", "☺", "↗", "⌕"};
+  I64 tool_actions[6] = {WORD_BOLD, WORD_ITALIC, WORD_UNDERLINE, WORD_EMOJI,
+    WORD_LINK, WORD_FIND};
   U8 *tables[8] = {"Insert table", "Add row", "Add column", "Delete row",
     "Delete column", "Align left", "Align center", "Align right"};
   U8 *borders[4] = {"Single", "Round", "ASCII", "None"};
 
   doc->app = app;
   EditInit(&doc->edit);
+  MdPdfDefault(&doc->pdf);
   StrBufInit(&doc->path);
   StrBufInit(&doc->target);
   doc->outline_revision = -1;
@@ -834,22 +984,38 @@ CWordDoc *WordNew(CWordApp *app, U8 *path=NULL)
   menu = HtkMenuNew(doc->window, "File");
   WordItem(doc, menu, "New           Ctrl-N", WORD_NEW);
   WordItem(doc, menu, "Open...       Ctrl-O", WORD_OPEN);
+  HtkMenuSeparator(menu);
   WordItem(doc, menu, "Save          Ctrl-S", WORD_SAVE);
   WordItem(doc, menu, "Save as...    Ctrl-Shift-S", WORD_SAVE_AS);
   sub = HtkSubMenu(menu, "Export");
   WordItem(doc, sub, "HTML...", WORD_HTML);
   WordItem(doc, sub, "Gemtext (.gem)...", WORD_GEM);
   WordItem(doc, sub, "Plain text...", WORD_TEXT);
+  WordItem(doc, sub, "PDF...", WORD_PDF);
+  HtkMenuSeparator(sub);
+  WordItem(doc, sub, "PDF settings...", WORD_PDF_SETTINGS);
+  HtkMenuSeparator(menu);
   WordItem(doc, menu, "Close         Ctrl-W", WORD_CLOSE);
   WordItem(doc, menu, "Quit          Ctrl-Q", WORD_QUIT);
   menu = HtkMenuNew(doc->window, "Edit");
-  for (i = 0; i < 5; i++) WordItem(doc, menu, edit_labels[i], edit_actions[i]);
+  for (i = 0; i < 2; i++) WordItem(doc, menu, edit_labels[i], edit_actions[i]);
   WordItem(doc, menu, "History...", WORD_HISTORY);
+  HtkMenuSeparator(menu);
+  for (i = 2; i < 5; i++) WordItem(doc, menu, edit_labels[i], edit_actions[i]);
   WordItem(doc, menu, "Select all    Ctrl-A", WORD_ALL);
+  HtkMenuSeparator(menu);
   WordItem(doc, menu, "Find / replace... Ctrl-F", WORD_FIND);
+  HtkMenuSeparator(menu);
   WordItem(doc, menu, "Toggle Vim mode", WORD_VIM);
   menu = HtkMenuNew(doc->window, "Format");
   for (i = 0; i < 8; i++) WordItem(doc, menu, format_labels[i], format_actions[i]);
+  HtkMenuSeparator(menu);
+  sub = HtkSubMenu(menu, "Paragraph alignment");
+  WordItem(doc, sub, "Left", WORD_ALIGN + MD_ALIGN_LEFT);
+  WordItem(doc, sub, "Center", WORD_ALIGN + MD_ALIGN_CENTER);
+  WordItem(doc, sub, "Right", WORD_ALIGN + MD_ALIGN_RIGHT);
+  WordItem(doc, sub, "Justify (wide)", WORD_ALIGN + MD_ALIGN_JUSTIFY);
+  HtkMenuSeparator(menu);
   WordItem(doc, menu, "Image...", WORD_IMAGE);
   WordItem(doc, menu, "Heading", WORD_HEADING);
   WordItem(doc, menu, "Bullet list", WORD_LIST);
@@ -859,7 +1025,11 @@ CWordDoc *WordNew(CWordApp *app, U8 *path=NULL)
   WordItem(doc, menu, "Line separator", WORD_RULE);
   WordItem(doc, menu, "Page break", WORD_PAGE_BREAK);
   menu = HtkMenuNew(doc->window, "Table");
-  for (i = 0; i < 8; i++) WordItem(doc, menu, tables[i], WORD_TABLE + i);
+  for (i = 0; i < 8; i++) {
+    if (i == 5) HtkMenuSeparator(menu);
+    WordItem(doc, menu, tables[i], WORD_TABLE + i);
+  }
+  HtkMenuSeparator(menu);
   sub = HtkSubMenu(menu, "Border style");
   for (i = 0; i < 4; i++) WordItem(doc, sub, borders[i], WORD_BORDER + i);
   WordItem(doc, menu, "Toggle fit / horizontal scroll", WORD_FIT);
@@ -868,21 +1038,28 @@ CWordDoc *WordNew(CWordApp *app, U8 *path=NULL)
   WordItem(doc, menu, "Toggle table fit", WORD_FIT);
   WordItem(doc, menu, "Source / rendered", WORD_SOURCE);
   WordItem(doc, menu, "Editable / read only", WORD_EDITABLE);
+  HtkMenuSeparator(menu);
   WordItem(doc, menu, "Line numbers", WORD_LINES);
   WordItem(doc, menu, "Top ruler", WORD_RULER_TOP);
   WordItem(doc, menu, "Left ruler", WORD_RULER_LEFT);
+  HtkMenuSeparator(menu);
   WordItem(doc, menu, "Column width...", WORD_WIDTH);
   WordItem(doc, menu, "Lines per page...", WORD_PAGE_SIZE);
   WordItem(doc, menu, "Continuous", WORD_CONTINUOUS);
   WordItem(doc, menu, "Pages", WORD_PAGES);
   WordItem(doc, menu, "Current section", WORD_SECTION);
+  HtkMenuSeparator(menu);
   WordItem(doc, menu, "Previous section", WORD_PREV_SECTION);
   WordItem(doc, menu, "Next section", WORD_NEXT_SECTION);
   box = HtkNew(HTK_BOX);
   box->vertical = TRUE;
   bar = HtkToolbarNew;
-  for (i = 0; i < 7; i++) WordItem(doc, bar, tools[i], tool_actions[i]);
+  for (i = 0; i < 6; i++) WordItem(doc, bar, tools[i], tool_actions[i]);
   doc->vim = WordItem(doc, bar, "V", WORD_VIM);
+  doc->alignment[MD_ALIGN_LEFT] = WordItem(doc, bar, "L", WORD_ALIGN + MD_ALIGN_LEFT);
+  doc->alignment[MD_ALIGN_CENTER] = WordItem(doc, bar, "C", WORD_ALIGN + MD_ALIGN_CENTER);
+  doc->alignment[MD_ALIGN_RIGHT] = WordItem(doc, bar, "R", WORD_ALIGN + MD_ALIGN_RIGHT);
+  doc->alignment[MD_ALIGN_JUSTIFY] = WordItem(doc, bar, "J", WORD_ALIGN + MD_ALIGN_JUSTIFY);
   HtkAdd(box, bar);
   split = HtkNew(HTK_SPLIT);
   split->expand = TRUE;
@@ -902,6 +1079,7 @@ CWordDoc *WordNew(CWordApp *app, U8 *path=NULL)
   doc->stats = HtkNew(HTK_LABEL);
   doc->stats->expand = TRUE;
   HtkAdd(doc->status, doc->stats);
+  doc->outline_button = WordItem(doc, doc->status, "Outline", WORD_OUTLINE);
   doc->source = WordItem(doc, doc->status, "Render", WORD_SOURCE);
   doc->editable = WordItem(doc, doc->status, "Edit", WORD_EDITABLE);
   HtkAdd(box, doc->status);
@@ -910,6 +1088,7 @@ CWordDoc *WordNew(CWordApp *app, U8 *path=NULL)
   doc->link_menu->parent = doc->window;
   WordItem(doc, doc->link_menu, "Open in new window", WORD_LINK_NEW);
   WordItem(doc, doc->link_menu, "Replace this window", WORD_LINK_REPLACE);
+  HtkMenuSeparator(doc->link_menu);
   WordItem(doc, doc->link_menu, "Edit link...", WORD_LINK_EDIT);
   WordItem(doc, doc->link_menu, "Open with system handler", WORD_LINK_SYSTEM);
   WordItem(doc, doc->link_menu, "Copy target", WORD_LINK_COPY);

@@ -40,7 +40,15 @@ done
 # HTK input and keybinding/settings regressions need no terminal or display.
 for b in $backends; do
 	[ "$b" = js ] && continue
-	for name in mouse keys; do
+	if ./aholyc -b "$b" tests/term_cursor.HC -o "tests/out/term-cursor-$b" \
+		2>"tests/out/term-cursor-$b.err" && "tests/out/term-cursor-$b"; then
+		echo "ok   $b/term-cursor"
+	else
+		echo "FAIL $b/term-cursor"
+		head -5 "tests/out/term-cursor-$b.err"
+		fail=1
+	fi
+	for name in mouse keys editor; do
 		if ./aholyc -b "$b" "tests/htk_$name.HC" -o "tests/out/htk-$name-$b" \
 			2>"tests/out/htk-$name-$b.err" && "tests/out/htk-$name-$b"; then
 			echo "ok   $b/htk-$name"
@@ -50,6 +58,14 @@ for b in $backends; do
 			fail=1
 		fi
 	done
+	if ./aholyc -b "$b" -D UI_HTK_VIMODE tests/htk_keys.HC -o "tests/out/htk-vim-keys-$b" \
+		2>"tests/out/htk-vim-keys-$b.err" && "tests/out/htk-vim-keys-$b"; then
+		echo "ok   $b/htk-vim-keys"
+	else
+		echo "FAIL $b/htk-vim-keys"
+		head -5 "tests/out/htk-vim-keys-$b.err"
+		fail=1
+	fi
 done
 
 # The Markdown editor model, exports, widgets, and window actions run headless.
@@ -61,6 +77,19 @@ for b in $backends; do
 	else
 		echo "FAIL $b/word"
 		head -5 "tests/out/word-$b.err"
+		fail=1
+	fi
+done
+
+# Vim source editing, shared split buffers and commands also run headless.
+for b in $backends; do
+	[ "$b" = js ] && continue
+	if ./aholyc -b "$b" tests/vim.HC -o "tests/out/vim-$b" \
+		2>"tests/out/vim-$b.err" && "tests/out/vim-$b"; then
+		echo "ok   $b/vim"
+	else
+		echo "FAIL $b/vim"
+		head -5 "tests/out/vim-$b.err"
 		fail=1
 	fi
 done
