@@ -236,6 +236,8 @@ U0 HtkWindowClose(HtkCtl *w)
 {
   if (!w || w->closed)
     return;
+  if (w->closing && !w->closing(w))
+    return;
   if (htk_move == w)
     HtkWindowMoveEnd;
   if (htk_popup && HtkOwnerWindow(HtkPopupRoot->link) == w)
@@ -246,6 +248,7 @@ U0 HtkWindowClose(HtkCtl *w)
   if (htk_focus && HtkOwnerWindow(htk_focus) == w)
     htk_focus = NULL;
   htk_dirty = TRUE;
+  if (w->submit) w->submit(w); // closed notification; destruction may be deferred
 }
 
 U0 HtkWindowMinimize(HtkCtl *w)

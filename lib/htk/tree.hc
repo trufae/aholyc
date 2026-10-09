@@ -140,7 +140,8 @@ U0 HtkTreeClick(HtkCtl *c, I64 index)
   node = HtkTreeWalk(c, 0, index, &probe, NULL);
   if (!node)
     return;
-  HtkTreeSelect(c, index);
+  if (c->link == node) HtkFire(c);
+  else HtkTreeSelect(c, index);
   if (node->kids) {
     node->value = !node->value;
     htk_dirty = TRUE;
@@ -162,8 +163,8 @@ Bool HtkTreeKey(HtkCtl *c, CTermEvent *e)
     c->link->value = FALSE;
     htk_dirty = TRUE;
   } else if (e->key == TERM_KEY_ENTER && c->link) {
-    c->link->value = !c->link->value;
-    htk_dirty = TRUE;
+    if (c->submit) c->submit(c);
+    else { c->link->value = !c->link->value; HtkFire(c); }
   } else
     return FALSE;
   return TRUE;

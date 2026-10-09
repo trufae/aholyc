@@ -138,6 +138,16 @@ Bool TermNativeRawOn()
   flags[3] &= ~(TERM_ICANON | TERM_ECHO | TERM_IEXTEN);
   state[TERM_CC + TERM_VMIN] = 1;
   state[TERM_CC + TERM_VTIME] = 0;
+#ifdef TERM_CTRL_Z_KEY
+  // Editors need ^Z as a key. Keep ISIG for ^C; restore all saved characters
+  // on exit. VDISABLE differs between Darwin and Linux.
+#ifdef IS_MACOS
+  state[TERM_CC + 10] = 255; // VSUSP (^Z)
+  state[TERM_CC + 11] = 255; // VDSUSP (^Y)
+#else
+  state[TERM_CC + 10] = 0; // VSUSP (^Z)
+#endif
+#endif
   if (tcsetattr(0, 0, state)(I32))
     return FALSE;
   term_posix_raw = TRUE;
