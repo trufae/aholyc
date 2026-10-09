@@ -69,6 +69,14 @@ Enable **Replace** in the same dialog to replace the selected/next match, or
 enable **Replace all matches**. An empty replacement deletes matches; Replace
 all is one undo step. Read-only documents still allow searching.
 
+Task-list markers such as `- [ ] item` and `- [x] item` are interactive.
+In **View**, click the checkbox once or press Space anywhere on its source
+line to toggle it. In **Edit**, double-click the checkbox; a single click
+places the caret and Space types normally. Dragging or modified clicks keep
+selection behavior. Each toggle changes only the marker, marks the document
+unsaved, and is one undo step after switching to Edit. Code blocks and
+ordinary bracket text stay inert.
+
 **Edit > Toggle Vim mode**, the **V** button, and **App > Settings** use HTK's
 shared Vim setting, including other multiline editors and new windows.
 This example defines `UI_HTK_VIMODE`; other HTK apps enable this optional
@@ -99,7 +107,8 @@ spaces, line breaks, deletions and the initiating `cw` or `o/O` command share
 one undo step; navigation, Esc, commands and saving end that group. Formatting and table
 operations are individual history steps. **Edit > History...** restores
 through a chosen undo/redo entry. Editing after undo discards the redo branch.
-Read-only mode blocks all changes, including undo and redo. Save status tracks
+View mode blocks ordinary edits, undo and redo; task toggles are its explicit
+exception. Save status tracks
 the history revision, so undoing to the saved state clears the dirty marker.
 
 ## Navigation and layout

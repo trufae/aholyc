@@ -26,9 +26,10 @@ class CHtkMarkdown
   I64 guide_y, line_at, line_number, code_a, code_b, code_hit_a, code_hit_b, tab_width;
   Bool line_numbers, ruler_top, ruler_left, no_wrap, hide_status;
   I64 query_x, query_y, hit, hit_distance, link_a, link_b;
+  I64 hit_x, hit_y, hit_cells, task_click_at, task_click_ms, task_click_revision;
   I64 attr, fg, bg, link_start, link_end, press_at;
   CStrs target, hit_target;
-  Bool paint, query, follow, fit, dragging;
+  Bool paint, query, follow, fit, dragging, hit_source, task_interactive;
   U0 (*linkfn)(HtkCtl *c, I64 a, I64 b, CStrs *target);
 };
 
@@ -182,6 +183,8 @@ U0 HtkMdText(CMarkdown *md, CStrs *text)
       if (distance < view->hit_distance) {
         view->hit_distance = distance;
         view->hit = at;
+        view->hit_x = view->x; view->hit_y = view->y;
+        view->hit_cells = cells; view->hit_source = source && rune != '\n';
         view->link_a = -1;
         if (view->query_y == view->y && view->query_x >= view->x && view->query_x < view->x + cells)
           view->link_a = view->link_start;
@@ -267,6 +270,7 @@ U0 HtkMdRender(CHtkMarkdown *view, Bool paint=FALSE)
   view->link_start = -1;
   view->link_a = -1;
   view->hit = 0;
+  view->hit_source = FALSE;
   MarkdownInit(&md, &HtkMdText, &HtkMdStyle, view);
   md.width = MaxI64(8, view->width - 3);
   md.utf8 = TRUE;
@@ -283,6 +287,7 @@ U0 HtkMdRender(CHtkMarkdown *view, Bool paint=FALSE)
     distance = AbsI64(view->y - view->query_y) * 1000000 + AbsI64(view->x - view->query_x);
     if (distance < view->hit_distance) {
       view->hit = view->range_b;
+      view->hit_source = FALSE;
       view->link_a = -1;
     }
   }
@@ -383,6 +388,38 @@ U0 HtkMdCopy(HtkCtl *c, Bool cut=FALSE)
   }
 }
 
+Bool HtkMdTaskToggle(HtkCtl *c, I64 at)
+{
+  CHtkMarkdown *view = c->data(CHtkMarkdown *);
+  CEdit *edit = view->edit;
+  Bool readonly = edit->readonly, changed;
+
+  if (!view->task_interactive || readonly && !(view->mode & HTK_MD_READ)) return FALSE;
+  // View mode permits the task control alone; restore its text lock before callbacks.
+  edit->readonly = FALSE;
+  changed = MdEditTask(edit, at);
+  edit->readonly = readonly;
+  view->task_click_at = -1;
+  if (changed) {
+    #ifdef UI_HTK_VIMODE
+    c->vim_pending = 0; c->vim_kill = FALSE;
+    #endif
+    HtkMdChanged(c);
+  }
+  return changed;
+}
+
+I64 HtkMdTaskHit(CHtkMarkdown *view)
+{
+  I64 marker;
+
+  if (!view->task_interactive || !view->hit_source || view->query_y != view->hit_y ||
+    view->query_x < view->hit_x || view->query_x >= view->hit_x + view->hit_cells) return -1;
+  marker = MdTaskAt(&view->edit->text, view->hit);
+  if (marker >= 0 && view->hit >= marker - 1 && view->hit <= marker + 1) return marker;
+  return -1;
+}
+
 Bool HtkMdKey(HtkCtl *c, CTermEvent *e)
 {
   CHtkMarkdown *view = c->data(CHtkMarkdown *);
@@ -392,6 +429,13 @@ Bool HtkMdKey(HtkCtl *c, CTermEvent *e)
   CStrs text;
   U8 bytes[4];
 
+  view->task_click_at = -1;
+  if (key == ' ' && !e->mods && view->mode & HTK_MD_READ) {
+    #ifdef UI_HTK_VIMODE
+    cursor = HtkVimCaret(c, cursor);
+    #endif
+    if (HtkMdTaskToggle(c, cursor)) return TRUE;
+  }
   if (key == TERM_KEY_TAB && !(e->mods & (TERM_MOD_CTRL | TERM_MOD_ALT))) {
     #ifdef UI_HTK_VIMODE
     if (c->vim_visual) return TRUE;
@@ -472,17 +516,19 @@ U0 HtkMdMouse(HtkCtl *c)
 {
   CHtkMarkdown *view = c->data(CHtkMarkdown *);
   CEdit *edit = view->edit;
-  I64 at;
+  I64 at, task = -1, now;
 
   if (c->mouse_button == TERM_MOUSE_WHEEL_UP || c->mouse_button == TERM_MOUSE_WHEEL_DOWN) {
+    view->task_click_at = -1;
     at = 3;
     if (c->mouse_button == TERM_MOUSE_WHEEL_UP) at = -3;
     c->top = MaxI64(0, c->top + at);
     return;
   }
-  if (c->mouse_button != TERM_MOUSE_LEFT) return;
+  if (c->mouse_button != TERM_MOUSE_LEFT) { view->task_click_at = -1; return; }
   edit->typing = FALSE;
   if (!view->hide_status && c->mouse_y == c->h - 1) {
+    view->task_click_at = -1;
     if (c->mouse_pressed && !c->mouse_motion) {
       at = 4;
       if (c->mouse_x < 2) at = -4;
@@ -491,10 +537,12 @@ U0 HtkMdMouse(HtkCtl *c)
     return;
   }
   if (c->mouse_y < view->inset) {
+    view->task_click_at = -1;
     if (c->mouse_pressed) view->column_width = MaxI64(8, c->mouse_x - view->gutter + view->left + 1);
     return;
   }
   at = HtkMdHit(view, c->mouse_x - view->gutter + view->left, c->mouse_y - view->inset + c->top);
+  if (!c->mouse_mods && c->mouse_x >= view->gutter) task = HtkMdTaskHit(view);
   if (view->code_hit_a >= 0) {
     if (c->mouse_pressed && !c->mouse_motion) {
       CStrs code;
@@ -513,9 +561,23 @@ U0 HtkMdMouse(HtkCtl *c)
     if (!(c->mouse_mods & TERM_MOD_SHIFT) || edit->anchor < 0) edit->anchor = at;
   }
   if (c->mouse_motion) view->dragging = TRUE;
+  if (c->mouse_motion || c->mouse_mods) view->task_click_at = -1;
   edit->cursor = at;
   if (c->submit) c->submit(c);
   if (!c->mouse_pressed && !c->mouse_motion && !view->dragging && at == view->press_at) {
+    if (task >= 0) {
+      now = TermMs;
+      if (view->mode & HTK_MD_READ || task == view->task_click_at &&
+        now >= view->task_click_ms && now - view->task_click_ms <= 500 &&
+        edit->revision == view->task_click_revision) {
+        HtkMdTaskToggle(c, task);
+      } else {
+        view->task_click_at = task; view->task_click_ms = now;
+        view->task_click_revision = edit->revision;
+      }
+      return;
+    }
+    view->task_click_at = -1;
     if (view->link_a >= 0 && view->linkfn)
       view->linkfn(c, view->link_a, view->link_b, &view->hit_target);
   }
@@ -559,6 +621,8 @@ HtkCtl *HtkMarkdownNew(CEdit *edit)
   view->mode = HTK_MD_EDIT;
   view->page_lines = 60;
   view->tab_width = 4;
+  view->task_interactive = TRUE;
+  view->task_click_at = -1;
   c->expand = TRUE;
   c->focusable = TRUE;
   c->cursor_shape = TERM_CURSOR_BAR;
@@ -579,6 +643,7 @@ U0 HtkMarkdownMode(HtkCtl *c, I64 mode)
   CHtkMarkdown *view = c->data(CHtkMarkdown *);
 
   view->mode = MaxI64(0, MinI64(3, mode));
+  view->task_click_at = -1;
   view->edit->readonly = (view->mode & HTK_MD_READ) != 0;
   view->left = 0;
   view->follow = TRUE;

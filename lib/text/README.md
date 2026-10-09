@@ -141,6 +141,11 @@ The optional `word_wrap` flag wraps at word boundaries; aligned blocks enable
 it automatically. `CEdit.spliced` optionally observes replacements, including
 undo/redo, for multiple views sharing one document.
 
+`MdTaskAt(text, byte)` returns the state byte of a task marker on that source
+line, or -1. It accepts bulleted, numbered, nested and quoted task lists and
+ignores fenced/tab-indented code. `MdEditTask(edit, byte)` toggles that marker
+as one undo step, preserves the caret and selection, and respects `readonly`.
+
 `font.hc` maps ASCII letters and supported digits to Unicode text styles.
 Other valid UTF-8 runes are preserved. `FontStyleFromNameS` selects a style
 by its utfmt name; `FontStyleName` provides the canonical spelling. The

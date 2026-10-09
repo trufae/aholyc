@@ -602,6 +602,150 @@ U0 TestVimShortcuts()
   HtkWindowClose(doc->window); WordDispose(doc, 0);
 }
 
+U0 TaskPoint(CWordDoc *doc, I64 at, I64 *x, I64 *y)
+{
+  CHtkMarkdown *view = doc->view->data;
+
+  doc->edit.cursor = at; doc->edit.anchor = -1; view->follow = TRUE;
+  HtkClipAll; HtkMdDraw(doc->view);
+  *x = doc->view->x + view->gutter + view->caret_x - view->left;
+  *y = doc->view->y + view->inset + view->caret_y - doc->view->top;
+}
+
+U0 TaskMouse(I64 x, I64 y, Bool press, Bool motion=FALSE, I64 mods=0)
+{
+  CTermEvent e;
+
+  MemSet(&e, 0, sizeof(CTermEvent));
+  e.type = TERM_EVENT_MOUSE; e.button = TERM_MOUSE_LEFT;
+  e.x = x; e.y = y; e.pressed = press; e.motion = motion; e.mods = mods;
+  HtkMouse(&e);
+}
+
+U0 TaskClick(CWordDoc *doc, I64 at, I64 mods=0)
+{
+  I64 x, y;
+
+  TaskPoint(doc, at, &x, &y);
+  TaskMouse(x, y, TRUE, FALSE, mods); TaskMouse(x, y, FALSE, FALSE, mods);
+}
+
+U0 TestTasks()
+{
+  CWordApp app;
+  CWordDoc *doc = WordNew(&app);
+  CEdit *edit = &doc->edit;
+  CHtkMarkdown *view = doc->view->data;
+  U8 *fixture = "- [ ] first é😀\n+ [x] second\n* [X] third\n12. [ ] numbered\n  - [ ] nested\n> - [ ] quoted\n\nordinary [ ] prose\n- [x](link)\n\t- [ ] code\n```\n- [ ] fenced\n```\n~~~\n- [x] fenced\n~~~\n- [ ] last";
+  I64 marker, at, x, y, revision, size, mode, i;
+
+  StrBufPutS(&edit->text, fixture); HtkVimMode(doc->view, FALSE);
+  marker = MdTaskAt(&edit->text, 8);
+  Check(marker == 3 && MdTaskAt(&edit->text, StrsLen(&edit->text)) == StrsLen(&edit->text) - 7,
+    "tasks are found anywhere on their source line, including unterminated EOF");
+  edit->cursor = 14; edit->anchor = 12;
+  Check(MdEditTask(edit, 14) && edit->text.a[3] == 'x' && edit->cursor == 14 && edit->anchor == 12 &&
+    StrsLen(&edit->undo->before) == 1 && StrsLen(&edit->undo->after) == 1,
+    "task toggle changes one state byte and preserves UTF-8 caret and selection");
+  Check(EditUndo(edit) && Equal(&edit->text, fixture), "task toggle is one undo step");
+  Check(EditUndo(edit, TRUE) && edit->text.a[3] == 'x', "task toggle redo");
+  EditUndo(edit);
+  at = MdFind(edit->text.a, edit->text.b, "[X]") - edit->text.a + 1;
+  Check(MdEditTask(edit, at) && edit->text.a[at] == ' ', "uppercase X is a checked task");
+  EditUndo(edit);
+  at = MdFind(edit->text.a, edit->text.b, "numbered") - edit->text.a;
+  Check(MdTaskAt(&edit->text, at) == at - 3, "ordered task list marker");
+  at = MdFind(edit->text.a, edit->text.b, "nested") - edit->text.a;
+  Check(MdTaskAt(&edit->text, at) == at - 3, "nested task marker");
+  at = MdFind(edit->text.a, edit->text.b, "quoted") - edit->text.a;
+  Check(MdTaskAt(&edit->text, at) == at - 3, "quoted task marker");
+  at = MdFind(edit->text.a, edit->text.b, "prose") - edit->text.a;
+  Check(MdTaskAt(&edit->text, at) < 0, "ordinary bracket text is inert");
+  at = MdFind(edit->text.a, edit->text.b, "link)") - edit->text.a;
+  Check(MdTaskAt(&edit->text, at) < 0, "a list link named x is not a task");
+  at = MdFind(edit->text.a, edit->text.b, "code") - edit->text.a;
+  Check(MdTaskAt(&edit->text, at) < 0, "tab-indented code is not interactive");
+  at = MdFind(edit->text.a, edit->text.b, "fenced") - edit->text.a;
+  Check(MdTaskAt(&edit->text, at) < 0 && !MdEditTask(edit, at), "backtick fenced tasks are inert");
+  at = MdFind(edit->text.a + at + 6, edit->text.b, "fenced") - edit->text.a;
+  Check(MdTaskAt(&edit->text, at) < 0, "tilde fenced tasks are inert");
+  edit->readonly = TRUE; revision = edit->revision;
+  Check(!MdEditTask(edit, 3) && edit->revision == revision, "task helper respects a strict readonly model");
+  edit->readonly = FALSE;
+
+  HtkWindowLayout(doc->window); HtkSetFocus(doc->view);
+  view->line_numbers = TRUE; view->ruler_top = TRUE; view->ruler_left = TRUE;
+  for (mode = HTK_MD_READ; mode <= HTK_MD_SOURCE_READ; mode++) {
+    HtkMarkdownMode(doc->view, mode); revision = edit->serial; size = StrsLen(&edit->text);
+    TaskPoint(doc, 3, &x, &y); TaskMouse(x, y, TRUE);
+    Check(edit->text.a[3] == ' ', "checkbox mouse-down alone does not change state");
+    TaskMouse(x, y, FALSE);
+    Check(edit->text.a[3] == 'x' && edit->serial == revision + 1 && edit->readonly && view->mode == mode,
+      "View click toggles once through mouse capture and preserves its text lock");
+    Check(MemMem(doc->stats->text, StrLen(doc->stats->text), " *", 2) != NULL,
+      "checkbox interaction refreshes Word's unsaved status");
+    TaskClick(doc, 4); Check(edit->text.a[3] == ' ', "clicking either bracket toggles the checkbox back");
+    edit->cursor = MdFind(edit->text.a, edit->text.b, "first") - edit->text.a + 6;
+    at = edit->cursor; WindowKey(' ');
+    Check(edit->text.a[3] == 'x' && edit->cursor == at && edit->readonly && StrsLen(&edit->text) == size,
+      "View Space on Unicode task text changes state without inserting or moving the caret");
+    WindowKey(' '); Check(edit->text.a[3] == ' ', "View Space toggles in both directions");
+    edit->cursor = MdFind(edit->text.a, edit->text.b, "prose") - edit->text.a;
+    revision = edit->serial; WindowKey(' '); WindowKey('x'); WindowKey(TERM_KEY_DELETE);
+    Check(edit->serial == revision && edit->readonly, "non-task View keys keep ordinary editing locked");
+    TaskClick(doc, 8); TaskClick(doc, 8);
+    Check(edit->text.a[3] == ' ', "clicking a task label only moves the caret");
+    TaskClick(doc, 3, TERM_MOD_SHIFT);
+    Check(edit->text.a[3] == ' ', "modified checkbox clicks retain selection behavior");
+    TaskPoint(doc, 3, &x, &y); TaskMouse(doc->view->x + view->gutter - 1, y, TRUE);
+    TaskMouse(doc->view->x + view->gutter - 1, y, FALSE);
+    Check(edit->text.a[3] == ' ', "clicking the line-number/ruler gutter cannot toggle a task");
+  }
+
+  HtkVimMode(doc->view, TRUE); HtkMarkdownMode(doc->view, HTK_MD_READ);
+  edit->cursor = 8; edit->anchor = -1; Key(doc, 'V'); Key(doc, ' ');
+  Check(doc->view->vim_visual == 2 && edit->text.a[3] == 'x' && edit->readonly,
+    "View Space uses the logical Vim caret when Visual bounds end on another line");
+  Key(doc, TERM_KEY_ESCAPE); HtkVimMode(doc->view, FALSE);
+
+  for (mode = HTK_MD_EDIT; mode <= HTK_MD_SOURCE; mode++) {
+    HtkMarkdownMode(doc->view, mode); revision = edit->serial;
+    TaskClick(doc, 3);
+    Check(edit->text.a[3] == 'x' && edit->serial == revision, "Edit single click places the caret");
+    TaskClick(doc, 2);
+    Check(edit->text.a[3] == ' ' && edit->serial == revision + 1, "Edit double click toggles one checkbox once");
+    WindowKey('z', TERM_MOD_CTRL); Check(edit->text.a[3] == 'x', "Word undo restores checkbox state");
+    TaskClick(doc, 3); view->task_click_ms = TermMs - 600; TaskClick(doc, 3);
+    Check(edit->text.a[3] == 'x', "two slow Edit clicks do not toggle a checkbox");
+    WindowKey(TERM_KEY_RIGHT); TaskClick(doc, 3);
+    Check(edit->text.a[3] == 'x', "keyboard navigation ends a pending double click");
+    TaskPoint(doc, 3, &x, &y); TaskMouse(x, y, TRUE);
+    TaskMouse(x + 1, y, TRUE, TRUE); TaskMouse(x, y, TRUE, TRUE); TaskMouse(x, y, FALSE);
+    Check(edit->text.a[3] == 'x', "dragging across a checkbox does not toggle it");
+    edit->cursor = MdFind(edit->text.a, edit->text.b, "first") - edit->text.a;
+    edit->anchor = -1; size = StrsLen(&edit->text); WindowKey(' ');
+    Check(StrsLen(&edit->text) == size + 1 && edit->text.a[edit->cursor - 1] == ' ',
+      "Edit Space retains ordinary typing");
+    WindowKey('z', TERM_MOD_CTRL);
+  }
+
+  HtkMarkdownMode(doc->view, HTK_MD_READ); view->task_interactive = FALSE;
+  edit->cursor = 3; revision = edit->serial; WindowKey(' '); TaskClick(doc, 3); TaskClick(doc, 3);
+  Check(edit->serial == revision && edit->readonly, "custom read-only viewers can disable task actions");
+  view->task_interactive = TRUE;
+  EditFini(edit); EditInit(edit); StrBufPutS(&edit->text, "- [ ]\n");
+  HtkMarkdownMode(doc->view, HTK_MD_READ); TaskPoint(doc, 3, &x, &y);
+  TaskMouse(x + 3, y, TRUE); TaskMouse(x + 3, y, FALSE);
+  Check(edit->text.a[3] == ' ' && !edit->undo, "empty space beside a checkbox is inert");
+
+  EditFini(edit); EditInit(edit);
+  for (i = 0; i < 40; i++) StrBufPutS(&edit->text, "- [ ] task\n");
+  HtkMarkdownMode(doc->view, HTK_MD_READ); TaskClick(doc, 333);
+  Check(doc->view->top > 0 && edit->text.a[333] == 'x', "scrolled checkbox hit maps to its exact source marker");
+  doc->window->closing = NULL; doc->window->submit = NULL;
+  HtkWindowClose(doc->window); WordDispose(doc, 0);
+}
+
 U0 TestAlignment()
 {
   CWordApp app;
@@ -773,6 +917,7 @@ TestSearch;
 TestMarkdownVim;
 TestTableNavigation;
 TestVimShortcuts;
+TestTasks;
 TestAlignment;
 TestPdf;
 Free(term_back); Free(term_front);
