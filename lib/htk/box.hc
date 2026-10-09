@@ -216,6 +216,11 @@ U0 HtkSplitLayout(HtkCtl *c)
   if (!one)
     return;
   two = one->sib;
+  if (one->hidden && two) {
+    two->x = c->x; two->y = c->y; two->w = c->w; two->h = c->h;
+    HtkLayoutCtl(two);
+    return;
+  }
   one->x = c->x;
   one->y = c->y;
   if (c->vertical) {
@@ -255,6 +260,7 @@ U0 HtkSplitDraw(HtkCtl *c)
 
   if (!one)
     return;
+  if (one->hidden) { HtkKidsDraw(c); return; }
   if (c->vertical)
     for (i = c->x; i < c->x + c->w; i++)
       HtkChr(i, c->y + one->h, HTK_R_H, HTK_C_DIM, HTK_C_BG);
@@ -336,4 +342,49 @@ Bool HtkScrollKey(HtkCtl *c, CTermEvent *e)
     c->top = 0;
   htk_dirty = TRUE;
   return TRUE;
+}
+
+// A wrapping toolbar. Measure uses the owning window's current inner width.
+U0 HtkFlowMeasure(HtkCtl *c)
+{
+  HtkCtl *k = c->kids, *w = HtkOwnerWindow(c);
+  I64 width = MaxI64(1, c->w), x = 0;
+
+  if (w) width = MaxI64(1, w->w - 2);
+
+  c->pw = width;
+  c->ph = 1;
+  while (k) {
+    HtkMeasureCtl(k);
+    if (!k->hidden) {
+      if (x && x + k->pw > width) {
+        c->ph++;
+        x = 0;
+      }
+      x += k->pw;
+    }
+    k = k->sib;
+  }
+}
+
+U0 HtkFlowLayout(HtkCtl *c)
+{
+  HtkCtl *k = c->kids;
+  I64 x = 0, y = 0;
+
+  while (k) {
+    if (!k->hidden) {
+      if (x && x + k->pw > c->w) {
+        y++;
+        x = 0;
+      }
+      k->x = c->x + x;
+      k->y = c->y + y;
+      k->w = MinI64(k->pw, c->w);
+      k->h = 1;
+      x += k->w;
+      HtkLayoutCtl(k);
+    }
+    k = k->sib;
+  }
 }

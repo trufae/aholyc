@@ -2,21 +2,29 @@
 // HTK_NATIVE_CLIPBOARD additionally emits an OSC 52 clipboard-set sequence
 // for terminals that permit access to their host OS clipboard.
 
-U8 *htk_clipboard;
+#include "../text/strbuf.hc"
 
-U0 HtkClipboardSet(U8 *text)
+CStrBuf htk_clipboard;
+
+U0 HtkClipboardSetStrs(CStrs *text)
 {
-  if (htk_clipboard)
-    Free(htk_clipboard);
-  htk_clipboard = StrNew(text);
+  CStrBuf copy;
+
+  StrBufInit(&copy);
+  StrBufPutStrs(&copy, text);
+  if (!htk_clipboard.a)
+    StrBufInit(&htk_clipboard);
+  StrBufClear(&htk_clipboard);
+  StrBufPutStrs(&htk_clipboard, &copy);
+  StrBufFini(&copy);
 #ifdef HTK_NATIVE_CLIPBOARD
   if (!TermLegacy) {
     I64 length;
-    U8 *encoded = Base64EncodeAlloc(htk_clipboard, StrLen(htk_clipboard),
+    U8 *encoded = Base64EncodeAlloc(htk_clipboard.a, StrsLen(&htk_clipboard),
       &length);
 
     if (encoded) {
-      TermWrite("\x1B]52;c;", 7);  // OSC 52: system clipboard
+      TermWrite("\x1B]52;c;", 7);
       TermWrite(encoded, length);
       TermWrite("\x07", 1);
       Free(encoded);
@@ -25,11 +33,25 @@ U0 HtkClipboardSet(U8 *text)
 #endif
 }
 
+U0 HtkClipboardSet(U8 *text)
+{
+  CStrs slice;
+
+  StrsInitS(&slice, text);
+  HtkClipboardSetStrs(&slice);
+}
+
 U8 *HtkClipboardText()
 {
-  if (!htk_clipboard)
-    return "";
-  return htk_clipboard;
+  if (!htk_clipboard.a)
+    StrBufInit(&htk_clipboard);
+  return htk_clipboard.a;
+}
+
+U0 HtkClipboardGet(CStrs *text)
+{
+  HtkClipboardText;
+  *text = *(&htk_clipboard)(CStrs *);
 }
 
 Bool HtkTableCopy(HtkCtl *c)

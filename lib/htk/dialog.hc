@@ -63,6 +63,7 @@ U0 HtkMsgBoxFor(HtkCtl *owner, U8 *title, U8 *body)
   w->link = ok;
   HtkSetFocus(ok);
   HtkModalFor(w, owner);
+  HtkDestroy(w);
 }
 
 U0 HtkMsgBox(U8 *title, U8 *body)
@@ -93,6 +94,7 @@ Bool HtkConfirmFor(HtkCtl *owner, U8 *title, U8 *body)
   htk_dialog_ok = FALSE;
   HtkSetFocus(yes);
   HtkModalFor(w, owner);
+  HtkDestroy(w);
   return htk_dialog_ok;
 }
 
@@ -138,6 +140,7 @@ U8 *HtkPromptFor(HtkCtl *owner, U8 *title, U8 *body, U8 *init="")
   HtkModalFor(w, owner);
   if (htk_dialog_ok)
     result = StrNew(entry->text);
+  HtkDestroy(w);
   return result;
 }
 

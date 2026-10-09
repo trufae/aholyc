@@ -141,6 +141,7 @@ class CTermEvent
 // codepoint in bits 0..20, attr 21..27, fg 28..45, bg 46..63.
 #define TERM_CELL_EMPTY   0x400100000020
 #define TERM_CELL_INVALID 0xFFFFFFFFFFFFFFFF
+#define TERM_CELL_CONT 0x110000 // trailing cell of a wide rune
 
 // Set by the backends, polled by the application.
 Bool term_interrupted;
@@ -670,8 +671,21 @@ public U0 TermCell(I64 x, I64 y, I64 ch,
 {
   if (x < 0 || y < 0 || x >= term_width || y >= term_height)
     return;
-  term_back[y * term_width + x] = ch & 0x1FFFFF | (attr & 0x7F) << 21 |
+  I64 index = y * term_width + x;
+  I64 width = Utf8CellWidth(ch);
+
+  if (x + width > term_width) { ch = ' '; width = 1; }
+  if (x > 0 && (term_back[index] & 0x1FFFFF) == TERM_CELL_CONT)
+    term_back[index - 1] = TERM_CELL_EMPTY;
+  if (x + 1 < term_width && (term_back[index + 1] & 0x1FFFFF) == TERM_CELL_CONT)
+    term_back[index + 1] = TERM_CELL_EMPTY;
+  term_back[index] = ch & 0x1FFFFF | (attr & 0x7F) << 21 |
     (fg & 0x3FFFF) << 28 | (bg & 0x3FFFF) << 46;
+  if (width == 2) {
+    if (x + 2 < term_width && (term_back[index + 2] & 0x1FFFFF) == TERM_CELL_CONT)
+      term_back[index + 2] = TERM_CELL_EMPTY;
+    term_back[index + 1] = (term_back[index] & ~0x1FFFFF) | TERM_CELL_CONT;
+  }
 }
 
 public I64 TermCellChar(U64 cell)
@@ -697,13 +711,14 @@ public I64 TermCellBg(U64 cell)
 public U0 TermText(I64 x, I64 y, U8 *text,
   I64 fg=TERM_DEFAULT, I64 bg=TERM_DEFAULT, I64 attr=0)
 {
-  I64 index = 0;
+  I64 index = 0, rune;
 
   if (!text)
     return;
   while (text[index]) {
-    TermCell(x, y, TermRuneNext(text, &index), fg, bg, attr);
-    x++;
+    rune = TermRuneNext(text, &index);
+    TermCell(x, y, rune, fg, bg, attr);
+    x += Utf8CellWidth(rune);
   }
 }
 
@@ -865,6 +880,8 @@ public U0 TermCommit()
       if (cell != term_front[index]) {
         term_front[index] = cell;
         changed = TRUE;
+        if (TermCellChar(cell) == TERM_CELL_CONT)
+          goto next_cell;
         if (x != last_x || y != last_y)
           TermOutMove(x, y);
         pen = cell >> 21;
@@ -873,11 +890,12 @@ public U0 TermCommit()
           last_pen = pen;
         }
         TermOutChar(TermCellChar(cell));
-        last_x = x + 1;
+        last_x = x + Utf8CellWidth(TermCellChar(cell));
         last_y = y;
         if (last_x >= term_width)
           last_x = -2;
       }
+      next_cell:;
     }
   }
   TermOutText("\x1B[0m");

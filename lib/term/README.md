@@ -125,3 +125,8 @@ Main;
 ```
 
 See `examples/term.hc` for a fuller demo with mouse and resize handling.
+
+Define `TERM_CTRL_Z_KEY` before including `term.hc` when an application needs
+Ctrl+Z as a key (for example undo). On POSIX this disables the terminal's
+suspend control characters while raw mode is active, preserving SIGINT for
+Ctrl+C and restoring the original termios state on exit.

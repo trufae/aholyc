@@ -145,6 +145,8 @@ I64 HtkColorPick(U8 *title, I64 rgb=0x808080)
   htk_pick_win->link = ok;  // Enter accepts
   HtkModal(htk_pick_win);
   htk_pick_r = NULL;
+  HtkDestroy(htk_pick_win);
+  htk_pick_win = NULL;
   if (htk_pick_ok)
     return htk_pick_rgb;
   return -1;

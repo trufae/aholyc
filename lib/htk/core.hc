@@ -34,6 +34,8 @@
 #define HTK_TERM      29
 #define HTK_SWITCH    30
 #define HTK_SPINNER   31
+#define HTK_TOOLBUTTON 32
+#define HTK_FLOW       33
 
 // Policy for the SIGINT that lib/term receives for Ctrl-C.
 #define HTK_CTRLC_DEFAULT 0  // preserve SIGINT: HtkMain exits
@@ -165,6 +167,9 @@ class HtkCtl
   U8 *text;           // htk_empty until HtkSetText, never freed while shared
   U0 (*changed)(HtkCtl *c);
   U0 (*submit)(HtkCtl *c);   // entry: Enter pressed
+  Bool (*keyfn)(HtkCtl *c, CTermEvent *e); // optional key override
+  Bool (*closing)(HtkCtl *c); // window close veto, including application quit
+  U0 (*destroy)(HtkCtl *c); // release caller-owned payload on HtkDestroy
   I64 fn, data;      // canvas draw callback / table cell callback + data
   I64 user;          // adapter's UiCtl
   I64 value;         // state: checked, position, selection, tab index
@@ -180,6 +185,7 @@ class HtkCtl
   I32 col, row;      // grid placement
   I32 tab_x, tab_w;  // tab-page header geometry (separate from page content)
   I32 mouse_x, mouse_y;
+  I64 mouse_mods;
   U8 kind;
   U8 mouse_button;
   Bool mouse_pressed, mouse_motion;
@@ -369,6 +375,26 @@ U0 HtkAddItem(HtkCtl *c, U8 *text)
     c->value = 0;
 }
 
+// Destroy a detached control tree. Windows must be closed first.
+U0 HtkDestroy(HtkCtl *c)
+{
+  HtkCtl *kid, *next;
+
+  if (!c)
+    return;
+  kid = c->kids;
+  while (kid) {
+    next = kid->sib;
+    HtkDestroy(kid);
+    kid = next;
+  }
+  if (c->destroy)
+    c->destroy(c);
+  HtkDestroy(c->menu);
+  HtkFreeText(c);
+  Free(c);
+}
+
 U0 HtkFire(HtkCtl *c)
 {
   U0 (*hit)(HtkCtl *c) = c->changed;
@@ -449,8 +475,7 @@ I64 HtkRunes(U8 *text)
   if (!text)
     return 0;
   while (text[i] && text[i] != '\n') {
-    TermRuneNext(text, &i);
-    n++;
+    n += Utf8CellWidth(TermRuneNext(text, &i));
   }
   return n;
 }
@@ -524,19 +549,22 @@ U0 HtkChr(I64 x, I64 y, I64 rune, I64 fg, I64 bg, I64 attr=0)
     bg = HtkDimColor(bg);
     attr = 0;
   }
+  if (x + Utf8CellWidth(rune) > htk_clip_x2) rune = ' ';
   if (x >= htk_clip_x && y >= htk_clip_y && x < htk_clip_x2 && y < htk_clip_y2)
     TermCell(x, y, rune, fg, bg, attr);
 }
 
 U0 HtkStr(I64 x, I64 y, U8 *text, I64 fg, I64 bg, I64 attr=0)
 {
-  I64 i = 0;
+  I64 i = 0, rune;
 
   if (!text)
     return;
   while (text[i] && text[i] != '\n') {
-    HtkChr(x, y, TermRuneNext(text, &i), fg, bg, attr);
-    x++;
+    rune = TermRuneNext(text, &i);
+    if (rune < ' ' || rune == 127) rune = 0xFFFD;
+    HtkChr(x, y, rune, fg, bg, attr);
+    x += Utf8CellWidth(rune);
   }
 }
 

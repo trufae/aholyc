@@ -42,3 +42,33 @@ Bool HtkButtonKey(HtkCtl *c, CTermEvent *e)
   }
   return FALSE;
 }
+
+// Compact square-bracket action; value highlights a selected format/mode.
+HtkCtl *HtkToolButtonNew(U8 *text)
+{
+  HtkCtl *c = HtkButtonNew(text);
+
+  c->kind = HTK_TOOLBUTTON;
+  return c;
+}
+
+U0 HtkToolButtonMeasure(HtkCtl *c)
+{
+  c->pw = HtkRunes(c->text) + 2;
+  c->ph = 1;
+}
+
+U0 HtkToolButtonDraw(HtkCtl *c)
+{
+  I64 bg = HtkBg(c, HTK_C_BG), attr = 0;
+  I64 fg = HtkInk(c, HTK_C_FG);
+
+  if (c->value) {
+    bg = HTK_C_SEL_BG;
+    attr = TERM_BOLD;
+  }
+  HtkRect(c->x, c->y, c->w, 1, ' ', fg, bg);
+  HtkChr(c->x, c->y, '[', fg, bg);
+  HtkStr(c->x + 1, c->y, c->text, fg, bg, attr);
+  HtkChr(c->x + c->w - 1, c->y, ']', fg, bg);
+}
