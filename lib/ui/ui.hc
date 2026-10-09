@@ -1,7 +1,8 @@
 // ui.hc — a tiny cross-platform UI library for HolyC
-// Select the backend with -DUI_COCOA, -DUI_WIN32 or -DUI_GTK4; the
+// Select the backend with -DUI_BACKEND=UI_AMIGA (or UI_COCOA, UI_WIN32,
+// UI_GTK4, UI_HTK), or use -DUI_HTK for the terminal backend. The
 // default is the platform's native one: Cocoa on macOS, Win32 on
-// Windows, GTK4 elsewhere.
+// Windows, Intuition/GadTools on AmigaOS 3.x, GTK4 elsewhere.
 // Every backend implements the same frontend API:
 //
 //   UiInit();

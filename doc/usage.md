@@ -8,6 +8,7 @@ $ aholyc program.HC -o program      # choose the output name
 $ aholyc run program.HC             # build and run, leaving no binary behind
 $ aholyc run program.HC one -x      # build, run, and pass program arguments
 $ aholyc -b c program.HC            # pick a backend: llvm, c, js
+$ aholyc -t amiga program.HC -o program-amiga # cross-compile for m68k AmigaOS
 $ aholyc -S -b llvm program.HC      # emit program.ll only, don't build
 $ aholyc -S -b js -o out.js program.HC
 $ aholyc -c module.HC               # compile to module.o, like gcc -c
@@ -20,12 +21,69 @@ $ aholyc -S -b js -o - - < f.HC     # '-' is stdin; '-o -' emits to stdout
 $ aholyc fmt -w src.HC              # format sources in place (doc/format.md)
 ```
 
+## Amiga cross-compilation
+
+`-t amiga` selects the C backend and cross-compiles for classic m68k
+AmigaOS. The default CPU is the 68000, with software floating point. Output
+is an Amiga Hunk executable that can be copied to an Amiga and launched
+from its shell:
+
+```console
+$ aholyc -t amiga examples/hello.HC -o hello-amiga
+$ aholyc -t amiga -c module.HC -o module.o
+$ aholyc -t amiga main.HC module.o -o program-amiga
+$ aholyc -t amiga -sarchive module.HC -o libmodule.a
+$ aholyc -t amiga -S program.HC -o program.c
+```
+
+The driver searches `PATH`, then `/opt/amiga/bin`, for
+`m68k-amigaos-gcc` and `m68k-amigaos-ar`. Set `AMIGA_CC` and `AMIGA_AR`
+to override these tools. `CC` continues to select the host compiler for
+`#exe` blocks, which execute during compilation on the host.
+`CFLAGS` and `LDFLAGS` apply to target builds; for example,
+`CFLAGS=-mcpu=68020` selects a later CPU. The target uses the cross
+compiler's default C runtime (newlib in the tested GCC 6.5.0b installation).
+
+HolyC defines `IS_AMIGA`, `IS_M68K`, and `IS_BIG_ENDIAN` for this target,
+instead of the host's platform macros. Integer values, function value slots,
+and stored HolyC pointers remain eight bytes; actual Amiga addresses are
+32 bits. Process arguments are converted into eight-byte `argv` slots.
+Packed class members use alignment-safe loads and stores, and exceptions
+use the target's `setjmp`/`longjmp`.
+
+Memory uses the Amiga's native big-endian byte order. In particular,
+`q.u8[0]` names the most significant byte of an `I64`; it is not the
+little-endian TempleOS layout. Packed character constants and exception
+names retain their HolyC interpretation.
+
+The runtime supports one HolyC task per process and does not use TLS.
+The `L` bit operations use Exec `Forbid`/`Permit` to protect byte updates
+against other tasks; they are not interrupt-handler synchronization.
+For imported C functions, declare their exact widths (`I32` for C `int`,
+`U32` for `size_t`, pointer types for addresses). Separately compiled HolyC
+functions retain the HolyC ABI: use `I64` parameters and results in module
+interfaces, including address values, or supply C wrappers.
+`lib/ui/ui.hc` automatically selects its native Intuition/GadTools backend
+on this target. Build `examples/ui/amiga.hc` for a compact Workbench demo;
+see the [UI library](../lib/ui/README.md) for features and limitations.
+Other bundled libraries that depend on Unix or Windows APIs need separate
+Amiga ports.
+
+`run`, `-shared`, and native `asm {}` are unsupported for this target.
+`HAS_ASM` is absent. GCC 6.5 does not support the C backend's `_BitInt`
+output for `@bits` hints; use `-fno-hints` with those sources.
+`make test-amiga` checks UI model/layout behavior on the host, then
+cross-compilation, generated Hunk formats, and UI structure layouts against
+the NDK when the toolchain is installed. Native execution requires an Amiga
+or emulator.
+
 ## Options
 
 | option | meaning |
 |--------|---------|
 | `-o file` | output file (default `a.out`); with `-S`, `-o -` writes to stdout |
 | `-b name` | backend: `llvm` (default), `c`, `js` |
+| `-t name` | target: `native` (default), `amiga` (selects the C backend) |
 | `-c` | compile to a relocatable object (`.o`), do not link |
 | `-shared` | build a native shared library (C and LLVM backends) |
 | `-sarchive` | build a native static archive (`.a`, or `.lib` on Windows) |

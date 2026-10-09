@@ -10,6 +10,9 @@
 #include <setjmp.h>
 #endif
 #include <math.h>
+#if defined(__amigaos__)
+#include <proto/exec.h>
+#endif
 
 typedef int64_t hc_i64;
 typedef uint64_t hc_u64;
@@ -30,7 +33,10 @@ typedef double hc_f64;
 /* Use native Windows TLS even under MinGW; its C11 TLS may be emulated
  * through winpthreads, adding a DLL dependency to otherwise Win32-only
  * programs.  Elsewhere prefer the standard spelling when available. */
-#if defined(_WIN32)
+#if defined(__amigaos__)
+/* Classic Amiga programs use one task; no emulated TLS dependency. */
+#define HC_TLS
+#elif defined(_WIN32)
 #define HC_TLS __declspec(thread)
 #elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 #define HC_TLS _Thread_local
@@ -103,7 +109,9 @@ static char *hc_except_str(hc_i64 ch, char *buf) {
 	/* ch is always an int64_t (HolyC values are 64-bit on every host), so a
 	 * char constant packs up to sizeof(ch) chars, low byte first. */
 	char chars[sizeof ch + 1];
-	memcpy (chars, &ch, sizeof ch);
+	for (size_t i = 0; i < sizeof ch; i++) {
+		chars[i] = (char)((hc_u64)ch >> (i * 8));
+	}
 	chars[sizeof ch] = 0;
 	int printable = chars[0] != 0;
 	for (size_t i = 0; i < sizeof ch && chars[i]; i++) {
@@ -585,7 +593,13 @@ HC_API hc_i64 BEqu(void *p, hc_i64 bit, hc_i64 val) {
 /* L* forms are atomic across host threads (TempleOS: across cores) */
 HC_API hc_i64 LBts(void *p, hc_i64 bit) {
 	unsigned char m, *b = hc_bitp (p, bit, &m);
-#if defined(__GNUC__) || defined(__clang__)
+#if defined(__amigaos__)
+	Forbid ();
+	hc_i64 r = (*b & m)? 1: 0;
+	*b |= m;
+	Permit ();
+	return r;
+#elif defined(__GNUC__) || defined(__clang__)
 	return (__atomic_fetch_or (b, m, __ATOMIC_SEQ_CST) & m)? 1: 0;
 #else
 	return Bts (p, bit);
@@ -594,7 +608,13 @@ HC_API hc_i64 LBts(void *p, hc_i64 bit) {
 
 HC_API hc_i64 LBtr(void *p, hc_i64 bit) {
 	unsigned char m, *b = hc_bitp (p, bit, &m);
-#if defined(__GNUC__) || defined(__clang__)
+#if defined(__amigaos__)
+	Forbid ();
+	hc_i64 r = (*b & m)? 1: 0;
+	*b &= (unsigned char)~m;
+	Permit ();
+	return r;
+#elif defined(__GNUC__) || defined(__clang__)
 	return (__atomic_fetch_and (b, (unsigned char)~m, __ATOMIC_SEQ_CST) & m)? 1: 0;
 #else
 	return Btr (p, bit);
@@ -603,7 +623,13 @@ HC_API hc_i64 LBtr(void *p, hc_i64 bit) {
 
 HC_API hc_i64 LBtc(void *p, hc_i64 bit) {
 	unsigned char m, *b = hc_bitp (p, bit, &m);
-#if defined(__GNUC__) || defined(__clang__)
+#if defined(__amigaos__)
+	Forbid ();
+	hc_i64 r = (*b & m)? 1: 0;
+	*b ^= m;
+	Permit ();
+	return r;
+#elif defined(__GNUC__) || defined(__clang__)
 	return (__atomic_fetch_xor (b, m, __ATOMIC_SEQ_CST) & m)? 1: 0;
 #else
 	return Btc (p, bit);
@@ -707,19 +733,33 @@ int main(int sys_argc, char **sys_argv) {
 		user_argv++;
 	}
 	hc_i64 argv = (hc_i64)(intptr_t)user_argv;
+	/* HolyC argv elements occupy eight bytes even on a 32-bit C target. */
+	hc_i64 *slots = NULL;
+	if (sizeof(char *) != sizeof(hc_i64)) {
+		slots = calloc ((size_t)argc + 1, sizeof(*slots));
+		if (!slots) {
+			fprintf (stderr, "aholyc-rt: cannot allocate arguments\n");
+			return 1;
+		}
+		for (hc_i64 i = 0; i < argc; i++) {
+			slots[i] = (hc_i64)(intptr_t)user_argv[i];
+		}
+		argv = (hc_i64)(intptr_t)slots;
+	}
 	hc_i64 status = 0;
 	for (size_t i = 0; i < hc_nmodule_starts; i++) {
 		status = hc_module_starts[i](argc, argv);
 	}
 #if defined(HC_EXTERNAL_START) || !defined(HC_OBJECT_RUNTIME)
 #if defined(HC_EXTERNAL_START)
-	return (int)__hc_start (argc, argv);
+	status = __hc_start (argc, argv);
 #else
 	if (__hc_start) {
-		return (int)__hc_start (argc, argv);
+		status = __hc_start (argc, argv);
 	}
 #endif
 #endif
+	free (slots);
 	return (int)status;
 }
 #endif

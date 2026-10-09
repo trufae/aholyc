@@ -1,6 +1,6 @@
 # Sub-int access
 
-Every integer lvalue in HolyC doubles as a little-endian array of
+Every integer lvalue in HolyC doubles as an array of
 smaller integers. `q.u8[5]` reads byte 5 of `q`, `q.u8[0] = 0xFF`
 stores one byte into it, and views chain: `q.i32[1].u8[2]`. This is
 faithful to TempleOS, where the builtin int types are declared as
@@ -32,9 +32,9 @@ covers exactly the int's bytes, so the index ranges over
 
 ## Semantics
 
-Byte order is little-endian, matching x86-64 and every aholyc backend
-(the JS backend's linear memory is an explicitly little-endian
-`DataView`):
+Byte order follows native memory on the C backend. The usual x86-64 and
+ARM64 hosts are little-endian, as is the JS backend's explicit `DataView`
+layout. On those targets:
 
 ```holyc
 I64 q = 0x123456789ABC;
@@ -43,6 +43,11 @@ q.u8[5];    // 0x12
 q.u16[1];   // 0x5678 bytes 2..3
 q.i32[1];   // 0x1234 high dword
 ```
+
+The Amiga target is big-endian: `q.u8[0]` is the highest byte, `q.u8[7]`
+is the lowest, and `q.i32[0]` is the high dword. Use `IS_BIG_ENDIAN` or
+`IS_LITTLE_ENDIAN` to select byte-order-sensitive code. The examples below
+show the little-endian layout.
 
 A view element is an ordinary lvalue of the view's type. Reads widen
 like any load — signed views sign-extend, unsigned views zero-extend —

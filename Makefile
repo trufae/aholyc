@@ -72,6 +72,9 @@ test: aholyc tests/lib_instances
 	sh tests/run.sh
 	./tests/lib_instances
 
+test-amiga: aholyc
+	sh tests/amiga.sh
+
 # normalize all HolyC sources in the repo (doc/format.md)
 fmt: aholyc
 	./aholyc fmt -w examples/*.HC tests/*.HC runtime/*.hc
@@ -97,4 +100,4 @@ uninstall:
 
 FORCE:
 
-.PHONY: all test clean install uninstall FORCE
+.PHONY: all test test-amiga clean install uninstall FORCE

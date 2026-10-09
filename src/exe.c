@@ -137,7 +137,12 @@ char *exe_run(Aholyc *cc, Token *block, Token **rest) {
 	char *sopath = xasprintf (cc, "%s/block.so", dir);
 	StrBuf src;
 	sb_init (&src, cc);
+	/* Compile-time code executes in this process, even when the final
+	 * program targets Amiga. Keep its ABI and memory accesses native. */
+	bool target_amiga = cc->target_amiga;
+	cc->target_amiga = false;
 	aholyc_i_backend_c.emit (cc, p, &src, false, false);
+	cc->target_amiga = target_amiga;
 	sb_puts (&src, exe_bridge);
 	write_file (cc, cpath, src.data, src.len);
 

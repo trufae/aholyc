@@ -40,7 +40,11 @@ can.
 
 The layout algorithm lives in one place (`parse_class()` in
 `src/parse.c`) and every backend consumes the computed offsets, which is
-why struct-shaped code is byte-portable across `c`, `llvm` and `js`.
+why struct-shaped code uses the same field offsets across `c`, `llvm` and
+`js`. Byte order is native on the C backend; Amiga integer and float memory
+is big-endian. HolyC pointer fields remain eight-byte value slots even
+though native Amiga C pointers are four bytes, so HolyC classes are not
+ABI-compatible with Amiga C structures containing pointers.
 
 ## Storage classes
 

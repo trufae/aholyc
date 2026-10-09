@@ -41,6 +41,7 @@ static int usage(int code) {
 		"options:\n"
 		"  -o <file>     output file (default: a.out)\n"
 		"  -b <backend>  code generator to use (default: llvm, fallback: c)\n"
+		"  -t <target>   native (default) or amiga (m68k AmigaOS, C backend)\n"
 		"  -c            compile into a relocatable object (.o), do not link\n"
 		"  -shared       build a shared library\n"
 		"  -sarchive     build a static archive (.a or .lib)\n"
@@ -62,6 +63,8 @@ static int usage(int code) {
 		"  -v            show version\n"
 		"\n"
 		"environment:\n"
+		"  AMIGA_CC      Amiga cross compiler (default: m68k-amigaos-gcc)\n"
+		"  AMIGA_AR      Amiga archiver (default: m68k-amigaos-ar)\n"
 		"  CFLAGS        extra flags passed to the C compiler on every invocation\n"
 		"  LDFLAGS       extra flags passed to the linker (ignored with -c)\n"
 		"\n"
@@ -154,7 +157,7 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 	int nrunargs = 0;
 
 	RGetopt go;
-	r_getopt_init (&go, argc, (const char **)argv, "o:b:cSO::I:L:l:D:f:s::kVhv");
+	r_getopt_init (&go, argc, (const char **)argv, "o:b:t:cSO::I:L:l:D:f:s::kVhv");
 	go.ind = argi;
 	for (;;) {
 		int c = r_getopt_next (&go);
@@ -173,6 +176,12 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 		switch (c) {
 		case 'o': outpath = go.arg; break;
 		case 'b': bname = go.arg; break;
+		case 't':
+			if (strcmp (go.arg, "native") && strcmp (go.arg, "amiga")) {
+				error (cc, "unknown target '%s' (use native or amiga)", go.arg);
+			}
+			cc->target_amiga = !strcmp (go.arg, "amiga");
+			break;
 		case 'c': compile_obj = true; break;
 		case 's':
 			/* getopt sees -shared as -s with the attached argument "hared". */
@@ -240,6 +249,17 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 	if (cc->shared && cc->archive) {
 		error (cc, "-shared cannot be combined with -sarchive");
 	}
+	if (cc->target_amiga) {
+		if (run) {
+			error (cc, "run cannot execute Amiga binaries on the host");
+		}
+		if (cc->shared) {
+			error (cc, "Amiga target does not support -shared");
+		}
+		/* The assembler adapter currently describes the host architecture. */
+		cc->use_asm = false;
+		if (!bname) bname = "c";
+	}
 	/* classify inputs: HolyC sources vs objects/archives for the linker */
 	Argv sources = { 0 }, objects = { 0 };
 	for (int i = 0; i < inputs.n; i++) {
@@ -265,6 +285,10 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 			error (cc, "no compiler backends enabled; rebuild with AHOLYC_BACKEND_*=1");
 		}
 	}
+	if (cc->target_amiga && strcmp (be->name, "c")) {
+		error (cc, "Amiga target requires the C backend (-b c)");
+	}
+	lex_platform (cc);
 	if (cc->use_asm && be->supports_asm) {
 		lex_define (cc, "HAS_ASM", "1");
 	}
@@ -380,7 +404,8 @@ static int parseargv(Aholyc *cc, int argc, char **argv) {
 		unlink (outpath);
 		Argv ar = { 0 };
 		const char *tool = getenv ("AR");
-		arg_push (cc, &ar, tool && *tool? tool: "ar");
+		arg_push (cc, &ar, cc->target_amiga? amiga_tool (cc, true):
+			tool && *tool? tool: "ar");
 		arg_push (cc, &ar, "rcs");
 		arg_push (cc, &ar, outpath);
 		for (int i = 0; i < members.n; i++) arg_push (cc, &ar, members.v[i]);
