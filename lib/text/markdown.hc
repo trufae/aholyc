@@ -24,6 +24,7 @@
 // Everything prefixed with Md is internal.
 
 #include "strs.hc"
+#include "utf8.HC"
 
 // Style events. `on` is 0 when the style ends; for MD_STYLE_TITLE,
 // MD_STYLE_TITLE_MARK and MD_STYLE_BANNER it carries the heading level.
@@ -37,7 +38,15 @@
 #define MD_STYLE_BANNER 8     // slide title band (also its filler lines)
 #define MD_STYLE_HR 9         // horizontal rule
 #define MD_STYLE_TABLE 10     // table borders
-#define MD_STYLE_COUNT 11
+#define MD_STYLE_UNDERLINE 11
+#define MD_STYLE_FG 12 // on = RGB + 1; zero restores the default
+#define MD_STYLE_BG 13
+#define MD_STYLE_LINK 14 // target/link_start/link_end are valid during callback
+#define MD_STYLE_IMAGE 15
+#define MD_STYLE_CODE_FENCE 16 // code slice and language on entry
+#define MD_STYLE_CODE_TOKEN 17 // 1 keyword, 2 string, 3 comment, 4 number
+#define MD_STYLE_PAGE_BREAK 18
+#define MD_STYLE_COUNT 19
 
 #define MD_ALIGN_LEFT 0
 #define MD_ALIGN_RIGHT 1
@@ -53,6 +62,14 @@ class CMarkdown
   Bool utf8_curvy;   // rounded table corners (needs utf8)
   Bool slide_titles; // render titles as full width bands
   I64 width;         // wrap column, 75 by default
+  Bool code_pad;     // pad code backgrounds to width (disable for text export)
+  Bool table_fit;    // wrap cells to fit width; FALSE keeps natural widths
+  I64 table_border; // 0 single, 1 round, 2 ASCII, 3 borderless
+  CStrs target, code, language;
+  U8 *source; // source mapping for interactive backends
+  U8 *link_start;
+  U8 *link_end;
+  I64 fg, bg, depth;
   // render state
   U8 *end;
   I64 col;
@@ -71,6 +88,7 @@ U0 MarkdownInit(CMarkdown *md, U0 (*text)(CMarkdown *md, CStrs *text),
   md->style = style;
   md->user = user;
   md->width = 75;
+  md->code_pad = TRUE;
 }
 
 // --- output ----------------------------------------------------------------
@@ -106,12 +124,12 @@ U0 MdStyle(CMarkdown *md, I64 style, I64 on)
 I64 MdWidth(CStrs *text)
 {
   U8 *p = text->a;
-  I64 width = 0;
+  I64 width = 0, rune, n;
 
   while (p < text->b) {
-    if ((*p & 0xC0) != 0x80)
-      width++;
-    p++;
+    n = MaxI64(1, Utf8DecodeRune(p, text->b - p, &rune));
+    width += Utf8CellWidth(rune);
+    p += n;
   }
   return width;
 }
@@ -238,6 +256,8 @@ I64 MdCodeSpan(CMarkdown *md, U8 *b, I64 *cols)
   return 0;
 }
 
+#include "md_inline.hc"
+
 // Render the inline markup of a slice; "\|" is unescaped for table cells.
 U0 MdInline(CMarkdown *md, CStrs *text)
 {
@@ -246,11 +266,16 @@ U0 MdInline(CMarkdown *md, CStrs *text)
   Bool bold = FALSE;
   Bool italic = FALSE;
   Bool strike = FALSE;
-  I64 n;
+  I64 n, rune;
 
   md->end = text->b;
   while (b < md->end) {
-    n = 0;
+    md->source = b;
+    n = MdRich(md, b);
+    if (n > 0) {
+      b += n;
+      goto next_inline;
+    }
     if (*b == '`')
       n = MdCodeSpan(md, b, NULL);
     else if (*b == '*' || *b == '_')
@@ -262,9 +287,11 @@ U0 MdInline(CMarkdown *md, CStrs *text)
     if (n > 0) {
       b += n;
     } else {
-      MdText(md, b, b + 1);
-      b++;
+      n = MaxI64(1, Utf8DecodeRune(b, md->end - b, &rune));
+      MdText(md, b, b + n);
+      b += n;
     }
+    next_inline:;
   }
   if (bold)
     MdStyle(md, MD_STYLE_BOLD, 0);
@@ -355,27 +382,26 @@ I64 MdTableSplitRow(CStrs *line, CStrs *cells, I64 max)
   leading_pipe = p < row.b && *p == '|';
   if (leading_pipe)
     p++;
-  while (count < max) {
+  while (p < row.b) {
     start = p;
     while (p < row.b && *p != '|') {
-      if (*p == '\\' && p + 1 < row.b && p[1] == '|')
-        p++;
-      p++;
+      if (*p == '\\' && p + 1 < row.b) {
+        p += 2;
+      } else if (*p == '`') {
+        I64 ticks = MdBacktickRun(p, row.b);
+        U8 *q = p + ticks;
+        while (q < row.b && MdBacktickRun(q, row.b) != ticks)
+          q++;
+        if (q < row.b) p = q + ticks;
+        else p += ticks;
+      } else p++;
     }
+    if (count == max)
+      return max + 1; // caller must fall back rather than silently lose columns
     StrsInit(&cells[count], start, p);
-    StrsTrim(&cells[count]);
-    count++;
-    if (p >= row.b)
-      break;
-    p++;
-    if (p >= row.b) {
-      if (count < max)
-        StrsInit(&cells[count++], p, p);
-      break;
-    }
+    StrsTrim(&cells[count++]);
+    if (p < row.b) p++;
   }
-  if (leading_pipe && count > 0 && StrsEmpty(&cells[count - 1]))
-    count--;
   return count;
 }
 
@@ -417,38 +443,106 @@ U0 MdTableBorder(CMarkdown *md, I64 *widths, I64 ncols, U8 *l, U8 *m, U8 *r,
   MdTextS(md, "\n");
 }
 
+// Crop an inline render to one cell segment; styles still flow through.
+class CMdCrop
+{
+  CMarkdown *parent;
+  I64 skip, take, col, row, used;
+};
+
+U0 MdCropStyle(CMarkdown *md, I64 style, I64 on)
+{
+  CMdCrop *crop = md->user(CMdCrop *);
+  CMarkdown *parent = crop->parent;
+
+  if (!parent) return;
+  parent->target = md->target;
+  parent->link_start = md->link_start;
+  parent->link_end = md->link_end;
+  MdStyle(parent, style, on);
+}
+
+U0 MdCropText(CMarkdown *md, CStrs *text)
+{
+  CMdCrop *crop = md->user(CMdCrop *);
+  U8 *p = text->a;
+  I64 n, rune;
+
+  while (p < text->b) {
+    n = MaxI64(1, Utf8DecodeRune(p, text->b - p, &rune));
+    I64 width = Utf8CellWidth(rune);
+    if (crop->col && crop->col + width > crop->take) {
+      crop->col = 0;
+      crop->row++;
+    }
+    if (rune == '\n') {
+      crop->col = 0;
+      crop->row++;
+    } else {
+      if (crop->row == crop->skip) {
+        crop->used += width;
+        if (crop->parent) {
+          crop->parent->source = md->source;
+          MdText(crop->parent, p, p + n);
+        }
+      }
+      crop->col += width;
+    }
+    p += n;
+  }
+}
+
 U0 MdTableRow(CMarkdown *md, CStrs *cells, I64 ncells, I64 *widths,
   I64 *aligns, I64 ncols, U8 *v)
 {
-  CStrs empty;
-  CStrs *cell;
-  I64 i;
-  I64 pad;
-  I64 left;
+  CStrs empty, *cell;
+  CMarkdown part;
+  CMdCrop crop;
+  I64 i, row, rows = 1, pad, left, shown;
 
   StrsInitN(&empty, "", 0);
-  MdStyle(md, MD_STYLE_TABLE, 1);
-  MdTextS(md, v);
-  MdStyle(md, MD_STYLE_TABLE, 0);
-  for (i = 0; i < ncols; i++) {
-    cell = &empty;
-    if (i < ncells)
-      cell = &cells[i];
-    pad = widths[i] - MdInlineWidth(cell);
-    if (aligns[i] == MD_ALIGN_RIGHT)
-      left = pad;
-    else if (aligns[i] == MD_ALIGN_CENTER)
-      left = pad / 2;
-    else
-      left = 0;
-    MdRepeat(md, " ", left + 1);
-    MdInline(md, cell);
-    MdRepeat(md, " ", pad - left + 1);
+  for (i = 0; i < ncells && i < ncols; i++) {
+    MemSet(&crop, 0, sizeof(CMdCrop));
+    crop.take = widths[i];
+    MarkdownInit(&part, &MdCropText, NULL, &crop);
+    MdInline(&part, &cells[i]);
+    rows = MaxI64(rows, crop.row + 1);
+  }
+  for (row = 0; row < rows; row++) {
+    if (ncells) md->source = cells[0].a;
     MdStyle(md, MD_STYLE_TABLE, 1);
     MdTextS(md, v);
     MdStyle(md, MD_STYLE_TABLE, 0);
+    for (i = 0; i < ncols; i++) {
+      cell = &empty;
+      if (i < ncells) cell = &cells[i];
+      MemSet(&crop, 0, sizeof(CMdCrop));
+      crop.skip = row;
+      crop.take = widths[i];
+      MarkdownInit(&part, &MdCropText, NULL, &crop);
+      MdInline(&part, cell);
+      shown = crop.used;
+      pad = widths[i] - shown;
+      left = 0;
+      if (aligns[i] == MD_ALIGN_RIGHT) left = pad;
+      if (aligns[i] == MD_ALIGN_CENTER) left = pad / 2;
+      md->source = cell->a;
+      MdRepeat(md, " ", left + 1);
+      crop.parent = md;
+      crop.skip = row;
+      crop.take = widths[i];
+      crop.col = 0;
+      crop.row = 0;
+      crop.used = 0;
+      MarkdownInit(&part, &MdCropText, &MdCropStyle, &crop);
+      MdInline(&part, cell);
+      MdRepeat(md, " ", pad - left + 1);
+      MdStyle(md, MD_STYLE_TABLE, 1);
+      MdTextS(md, v);
+      MdStyle(md, MD_STYLE_TABLE, 0);
+    }
+    MdTextS(md, "\n");
   }
-  MdTextS(md, "\n");
 }
 
 // Two passes over the rows: measure column widths, then draw. Nothing is
@@ -487,12 +581,15 @@ I64 MdRenderTable(CMarkdown *md, U8 *b)
   if (!MdTableIsSep(&sep))
     return 0;
   ncols = MdTableSplitRow(&header, cells, MD_TABLE_MAX_COLS);
-  if (!ncols)
+  if (!ncols || ncols > MD_TABLE_MAX_COLS)
     return 0;
   for (i = 0; i < ncols; i++)
     widths[i] = MdInlineWidth(&cells[i]);
   nseps = MdTableSplitRow(&sep, cells, MD_TABLE_MAX_COLS);
+  if (nseps != ncols)
+    return 0;
   for (i = 0; i < ncols; i++) {
+    widths[i] = MaxI64(1, widths[i]);
     aligns[i] = MD_ALIGN_LEFT;
     if (i < nseps)
       aligns[i] = MdTableColAlign(&cells[i]);
@@ -507,6 +604,8 @@ I64 MdRenderTable(CMarkdown *md, U8 *b)
     if (!MdTableRowLine(&line))
       break;
     nc = MdTableSplitRow(&line, cells, MD_TABLE_MAX_COLS);
+    if (nc > ncols)
+      return 0;
     for (i = 0; i < nc && i < ncols; i++) {
       w = MdInlineWidth(&cells[i]);
       if (w > widths[i])
@@ -517,8 +616,18 @@ I64 MdRenderTable(CMarkdown *md, U8 *b)
       p++;
   }
 
-  if (md->utf8) {
-    if (md->utf8_curvy) {
+  if (md->table_fit) {
+    I64 available = md->width - ncols * 3 - 1, total = 0;
+    for (i = 0; i < ncols; i++) { widths[i] = MaxI64(2, widths[i]); total += widths[i]; }
+    // Too many columns cannot fit even at one character per cell: scroll.
+    if (available >= ncols * 2 && total > available) {
+      I64 spare = available - ncols * 2;
+      for (i = 0; i < ncols; i++)
+        widths[i] = 2 + (widths[i] - 2) * spare / MaxI64(1, total - ncols * 2);
+    }
+  }
+  if (md->utf8 && md->table_border != 2) {
+    if (md->utf8_curvy || md->table_border == 1) {
       tl = "╭"; tr = "╮"; bl = "╰"; br = "╯";
     } else {
       tl = "┌"; tr = "┐"; bl = "└"; br = "┘";
@@ -528,17 +637,21 @@ I64 MdRenderTable(CMarkdown *md, U8 *b)
     tl = "+"; tm = "+"; tr = "+"; ml = "+"; mm = "+"; mr = "+";
     bl = "+"; bm = "+"; br = "+"; h = "-"; v = "|";
   }
-  MdTableBorder(md, widths, ncols, tl, tm, tr, h);
+  if (md->table_border == 3) v = " ";
+  if (md->table_border != 3)
+    MdTableBorder(md, widths, ncols, tl, tm, tr, h);
   MdTableSplitRow(&header, cells, MD_TABLE_MAX_COLS);
   MdTableRow(md, cells, ncols, widths, aligns, ncols, v);
-  MdTableBorder(md, widths, ncols, ml, mm, mr, h);
+  if (md->table_border != 3)
+    MdTableBorder(md, widths, ncols, ml, mm, mr, h);
   while (body < p) {
     MdLine(md, body, &line);
     nc = MdTableSplitRow(&line, cells, MD_TABLE_MAX_COLS);
     MdTableRow(md, cells, nc, widths, aligns, ncols, v);
     body = line.b + 1;
   }
-  MdTableBorder(md, widths, ncols, bl, bm, br, h);
+  if (md->table_border != 3)
+    MdTableBorder(md, widths, ncols, bl, bm, br, h);
   return p - b;
 }
 
@@ -612,7 +725,7 @@ I64 MdRenderTitle(CMarkdown *md, U8 *b)
     if (!StrsEmpty(&title)) {
       MdTextS(md, " ");
       MdStyle(md, MD_STYLE_TITLE, level);
-      MdText(md, title.a, title.b);
+      MdInline(md, &title);
       MdStyle(md, MD_STYLE_TITLE, 0);
     }
     MdTextS(md, "\n");
@@ -621,6 +734,8 @@ I64 MdRenderTitle(CMarkdown *md, U8 *b)
     return line.b + 1 - b;
   return line.b - b;
 }
+
+#include "md_block.hc"
 
 // --- main loop -------------------------------------------------------------
 
@@ -637,7 +752,7 @@ U0 MdLineEnd(CMarkdown *md)
   if (md->codeblock) {
     if (md->col == 0)
       MdCodeBlockStart(md);
-    MdRepeat(md, " ", md->width - 4 - md->col);
+    if (md->code_pad) MdRepeat(md, " ", md->width - 4 - md->col);
     MdStyle(md, MD_STYLE_CODE_BLOCK, 0);
   } else {
     if (md->bold)
@@ -669,9 +784,17 @@ U0 MarkdownRenderStrs(CMarkdown *md, CStrs *input)
   U8 *b = input->a;
   I64 ch;
   I64 n;
-  I64 code_cols;
+  I64 code_cols, rune;
+  CMdBlock block;
+  CStrs line;
+  U8 *next_line;
+  Bool comment;
 
   md->end = input->b;
+  md->source = input->a;
+  md->depth = 0;
+  md->fg = 0;
+  md->bg = 0;
   md->col = 0;
   md->codeblock = FALSE;
   md->codeblockline = FALSE;
@@ -682,7 +805,37 @@ U0 MarkdownRenderStrs(CMarkdown *md, CStrs *input)
     md->width = 75;
 
   while (b < md->end) {
+    md->source = b;
     ch = *b;
+    if (b == input->a || b[-1] == '\n') {
+      if (MdCodeAt(input, b, &block)) {
+        md->code = block.code;
+        md->language = block.language;
+        MdStyle(md, MD_STYLE_CODE_FENCE, 1);
+        b = block.code.a;
+        comment = FALSE;
+        while (b < block.code.b) {
+          next_line = MdNextLine(&block.code, b, &line);
+          md->source = b;
+          md->codeblock = TRUE;
+          MdCodeBlockStart(md);
+          MdCodeLine(md, &line, &comment);
+          md->col = MdWidth(&line);
+          MdNewline(md);
+          b = next_line;
+        }
+        md->codeblock = FALSE;
+        MdStyle(md, MD_STYLE_CODE_FENCE, 0);
+        b = block.source.b;
+        goto next;
+      }
+      next_line = MdNextLine(input, b, &line);
+      if (MdPageBreak(&line)) {
+        MdStyle(md, MD_STYLE_PAGE_BREAK, 1);
+        b = next_line;
+        goto next;
+      }
+    }
     if (ch == '\n') {
       MdNewline(md);
       b++;
@@ -717,14 +870,6 @@ U0 MarkdownRenderStrs(CMarkdown *md, CStrs *input)
       goto next;
     }
     if (md->col == 0) {
-      if (b + 2 < md->end && b[0] == '`' && b[1] == '`' && b[2] == '`') {
-        while (b < md->end && *b != '\n')
-          b++;
-        md->codeblock = !md->codeblock;
-        if (b < md->end)
-          b++;
-        goto next;
-      }
       if (!md->codeblock) {
         n = MdRenderTitle(md, b);
         if (n > 0) {
@@ -746,6 +891,13 @@ U0 MarkdownRenderStrs(CMarkdown *md, CStrs *input)
         MdCodeBlockStart(md);
       else
         MdTextS(md, "  ");
+    }
+    if (!md->codeblock) {
+      n = MdRich(md, b);
+      if (n > 0) {
+        b += n;
+        goto next;
+      }
     }
     if (!md->codeblock && ch == '`') {
       code_cols = 0;
@@ -772,11 +924,10 @@ U0 MarkdownRenderStrs(CMarkdown *md, CStrs *input)
         goto next;
       }
     }
-    // count runes, not bytes, so UTF-8 text wraps at the right column
-    if ((ch & 0xC0) != 0x80)
-      md->col++;
-    MdText(md, b, b + 1);
-    b++;
+    n = MaxI64(1, Utf8DecodeRune(b, md->end - b, &rune));
+    md->col += Utf8CellWidth(rune);
+    MdText(md, b, b + n);
+    b += n;
     next:;
   }
   if (md->col > 0)
