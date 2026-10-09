@@ -1,6 +1,6 @@
 # Title
 
-## Sub *title*
+## Sub title
 
   Some bold and italic and gone text with code.
 
@@ -19,7 +19,7 @@
   s forced to wrap it around at the configured column width limit.
 # Title
 
-## Sub *title*
+## Sub [3mtitle[23m
 
   Some [1mbold[22m and [3mitalic[23m and [9mgone[29m text -
   with code.
@@ -50,7 +50,7 @@
 │ 1 │ 2 │
 ╰───┴───╯
   [48;5;234m[37m tab code                            [49m[0m
-<hmark2>##</hmark> <h2>Hi *there*</h>
+<hmark2>##</hmark> <h2>Hi <i1>there</i></h>
 
 <table1>+---+---+</table>
 <table1>|</table> a <table1>|</table> b <table1>|</table>
