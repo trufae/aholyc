@@ -44,6 +44,7 @@
 #include "../text/base64.hc"
 #endif
 #include "clipboard.hc"
+#include "vim.hc"
 #include "tree.hc"
 #include "tabs.hc"
 #include "group.hc"

@@ -59,14 +59,21 @@ HtkCtl *HtkButtonBarNew()
 
 U0 HtkToolbarDraw(HtkCtl *c)
 {
-  HtkRect(c->x, c->y, c->w, c->h, ' ', HTK_C_FG, HTK_C_BG);
+  HtkRect(c->x, c->y, c->w, c->h, ' ', HTK_C_TOOL_FG, HTK_C_TOOL_BG);
   HtkKidsDraw(c);
 }
 
 U0 HtkStatusMeasure(HtkCtl *c)
 {
-  HtkLabelMeasure(c);
-  c->pw += 2;
+  if (c->kids) HtkBoxMeasure(c);
+  else { HtkLabelMeasure(c); c->pw += 2; }
+}
+
+U0 HtkStatusDraw(HtkCtl *c)
+{
+  if (!c->kids) { HtkLabelDraw(c); return; }
+  HtkRect(c->x, c->y, c->w, c->h, ' ', HTK_C_TITLE, HTK_C_DIM);
+  HtkKidsDraw(c);
 }
 
 HtkCtl *HtkStatusbarNew(U8 *text)

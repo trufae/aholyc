@@ -447,6 +447,7 @@ U0 MdTableBorder(CMarkdown *md, I64 *widths, I64 ncols, U8 *l, U8 *m, U8 *r,
 class CMdCrop
 {
   CMarkdown *parent;
+  U8 *start, *end, *source;
   I64 skip, take, col, row, used;
 };
 
@@ -480,6 +481,9 @@ U0 MdCropText(CMarkdown *md, CStrs *text)
       crop->row++;
     } else {
       if (crop->row == crop->skip) {
+        if (!crop->start) crop->start = md->source;
+        crop->end = md->source;
+        if (p >= crop->source && p + n <= md->end) crop->end = p + n;
         crop->used += width;
         if (crop->parent) {
           crop->parent->source = md->source;
@@ -519,6 +523,7 @@ U0 MdTableRow(CMarkdown *md, CStrs *cells, I64 ncells, I64 *widths,
       MemSet(&crop, 0, sizeof(CMdCrop));
       crop.skip = row;
       crop.take = widths[i];
+      crop.source = cell->a;
       MarkdownInit(&part, &MdCropText, NULL, &crop);
       MdInline(&part, cell);
       shown = crop.used;
@@ -526,7 +531,8 @@ U0 MdTableRow(CMarkdown *md, CStrs *cells, I64 ncells, I64 *widths,
       left = 0;
       if (aligns[i] == MD_ALIGN_RIGHT) left = pad;
       if (aligns[i] == MD_ALIGN_CENTER) left = pad / 2;
-      md->source = cell->a;
+      md->source = cell->b;
+      if (crop.start) md->source = crop.start;
       MdRepeat(md, " ", left + 1);
       crop.parent = md;
       crop.skip = row;
@@ -536,6 +542,10 @@ U0 MdTableRow(CMarkdown *md, CStrs *cells, I64 ncells, I64 *widths,
       crop.used = 0;
       MarkdownInit(&part, &MdCropText, &MdCropStyle, &crop);
       MdInline(&part, cell);
+      // Padding denotes the insertion boundary after this visible segment,
+      // rather than repeating the source position of its final character.
+      md->source = cell->b;
+      if (crop.row > row && crop.end) md->source = crop.end;
       MdRepeat(md, " ", pad - left + 1);
       MdStyle(md, MD_STYLE_TABLE, 1);
       MdTextS(md, v);

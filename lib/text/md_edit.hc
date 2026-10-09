@@ -92,10 +92,10 @@ Bool MdEditTable(CEdit *edit, I64 action, I64 border=0)
 
   if (edit->readonly) return FALSE;
   if (action == MD_TABLE_INSERT) {
-    StrsInitS(&insert, "\n| Title | Title |\n| --- | --- |\n| Text | Text |\n");
+    StrsInitS(&insert, "\n|  |  |\n| --- | --- |\n|  |  |\n");
     EditSelection(edit, &a, &b);
     ok = EditInsert(edit, &insert);
-    if (ok) { edit->anchor = a + 3; edit->cursor = a + 8; }
+    if (ok) { edit->anchor = -1; edit->cursor = a + 3; }
     return ok;
   }
   if (!MdTableAt(&edit->text, edit->cursor, &table)) return FALSE;

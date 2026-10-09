@@ -150,13 +150,15 @@ U0 HtkMdText(CMarkdown *md, CStrs *text)
   HtkCtl *c = view->ctl;
   U8 *p = text->a;
   I64 rune, n, at, distance, a, b, fg, bg, attr, x, y, cells, j;
+  Bool source;
 
   EditSelection(edit, &a, &b);
   while (p < text->b) {
     n = MaxI64(1, Utf8DecodeRune(p, text->b - p, &rune));
     if (n == 1 && *p >= 128) rune = 0xFFFD;
     at = md->source - edit->text.a;
-    if (p >= edit->text.a && p < edit->text.b) at = p - edit->text.a;
+    source = p >= edit->text.a && p < edit->text.b;
+    if (source) at = p - edit->text.a;
     at = MaxI64(0, MinI64(StrsLen(&edit->text), at));
     cells = Utf8CellWidth(rune);
     if (rune == '\t') cells = 4 - view->x % 4;
@@ -165,7 +167,7 @@ U0 HtkMdText(CMarkdown *md, CStrs *text)
     }
     HtkMdGuide(view, at);
     distance = AbsI64(at - edit->cursor);
-    if (distance < view->distance) {
+    if (distance < view->distance || source && distance == view->distance) {
       view->distance = distance;
       view->caret_x = view->x;
       view->caret_y = view->y;
@@ -283,7 +285,7 @@ I64 HtkMdHit(CHtkMarkdown *view, I64 x, I64 y)
 U0 HtkMdDraw(HtkCtl *c)
 {
   CHtkMarkdown *view = c->data(CHtkMarkdown *);
-  I64 x, y, col;
+  I64 x, y, col, row;
   U8 *status;
 
   HtkMdRender(view);
@@ -296,7 +298,18 @@ U0 HtkMdDraw(HtkCtl *c)
   c->top = MaxI64(0, MinI64(c->top, view->rows - 1));
   view->left = MaxI64(0, MinI64(view->left, MaxI64(0, view->columns - view->viewport + 1)));
   HtkRect(c->x, c->y, c->w, c->h, ' ', HTK_C_FIELD_FG, HTK_C_FIELD_BG);
+  // Guides must extend through empty rows, including a trailing empty line.
+  if (view->ruler_left) {
+    for (y = view->inset; y < c->h - 1; y++) {
+      row = c->top + y - view->inset;
+      status = StrNew("  | ");
+      if (!(row % 5)) { Free(status); status = MStrPrint("%2d|", row % 100); }
+      HtkStr(c->x + view->gutter - 3, c->y + y, status, HTK_C_DIM, HTK_C_BG);
+      Free(status);
+    }
+  }
   HtkMdRender(view, TRUE);
+  HtkMdGuide(view, view->range_b);
   if (view->ruler_top) {
     for (x = 0; x < view->viewport; x++) {
       col = x + view->left + 1;
@@ -353,6 +366,7 @@ Bool HtkMdKey(HtkCtl *c, CTermEvent *e)
   CStrs text;
   U8 bytes[4];
 
+  if (HtkVimKey(c, edit, e)) { HtkMdChanged(c); return TRUE; }
   HtkMdRender(view);
   if (ctrl && key == 'a') { edit->anchor = 0; edit->cursor = StrsLen(&edit->text); }
   else if (ctrl && key == 'c') HtkMdCopy(c);
@@ -487,6 +501,9 @@ HtkCtl *HtkMarkdownNew(CEdit *edit)
   c->keyfn = &HtkMdKey;
   c->changed = &HtkMdMouse;
   c->destroy = &HtkMdDestroy;
+  c->vim_editor = TRUE;
+  c->vim_mode = htk_vim_mode;
+  c->vim_changed = &HtkMdChanged;
   return c;
 }
 

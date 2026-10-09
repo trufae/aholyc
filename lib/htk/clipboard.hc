@@ -5,11 +5,13 @@
 #include "../text/strbuf.hc"
 
 CStrBuf htk_clipboard;
+Bool htk_clipboard_lines;  // Vim yy/dd paste whole lines, including a final line
 
 U0 HtkClipboardSetStrs(CStrs *text)
 {
   CStrBuf copy;
 
+  htk_clipboard_lines = FALSE;
   StrBufInit(&copy);
   StrBufPutStrs(&copy, text);
   if (!htk_clipboard.a)
