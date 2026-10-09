@@ -8,15 +8,15 @@
 // These return C int, so every result below is narrowed with (I32): the
 // upper half of the returned register is undefined and would otherwise turn
 // -1 into a large positive value.  read and write return ssize_t.
-extern I64 read(I64 fd, U8 *buffer, I64 count);
-extern I64 write(I64 fd, U8 *buffer, I64 count);
+extern I64 read(I32 fd, U8 *buffer, U64 count);
+extern I64 write(I32 fd, U8 *buffer, U64 count);
 // ioctl is variadic in libc: on arm64 Darwin variadic arguments travel on
 // the stack, so a fixed prototype loses the argument pointer.
 extern I64 ioctl(I64 fd, U64 request, ...);
 extern I64 tcgetattr(I64 fd, U8 *state);
 extern I64 tcsetattr(I64 fd, I64 actions, U8 *state);
-U0 TermPosixHandler(I64 number); // signal handler shape
-extern U8 *signal(I64 number, TermPosixHandler *handler);
+U0 TermPosixHandler(I32 number); // signal handler shape
+extern TermPosixHandler *signal(I32 number, TermPosixHandler *handler);
 extern I64 poll(U8 *fds, U64 count, I64 timeout);
 extern I64 isatty(I64 fd);
 extern I64 clock_gettime(I64 clock, U8 *timespec);
@@ -76,17 +76,17 @@ I64 TermNativeMs()
 
 U8 term_posix_saved[128];
 Bool term_posix_raw;
-U8 *term_posix_old_int;
-U8 *term_posix_old_winch;
+TermPosixHandler *term_posix_old_int;
+TermPosixHandler *term_posix_old_winch;
 U8 term_posix_queue[8];
 I64 term_posix_queued;
 
-U0 TermPosixInterrupt(I64 number)
+U0 TermPosixInterrupt(I32 number)
 {
   term_interrupted = TRUE;
 }
 
-U0 TermPosixResize(I64 number)
+U0 TermPosixResize(I32 number)
 {
   term_resize_pending = TRUE;
 }
@@ -104,8 +104,8 @@ Bool TermNativeInit()
 
 U0 TermNativeFini()
 {
-  signal(TERM_SIGINT, term_posix_old_int(TermPosixHandler *));
-  signal(TERM_SIGWINCH, term_posix_old_winch(TermPosixHandler *));
+  signal(TERM_SIGINT, term_posix_old_int);
+  signal(TERM_SIGWINCH, term_posix_old_winch);
 }
 
 Bool TermNativeSize(I64 *width, I64 *height)
@@ -138,6 +138,16 @@ Bool TermNativeRawOn()
   flags[3] &= ~(TERM_ICANON | TERM_ECHO | TERM_IEXTEN);
   state[TERM_CC + TERM_VMIN] = 1;
   state[TERM_CC + TERM_VTIME] = 0;
+#ifdef TERM_CTRL_Z_KEY
+  // Editors need ^Z as a key. Keep ISIG for ^C; restore all saved characters
+  // on exit. VDISABLE differs between Darwin and Linux.
+#ifdef IS_MACOS
+  state[TERM_CC + 10] = 255; // VSUSP (^Z)
+  state[TERM_CC + 11] = 255; // VDSUSP (^Y)
+#else
+  state[TERM_CC + 10] = 0; // VSUSP (^Z)
+#endif
+#endif
   if (tcsetattr(0, 0, state)(I32))
     return FALSE;
   term_posix_raw = TRUE;
@@ -199,7 +209,7 @@ U0 TermNativeBlit(I64 x, I64 y, U64 *cells, I64 count)
 {
 }
 
-U0 TermNativeCursor(I64 x, I64 y, Bool visible)
+U0 TermNativeCursor(I64 x, I64 y, Bool visible, I64 shape=TERM_CURSOR_DEFAULT)
 {
 }
 

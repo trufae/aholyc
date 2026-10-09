@@ -11,3 +11,6 @@ a.out
 *.ll
 *.aholyc.c
 *.aholyc.js
+
+/word
+/vim

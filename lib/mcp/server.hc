@@ -79,8 +79,8 @@ class CMcpServer
 extern I64 _read(I64 fd, U8 *buffer, U32 count);
 extern I64 _write(I64 fd, U8 *buffer, U32 count);
 #else
-extern I64 read(I64 fd, U8 *buffer, I64 count);
-extern I64 write(I64 fd, U8 *buffer, I64 count);
+extern I64 read(I32 fd, U8 *buffer, U64 count);
+extern I64 write(I32 fd, U8 *buffer, U64 count);
 #endif
 
 I64 McpServerStdinRead(U8 *buffer, I64 capacity)

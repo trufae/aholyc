@@ -2,6 +2,10 @@
 // drawing over lib/term cells.  Every widget is one HtkCtl; behavior lives
 // in per-widget files and is dispatched by kind in loop.hc.
 
+#ifdef UI_HTK_VIMODE
+#include "../text/edit.hc"
+#endif
+
 #define HTK_WINDOW    0
 #define HTK_BOX       1
 #define HTK_GRID      2
@@ -34,6 +38,8 @@
 #define HTK_TERM      29
 #define HTK_SWITCH    30
 #define HTK_SPINNER   31
+#define HTK_TOOLBUTTON 32
+#define HTK_FLOW       33
 
 // Policy for the SIGINT that lib/term receives for Ctrl-C.
 #define HTK_CTRLC_DEFAULT 0  // preserve SIGINT: HtkMain exits
@@ -60,13 +66,17 @@ class HtkTheme
   I64 field_bg, field_fg; // entry/combo/spin fields
   I64 sel_bg, sel_fg;     // menu/list selection
   I64 bar_bg, bar_fg;     // desktop App/window bar
+  I64 menu_bg, menu_fg;   // window menubar
+  I64 tool_bg, tool_fg;   // window toolbar
   I64 accent;
+  Bool ascii;            // serial-friendly chrome and symbol fallbacks
 };
 
 HtkTheme htk_theme;
 
-U0 HtkThemeDefault()
+U0 HtkThemeLightBorland()
 {
+  htk_theme.ascii = FALSE;
   htk_theme.desk_fg = TERM_CYAN;
   htk_theme.desk_bg = TERM_BLUE;
   htk_theme.bg = TERM_WHITE;
@@ -83,7 +93,22 @@ U0 HtkThemeDefault()
   htk_theme.sel_fg = TERM_BRIGHT_WHITE;
   htk_theme.bar_bg = TERM_BLUE;
   htk_theme.bar_fg = TERM_BRIGHT_WHITE;
+  htk_theme.menu_bg = TERM_BLUE;
+  htk_theme.menu_fg = TERM_BRIGHT_WHITE;
+  htk_theme.tool_bg = TERM_CYAN;
+  htk_theme.tool_fg = TERM_BLACK;
   htk_theme.accent = TERM_BLUE;
+}
+
+U0 HtkThemeDefault()
+{
+  HtkThemeLightBorland;
+  htk_theme.bg = TERM_BLUE;
+  htk_theme.fg = TERM_WHITE;
+  htk_theme.dim = TERM_CYAN;
+  htk_theme.frame = TERM_BRIGHT_CYAN;
+  htk_theme.title = TERM_BRIGHT_WHITE;
+  htk_theme.menu_bg = TERM_GRAY;
 }
 
 #define HTK_C_DESK_FG  htk_theme.desk_fg
@@ -102,6 +127,10 @@ U0 HtkThemeDefault()
 #define HTK_C_SEL_FG   htk_theme.sel_fg
 #define HTK_C_BAR_BG   htk_theme.bar_bg
 #define HTK_C_BAR_FG   htk_theme.bar_fg
+#define HTK_C_MENU_BG  htk_theme.menu_bg
+#define HTK_C_MENU_FG  htk_theme.menu_fg
+#define HTK_C_TOOL_BG  htk_theme.tool_bg
+#define HTK_C_TOOL_FG  htk_theme.tool_fg
 #define HTK_C_ACCENT   htk_theme.accent
 
 #define HTK_TILE_LEFT 1
@@ -165,8 +194,20 @@ class HtkCtl
   U8 *text;           // htk_empty until HtkSetText, never freed while shared
   U0 (*changed)(HtkCtl *c);
   U0 (*submit)(HtkCtl *c);   // entry: Enter pressed
+  Bool (*keyfn)(HtkCtl *c, CTermEvent *e); // optional key override
+  Bool (*closing)(HtkCtl *c); // window close veto, including application quit
+  U0 (*destroy)(HtkCtl *c); // release caller-owned payload on HtkDestroy
+  #ifdef UI_HTK_VIMODE
+  U0 (*vim_changed)(HtkCtl *c); // editor mode change notification
+  U0 (*vim_page)(HtkCtl *c, CEdit *edit, I64 direction); // adapter's visual-row paging
+  CEdit *text_edit;    // multiline history; text stays owned by ->text at rest
+  Bool vim_editor, vim_mode, vim_insert, vim_vertical, vim_kill;
+  I64 vim_pending, vim_column, vim_at;
+  I64 vim_visual, vim_start, vim_head; // inclusive logical caret, exclusive CEdit selection
+  #endif
   I64 fn, data;      // canvas draw callback / table cell callback + data
   I64 user;          // adapter's UiCtl
+  I64 cursor_shape;  // TERM_CURSOR_*, overridden by Vim's active mode
   I64 value;         // state: checked, position, selection, tab index
   I64 controls;      // HTK_WINDOW_* title controls, meaningful for windows
   I64 low, high;     // bounds; table: high = row count; window: low=dismissable
@@ -180,6 +221,7 @@ class HtkCtl
   I32 col, row;      // grid placement
   I32 tab_x, tab_w;  // tab-page header geometry (separate from page content)
   I32 mouse_x, mouse_y;
+  I64 mouse_mods;
   U8 kind;
   U8 mouse_button;
   Bool mouse_pressed, mouse_motion;
@@ -292,6 +334,16 @@ Bool HtkSettingsLoad();
 Bool HtkSettingsSaved();
 U0 HtkOpsInit();                 // fills the per-kind tables (loop.hc)
 Bool htk_ops_ready;
+#ifdef UI_HTK_VIMODE
+Bool htk_vim_mode;       // default/global setting for textarea editors
+U0 HtkVimSet(Bool enabled);
+U0 HtkVimMode(HtkCtl *c, Bool enabled);
+Bool HtkVimKey(HtkCtl *c, CEdit *edit, CTermEvent *e);
+Bool HtkVimVisualKey(HtkCtl *c, CEdit *edit, CTermEvent *e);
+U0 HtkVimCancel(HtkCtl *c, CEdit *edit);
+I64 HtkVimCaret(HtkCtl *c, I64 fallback);
+Bool HtkTextVimKey(HtkCtl *c, CTermEvent *e);
+#endif
 
 HtkCtl *HtkNew(I64 kind)
 {
@@ -305,6 +357,21 @@ HtkCtl *HtkNew(I64 kind)
   c->text = htk_empty;
   c->anchor = -1;
   return c;
+}
+
+U0 HtkShowCursor(HtkCtl *c, I64 x, I64 y)
+{
+  I64 shape = c->cursor_shape;
+
+  #ifdef UI_HTK_VIMODE
+  if (c->vim_editor && c->vim_mode) {
+    shape = TERM_CURSOR_BLOCK;
+    if (c->vim_insert) shape = TERM_CURSOR_BAR;
+  }
+  #endif
+  TermSetCursorShape(shape);
+  TermGotoXY(x, y);
+  TermShowCursor(TRUE);
 }
 
 // Unlink a node from a singly-linked sibling list.
@@ -346,6 +413,10 @@ U0 HtkAdd(HtkCtl *parent, HtkCtl *kid)
 
 U0 HtkFreeText(HtkCtl *c)
 {
+  #ifdef UI_HTK_VIMODE
+  if (c->text_edit) { EditFini(c->text_edit); EditInit(c->text_edit); }
+  c->vim_visual = 0; c->vim_pending = 0; c->vim_vertical = FALSE; c->vim_kill = FALSE;
+  #endif
   if (c->text != htk_empty)
     Free(c->text);
   c->text = htk_empty;
@@ -367,6 +438,29 @@ U0 HtkAddItem(HtkCtl *c, U8 *text)
   HtkAdd(c, item);
   if (c->kind == HTK_RADIO && c->value < 0)
     c->value = 0;
+}
+
+// Destroy a detached control tree. Windows must be closed first.
+U0 HtkDestroy(HtkCtl *c)
+{
+  HtkCtl *kid, *next;
+
+  if (!c)
+    return;
+  kid = c->kids;
+  while (kid) {
+    next = kid->sib;
+    HtkDestroy(kid);
+    kid = next;
+  }
+  if (c->destroy)
+    c->destroy(c);
+  HtkDestroy(c->menu);
+  HtkFreeText(c);
+  #ifdef UI_HTK_VIMODE
+  if (c->text_edit) { EditFini(c->text_edit); Free(c->text_edit); }
+  #endif
+  Free(c);
 }
 
 U0 HtkFire(HtkCtl *c)
@@ -400,6 +494,7 @@ Bool htk_bar_always = TRUE;
 #endif
 Bool htk_bar_clock;
 Bool htk_dim_inactive;   // paint unfocused windows with dim foregrounds
+Bool htk_window_shadow = TRUE;
 Bool htk_paint_dim;      // set while such a window is being drawn
 
 // The window bar takes the bottom row when always on or while any window
@@ -441,7 +536,29 @@ HtkCtl *HtkKidAt(HtkCtl *c, I64 index)
   return k;
 }
 
-// Display width in runes, up to the first newline terminator.
+// ASCII fallback is a presentation choice; source/clipboard bytes stay UTF-8.
+I64 HtkGlyph(I64 rune)
+{
+  if (!htk_theme.ascii || rune < 128) return rune;
+  if (rune == HTK_R_H || rune == HTK_R_DH) return '-';
+  if (rune == HTK_R_V || rune == HTK_R_DV) return '|';
+  if (rune >= 0x2500 && rune <= 0x257F) return '+';
+  if (rune == HTK_R_MED || rune == HTK_R_LIGHT) return '.';
+  if (rune == HTK_R_BLOCK || rune == HTK_R_CLOSE) return '#';
+  if (rune == HTK_R_MAX || rune == HTK_R_RESTORE) return 'O';
+  if (rune == HTK_R_RIGHT) return '>';
+  if (rune == HTK_R_DOWN || rune == HTK_R_OPEN) return 'v';
+  if (rune == HTK_R_DOT) return '*';
+  if (rune == 0xB6) return 'S';
+  if (rune == 0x270E) return 'E';
+  if (rune == 0x263A) return ':';
+  if (rune == 0x2197) return '&';
+  if (rune == 0x2315) return '/';
+  if (rune == 0x2630) return '=';
+  return '?';
+}
+
+// Display width in cells, up to the first newline terminator.
 I64 HtkRunes(U8 *text)
 {
   I64 i = 0, n = 0;
@@ -449,8 +566,7 @@ I64 HtkRunes(U8 *text)
   if (!text)
     return 0;
   while (text[i] && text[i] != '\n') {
-    TermRuneNext(text, &i);
-    n++;
+    n += Utf8CellWidth(HtkGlyph(TermRuneNext(text, &i)));
   }
   return n;
 }
@@ -519,24 +635,32 @@ I64 HtkDimColor(I64 color)
 
 U0 HtkChr(I64 x, I64 y, I64 rune, I64 fg, I64 bg, I64 attr=0)
 {
+  rune = HtkGlyph(rune);
+  if (htk_theme.ascii) {
+    if (fg >= 8) fg = TermRgbToBasic(TermColorToRgb(fg)) & 7;
+    if (bg >= 8) bg = TermRgbToBasic(TermColorToRgb(bg)) & 7;
+  }
   if (htk_paint_dim) {  // inactive window: everything a shade darker
     fg = HtkDimColor(fg);
     bg = HtkDimColor(bg);
     attr = 0;
   }
+  if (x + Utf8CellWidth(rune) > htk_clip_x2) rune = ' ';
   if (x >= htk_clip_x && y >= htk_clip_y && x < htk_clip_x2 && y < htk_clip_y2)
     TermCell(x, y, rune, fg, bg, attr);
 }
 
 U0 HtkStr(I64 x, I64 y, U8 *text, I64 fg, I64 bg, I64 attr=0)
 {
-  I64 i = 0;
+  I64 i = 0, rune;
 
   if (!text)
     return;
   while (text[i] && text[i] != '\n') {
-    HtkChr(x, y, TermRuneNext(text, &i), fg, bg, attr);
-    x++;
+    rune = TermRuneNext(text, &i);
+    if (rune < ' ' || rune == 127) rune = 0xFFFD;
+    HtkChr(x, y, rune, fg, bg, attr);
+    x += Utf8CellWidth(HtkGlyph(rune));
   }
 }
 

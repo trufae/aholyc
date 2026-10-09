@@ -28,6 +28,7 @@
 //   U0   TermGotoXY(x, y);  TermColor(fg, bg=TERM_DEFAULT);  TermAttr(a);
 //   U0   TermPutChar(ch);  TermPuts(text);  TermPrint(fmt, ...);
 //   U0   TermShowCursor(visible=TRUE);
+//   U0   TermSetCursorShape(shape=TERM_CURSOR_DEFAULT); // block or vertical bar
 //   U0   TermCommit();                         // sync grid to the screen
 //   U0   TermRedraw();                         // force full repaint
 // Input:
@@ -73,6 +74,11 @@
 #define TERM_STRIKE    16
 #define TERM_DIM       32
 #define TERM_BLINK     64
+
+// DECSCUSR styles. Explicit styles are steady; default resets to blinking block.
+#define TERM_CURSOR_DEFAULT 0
+#define TERM_CURSOR_BLOCK   2
+#define TERM_CURSOR_BAR     6
 
 // Event types.
 #define TERM_EVENT_NONE   0
@@ -141,6 +147,7 @@ class CTermEvent
 // codepoint in bits 0..20, attr 21..27, fg 28..45, bg 46..63.
 #define TERM_CELL_EMPTY   0x400100000020
 #define TERM_CELL_INVALID 0xFFFFFFFFFFFFFFFF
+#define TERM_CELL_CONT 0x110000 // trailing cell of a wide rune
 
 // Set by the backends, polled by the application.
 Bool term_interrupted;
@@ -156,6 +163,7 @@ I64 term_fg;
 I64 term_bg;
 I64 term_attr;
 Bool term_cursor_visible;
+I64 term_cursor_shape;
 Bool term_started;
 Bool term_alt_screen;
 Bool term_raw;
@@ -168,6 +176,7 @@ I64 term_out_capacity;
 I64 term_committed_x;
 I64 term_committed_y;
 Bool term_committed_visible;
+I64 term_committed_shape;
 
 // Decode the next rune of a NUL-terminated string at *index, advancing it.
 // Invalid bytes consume one byte and decode to the replacement rune, so
@@ -551,9 +560,11 @@ public Bool TermInit(Bool alt_screen=TRUE, Bool raw=TRUE)
   term_cursor_x = 0;
   term_cursor_y = 0;
   term_cursor_visible = TRUE;
+  term_cursor_shape = TERM_CURSOR_DEFAULT;
   term_committed_x = -1;
   term_committed_y = -1;
   term_committed_visible = TRUE;
+  term_committed_shape = TERM_CURSOR_DEFAULT;
   term_interrupted = FALSE;
   term_resize_pending = FALSE;
   term_resize_callback = NULL;
@@ -586,6 +597,7 @@ public U0 TermFini()
     if (term_alt_screen)
       TermNativeAltScreen(FALSE);
   } else {
+    if (term_committed_shape != TERM_CURSOR_DEFAULT) TermEmit("\x1B[0 q");
     if (term_alt_screen)
       TermEmit("\x1B[0m\x1B[?25h\x1B[?1049l");
     else
@@ -670,8 +682,21 @@ public U0 TermCell(I64 x, I64 y, I64 ch,
 {
   if (x < 0 || y < 0 || x >= term_width || y >= term_height)
     return;
-  term_back[y * term_width + x] = ch & 0x1FFFFF | (attr & 0x7F) << 21 |
+  I64 index = y * term_width + x;
+  I64 width = Utf8CellWidth(ch);
+
+  if (x + width > term_width) { ch = ' '; width = 1; }
+  if (x > 0 && (term_back[index] & 0x1FFFFF) == TERM_CELL_CONT)
+    term_back[index - 1] = TERM_CELL_EMPTY;
+  if (x + 1 < term_width && (term_back[index + 1] & 0x1FFFFF) == TERM_CELL_CONT)
+    term_back[index + 1] = TERM_CELL_EMPTY;
+  term_back[index] = ch & 0x1FFFFF | (attr & 0x7F) << 21 |
     (fg & 0x3FFFF) << 28 | (bg & 0x3FFFF) << 46;
+  if (width == 2) {
+    if (x + 2 < term_width && (term_back[index + 2] & 0x1FFFFF) == TERM_CELL_CONT)
+      term_back[index + 2] = TERM_CELL_EMPTY;
+    term_back[index + 1] = (term_back[index] & ~0x1FFFFF) | TERM_CELL_CONT;
+  }
 }
 
 public I64 TermCellChar(U64 cell)
@@ -697,13 +722,14 @@ public I64 TermCellBg(U64 cell)
 public U0 TermText(I64 x, I64 y, U8 *text,
   I64 fg=TERM_DEFAULT, I64 bg=TERM_DEFAULT, I64 attr=0)
 {
-  I64 index = 0;
+  I64 index = 0, rune;
 
   if (!text)
     return;
   while (text[index]) {
-    TermCell(x, y, TermRuneNext(text, &index), fg, bg, attr);
-    x++;
+    rune = TermRuneNext(text, &index);
+    TermCell(x, y, rune, fg, bg, attr);
+    x += Utf8CellWidth(rune);
   }
 }
 
@@ -764,6 +790,12 @@ public U0 TermAttr(I64 attr)
 public U0 TermShowCursor(Bool visible=TRUE)
 {
   term_cursor_visible = visible;
+}
+
+public U0 TermSetCursorShape(I64 shape=TERM_CURSOR_DEFAULT)
+{
+  if (shape == TERM_CURSOR_DEFAULT || shape == TERM_CURSOR_BLOCK || shape == TERM_CURSOR_BAR)
+    term_cursor_shape = shape;
 }
 
 public U0 TermPutChar(I64 ch)
@@ -835,7 +867,7 @@ U0 TermCommitLegacy()
       }
     }
   }
-  TermNativeCursor(term_cursor_x, term_cursor_y, term_cursor_visible);
+  TermNativeCursor(term_cursor_x, term_cursor_y, term_cursor_visible, term_cursor_shape);
 }
 
 public U0 TermCommit()
@@ -865,6 +897,8 @@ public U0 TermCommit()
       if (cell != term_front[index]) {
         term_front[index] = cell;
         changed = TRUE;
+        if (TermCellChar(cell) == TERM_CELL_CONT)
+          goto next_cell;
         if (x != last_x || y != last_y)
           TermOutMove(x, y);
         pen = cell >> 21;
@@ -873,24 +907,31 @@ public U0 TermCommit()
           last_pen = pen;
         }
         TermOutChar(TermCellChar(cell));
-        last_x = x + 1;
+        last_x = x + Utf8CellWidth(TermCellChar(cell));
         last_y = y;
         if (last_x >= term_width)
           last_x = -2;
       }
+      next_cell:;
     }
   }
   TermOutText("\x1B[0m");
+  if (term_cursor_shape != term_committed_shape) {
+    U8 sequence[16];
+    StrPrint(sequence, "\x1B[%d q", term_cursor_shape);
+    TermOutText(sequence);
+  }
   TermOutMove(term_cursor_x, term_cursor_y);
   if (term_cursor_visible)
     TermOutText("\x1B[?25h");
   if (changed || term_cursor_x != term_committed_x ||
     term_cursor_y != term_committed_y ||
-    term_cursor_visible != term_committed_visible) {
+    term_cursor_visible != term_committed_visible || term_cursor_shape != term_committed_shape) {
       TermNativeWrite(term_out, term_out_length);
       term_committed_x = term_cursor_x;
       term_committed_y = term_cursor_y;
       term_committed_visible = term_cursor_visible;
+      term_committed_shape = term_cursor_shape;
     }
 }
 

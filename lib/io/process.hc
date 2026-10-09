@@ -52,24 +52,24 @@ class CProcessInformation
   $$ = 24;
 };
 
-extern I64 CreatePipe(U8 **read_end, U8 **write_end,
-  CProcessSecurityAttributes *attributes, U32 size);
-extern I64 SetHandleInformation(U8 *handle, U32 mask, U32 flags);
-extern U8 *GetStdHandle(I64 which);
-extern I64 CreateProcessA(U8 *application_name, U8 *command_line,
-  U0 *process_attributes, U0 *thread_attributes,
-  I64 inherit_handles, I64 creation_flags,
-  U0 *environment, U8 *current_directory,
-  CProcessStartupInfoA *startup_info,
-  CProcessInformation *process_information);
-extern I64 ReadFile(U8 *handle, U8 *data, U32 size, U32 *read, U0 *overlapped);
-extern I64 WriteFile(U8 *handle, U8 *data, U32 size, U32 *written,
+extern I32 CreatePipe(U8 **read_end, U8 **write_end,
+  U8 *attributes, U32 size);
+extern I32 SetHandleInformation(U8 *handle, U32 mask, U32 flags);
+extern U8 *GetStdHandle(U32 which);
+extern I32 CreateProcessA(U8 *application_name, U8 *command_line,
+  U8 *process_attributes, U8 *thread_attributes,
+  I32 inherit_handles, U32 creation_flags,
+  U8 *environment, U8 *current_directory,
+  U8 *startup_info, U8 *process_information);
+extern I32 ReadFile(U8 *handle, U8 *data, U32 size, U32 *read, U8 *overlapped);
+extern I32 WriteFile(U8 *handle, U8 *data, U32 size, U32 *written,
   U8 *overlapped);
 extern U32 WaitForSingleObject(U8 *handle, U32 milliseconds);
-extern I64 TerminateProcess(U8 *handle, U32 exit_code);
-extern I64 GetExitCodeProcess(U8 *process, U32 *exit_code);
-_extern CloseHandle I64 ProcessWinCloseHandle(U8 *handle);
-extern I64 GetEnvironmentVariableA(U8 *name, U8 *value, U32 size);
+extern I32 TerminateProcess(U8 *handle, U32 exit_code);
+extern I32 GetExitCodeProcess(U8 *process, U32 *exit_code);
+extern I32 CloseHandle(U8 *handle);
+// Same count-returning API as env.hc, independent of pointer size.
+extern U32 GetEnvironmentVariableA(U8 *name, U8 *value, U32 size);
 
 Bool ProcessNativeOpen(CProcess *process, U8 *command)
 {
@@ -82,11 +82,11 @@ Bool ProcessNativeOpen(CProcess *process, U8 *command)
   MemSet(&attributes, 0, sizeof(CProcessSecurityAttributes));
   attributes.length = sizeof(CProcessSecurityAttributes);
   attributes.inherit = TRUE;
-  if (!CreatePipe(&child_input, &our_input, &attributes, 0)(I32))
+  if (!CreatePipe(&child_input, &our_input, (&attributes)(U8 *), 0)(I32))
     return FALSE;
-  if (!CreatePipe(&our_output, &child_output, &attributes, 0)(I32)) {
-    ProcessWinCloseHandle(child_input);
-    ProcessWinCloseHandle(our_input);
+  if (!CreatePipe(&our_output, &child_output, (&attributes)(U8 *), 0)(I32)) {
+    CloseHandle(child_input);
+    CloseHandle(our_input);
     return FALSE;
   }
   SetHandleInformation(our_input, PROCESS_HANDLE_FLAG_INHERIT, 0);
@@ -107,17 +107,17 @@ Bool ProcessNativeOpen(CProcess *process, U8 *command)
     StrCpy(shell, "cmd.exe");
   U8 *command_line = MStrPrint("cmd.exe /D /S /C \"%s\"", command);
   Bool ok = CreateProcessA(shell, command_line, NULL, NULL, TRUE, 0, NULL,
-    NULL, &startup, &information)(I32) != 0;
+    NULL, (&startup)(U8 *), (&information)(U8 *))(I32) != 0;
   Free(command_line);
   Free(shell);
-  ProcessWinCloseHandle(child_input);
-  ProcessWinCloseHandle(child_output);
+  CloseHandle(child_input);
+  CloseHandle(child_output);
   if (!ok) {
-    ProcessWinCloseHandle(our_input);
-    ProcessWinCloseHandle(our_output);
+    CloseHandle(our_input);
+    CloseHandle(our_output);
     return FALSE;
   }
-  ProcessWinCloseHandle(information.thread);
+  CloseHandle(information.thread);
   process->handle = information.process;
   process->input = our_input(I64);
   process->output = our_output(I64);
@@ -148,7 +148,7 @@ I64 ProcessNativeWrite(CProcess *process, U8 *data, I64 size)
 
 U0 ProcessNativeCloseHandle(I64 handle)
 {
-  ProcessWinCloseHandle(handle(U8 *));
+  CloseHandle(handle(U8 *));
 }
 
 I64 ProcessNativeWait(CProcess *process, I64 timeout_ms)
@@ -172,7 +172,7 @@ U0 ProcessNativeTerminate(CProcess *process, Bool force)
 
 U0 ProcessNativeRelease(CProcess *process)
 {
-  ProcessWinCloseHandle(process->handle);
+  CloseHandle(process->handle);
   process->handle = NULL;
 }
 
@@ -187,26 +187,27 @@ U0 ProcessNativeRelease(CProcess *process)
 #define PROCESS_SPAWN_SETPGROUP 2
 
 extern U8 **environ;
-extern I64 pipe(I32 *fds);
+extern I32 pipe(I32 *fds);
 // Match the shared POSIX declarations in the socket and terminal libraries.
-extern I64 close(I64 fd);
-extern I64 read(I64 fd, U8 *buffer, I64 count);
-extern I64 write(I64 fd, U8 *buffer, I64 count);
-extern I64 waitpid(I32 pid, I32 *status, I32 options);
-extern I64 kill(I32 pid, I32 signal_number);
-extern U8 *signal(I64 number, U8 *handler);
-extern I64 usleep(U32 microseconds);
-extern I64 posix_spawn(I32 *pid, U8 *path, U0 *file_actions, U0 *attributes,
+extern I32 close(I32 fd);
+extern I64 read(I32 fd, U8 *buffer, U64 count);
+extern I64 write(I32 fd, U8 *buffer, U64 count);
+extern I32 waitpid(I32 pid, I32 *status, I32 options);
+extern I32 kill(I32 pid, I32 signal_number);
+U0 ProcessSignalHandler(I32 number);
+extern ProcessSignalHandler *signal(I32 number, ProcessSignalHandler *handler);
+extern I32 usleep(U32 microseconds);
+extern I32 posix_spawn(I32 *pid, U8 *path, U0 *file_actions, U0 *attributes,
   U8 **argv, U8 **envp);
-extern I64 posix_spawn_file_actions_init(U0 *file_actions);
-extern I64 posix_spawn_file_actions_destroy(U0 *file_actions);
-extern I64 posix_spawn_file_actions_adddup2(U0 *file_actions, I32 fd,
+extern I32 posix_spawn_file_actions_init(U0 *file_actions);
+extern I32 posix_spawn_file_actions_destroy(U0 *file_actions);
+extern I32 posix_spawn_file_actions_adddup2(U0 *file_actions, I32 fd,
   I32 new_fd);
-extern I64 posix_spawn_file_actions_addclose(U0 *file_actions, I32 fd);
-extern I64 posix_spawnattr_init(U0 *attributes);
-extern I64 posix_spawnattr_destroy(U0 *attributes);
-extern I64 posix_spawnattr_setflags(U0 *attributes, I16 flags);
-extern I64 posix_spawnattr_setpgroup(U0 *attributes, I32 pgroup);
+extern I32 posix_spawn_file_actions_addclose(U0 *file_actions, I32 fd);
+extern I32 posix_spawnattr_init(U0 *attributes);
+extern I32 posix_spawnattr_destroy(U0 *attributes);
+extern I32 posix_spawnattr_setflags(U0 *attributes, I16 flags);
+extern I32 posix_spawnattr_setpgroup(U0 *attributes, I32 pgroup);
 
 Bool ProcessNativeOpen(CProcess *process, U8 *command)
 {
@@ -223,7 +224,7 @@ Bool ProcessNativeOpen(CProcess *process, U8 *command)
     close(to_child[1]);
     return FALSE;
   }
-  signal(PROCESS_SIGPIPE, PROCESS_SIG_IGN(U8 *));
+  signal(PROCESS_SIGPIPE, PROCESS_SIG_IGN(ProcessSignalHandler *));
 
   // Use a process group so shutdown reaches the shell and its descendants.
   posix_spawnattr_init(attributes);

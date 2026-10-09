@@ -87,9 +87,9 @@ HtkCtl *HtkMenubarHit(HtkCtl *w, I64 x)
 U0 HtkMenubarDraw(HtkCtl *w)
 {
   HtkCtl *k = w->kids;
-  I64 at = w->x + 2;
+  I64 at = w->x + 2, fg;
 
-  HtkRect(w->x + 1, w->y + 1, w->w - 2, 1, ' ', HTK_C_FG, HTK_C_BG);
+  HtkRect(w->x + 1, w->y + 1, w->w - 2, 1, ' ', HTK_C_MENU_FG, HTK_C_MENU_BG);
   while (k) {
     if (k->kind == HTK_MENU) {
       k->x = at;
@@ -97,11 +97,14 @@ U0 HtkMenubarDraw(HtkCtl *w)
       k->w = HtkRunes(k->text) + 2;
       k->h = 1;
       if (htk_popup && HtkPopupRoot->link == k)
-        HtkRect(at, w->y + 1, k->w, 1, ' ', TERM_BRIGHT_WHITE, HTK_C_BTN_BG);
+        HtkRect(at, w->y + 1, k->w, 1, ' ', HTK_C_SEL_FG, HTK_C_SEL_BG);
       if (htk_popup && HtkPopupRoot->link == k)
-        HtkStr(at + 1, w->y + 1, k->text, TERM_BRIGHT_WHITE, HTK_C_BTN_BG);
-      else
-        HtkStr(at + 1, w->y + 1, k->text, HtkInk(k, HTK_C_FG), HTK_C_BG);
+        HtkStr(at + 1, w->y + 1, k->text, HTK_C_SEL_FG, HTK_C_SEL_BG, TERM_BOLD);
+      else {
+        fg = HtkInk(k, HTK_C_MENU_FG);
+        if (fg == HTK_C_MENU_BG) fg = HTK_C_MENU_FG;
+        HtkStr(at + 1, w->y + 1, k->text, fg, HTK_C_MENU_BG);
+      }
       at += k->w;
     }
     k = k->sib;

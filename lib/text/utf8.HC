@@ -118,4 +118,23 @@ Bool Utf8Valid(U8 *data, I64 length, I64 *rune_count = NULL)
   return TRUE;
 }
 
+// Terminal cells for the common wide CJK and emoji ranges. Ambiguous-width
+// symbols remain one cell, matching the usual non-CJK terminal setting.
+I64 Utf8CellWidth(I64 rune)
+{
+  if (rune >= 0x1100 && (rune <= 0x115F || rune == 0x2329 || rune == 0x232A ||
+    rune >= 0x2E80 && rune <= 0xA4CF && rune != 0x303F ||
+    rune >= 0xAC00 && rune <= 0xD7A3 || rune >= 0xF900 && rune <= 0xFAFF ||
+    rune >= 0xFE10 && rune <= 0xFE19 || rune >= 0xFE30 && rune <= 0xFE6F ||
+    rune >= 0xFF01 && rune <= 0xFF60 || rune >= 0xFFE0 && rune <= 0xFFE6 ||
+    rune >= 0x1F300 && rune <= 0x1FAFF || rune >= 0x20000 && rune <= 0x3FFFD))
+    return 2;
+  // Unicode's wide trigram symbols include the outline/menu glyph U+2630.
+  if (rune >= 0x2630 && rune <= 0x2637 ||
+    rune == 0x2615 || rune == 0x2705 || rune == 0x2728 || rune == 0x274C ||
+    rune == 0x274E || rune == 0x2757 || rune >= 0x2753 && rune <= 0x2755)
+    return 2;
+  return 1;
+}
+
 #endif

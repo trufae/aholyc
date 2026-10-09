@@ -44,6 +44,9 @@
 #include "../text/base64.hc"
 #endif
 #include "clipboard.hc"
+#ifdef UI_HTK_VIMODE
+#include "vim.hc"
+#endif
 #include "tree.hc"
 #include "tabs.hc"
 #include "group.hc"

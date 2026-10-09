@@ -4,7 +4,7 @@
 // Per-kind behavior, one row per HTK_* kind: measure into pw/ph, lay out
 // the kids, draw, handle a key.  A zero entry leaves pw/ph alone (a canvas
 // keeps its creation size), draws nothing, or declines the key.
-#define HTK_KINDS 32
+#define HTK_KINDS 34
 I64 htk_measure[HTK_KINDS], htk_layout[HTK_KINDS];
 I64 htk_draw[HTK_KINDS], htk_key[HTK_KINDS];
 
@@ -27,7 +27,7 @@ U0 HtkOpsInit()
   HtkOps(HTK_GROUP, &HtkGroupMeasure, &HtkGroupLayout, &HtkGroupDraw, 0);
   HtkOps(HTK_TAB, &HtkTabMeasure, &HtkTabLayout, &HtkTabDraw, &HtkTabKey);
   HtkOps(HTK_LABEL, &HtkLabelMeasure, 0, &HtkLabelDraw, 0);
-  HtkOps(HTK_STATUS, &HtkStatusMeasure, 0, &HtkLabelDraw, 0);
+  HtkOps(HTK_STATUS, &HtkStatusMeasure, &HtkBoxLayout, &HtkStatusDraw, 0);
   HtkOps(HTK_SEP, &HtkSepMeasure, 0, &HtkSepDraw, 0);
   HtkOps(HTK_BUTTON, &HtkButtonMeasure, 0, &HtkButtonDraw, &HtkButtonKey);
   HtkOps(HTK_MENUITEM, &HtkButtonMeasure, 0, 0, 0);
@@ -46,6 +46,8 @@ U0 HtkOpsInit()
   HtkOps(HTK_CANVAS, 0, 0, &HtkCanvasDraw, 0);
   HtkOps(HTK_TERM, &HtkTermMeasure, 0, &HtkTermDraw, &HtkTermKey);
   HtkOps(HTK_SWITCH, &HtkSwitchMeasure, 0, &HtkSwitchDraw, &HtkSwitchKey);
+  HtkOps(HTK_TOOLBUTTON, &HtkToolButtonMeasure, 0, &HtkToolButtonDraw, &HtkButtonKey);
+  HtkOps(HTK_FLOW, &HtkFlowMeasure, &HtkFlowLayout, &HtkKidsDraw, 0);
   HtkOps(HTK_SPINNER, &HtkSpinnerMeasure, 0, &HtkSpinnerDraw, 0);
 }
 
@@ -72,15 +74,23 @@ U0 HtkDrawCtl(HtkCtl *c)
 {
   U0 (*draw)(HtkCtl *c) = htk_draw[c->kind];
 
-  if (!c->hidden && draw)
+  if (!c->hidden && draw) {
+    I64 x = htk_clip_x, y = htk_clip_y, x2 = htk_clip_x2, y2 = htk_clip_y2;
+    HtkClipSet(c->x, c->y, c->w, c->h);
     draw(c);
+    htk_clip_x = x; htk_clip_y = y; htk_clip_x2 = x2; htk_clip_y2 = y2;
+  }
 }
 
 Bool HtkKeyCtl(HtkCtl *c, CTermEvent *e)
 {
   Bool (*key)(HtkCtl *c, CTermEvent *e) = htk_key[c->kind];
 
-  if (c->disabled || !key)
+  if (c->disabled)
+    return FALSE;
+  if (c->keyfn && c->keyfn(c, e))
+    return TRUE;
+  if (!key)
     return FALSE;
   return key(c, e);
 }
@@ -109,6 +119,9 @@ U0 HtkSetFocus(HtkCtl *c)
 {
   if (htk_focus == c)
     return;
+  #ifdef UI_HTK_VIMODE
+  if (htk_focus) htk_focus->vim_kill = FALSE;
+  #endif
   htk_focus = c;
   htk_dirty = TRUE;
 }
@@ -299,6 +312,7 @@ U0 HtkRedraw()
   Bool app_modal = htk_modal && !htk_modal->modal_owner;
 
   HtkEnsureFocus;
+  TermSetCursorShape;
   TermShowCursor(FALSE);
   HtkClipAll;
   htk_paint_dim = app_modal;
@@ -350,6 +364,7 @@ U0 HtkCanvasMouse(HtkCtl *c, CTermEvent *e)
   c->mouse_x = e->x - c->x;
   c->mouse_y = e->y - c->y;
   c->mouse_button = e->button;
+  c->mouse_mods = e->mods;
   c->mouse_pressed = e->pressed;
   c->mouse_motion = e->motion;
   if (c->mouse_x < 0)
@@ -487,6 +502,7 @@ U0 HtkWindowMouse(HtkCtl *w, CTermEvent *e)
   if (hit->disabled)
     return;
   switch (hit->kind) {
+  case HTK_TOOLBUTTON:
   case HTK_BUTTON:
     if (press)
       HtkFire(hit);
@@ -550,6 +566,9 @@ U0 HtkWindowMouse(HtkCtl *w, CTermEvent *e)
         HtkMultilineScrollMouse(hit, e->y);
         htk_drag_scroll = TRUE;
       } else {
+        #ifdef UI_HTK_VIMODE
+        hit->vim_visual = 0; hit->vim_pending = 0; hit->vim_vertical = FALSE;
+        #endif
         HtkMultilineCursorAt(hit, e->x, e->y);
         hit->anchor = hit->cursor;
         hit->scroll_hold = FALSE;
@@ -855,19 +874,28 @@ U0 HtkKey(CTermEvent *e)
       HtkWindowMenuOpen(top, top->x + 2, top->y + 1);
     return;
   }
+  if (top && top->keyfn && top->keyfn(top, e))
+    return;
+  if (e->mods == TERM_MOD_ALT && (e->key == 'a' || e->key == TERM_KEY_F10)) {
+    HtkAppMenuOpen(0, TermHeight - 1);
+    return;
+  }
   if (e->key == 'o' && e->mods & TERM_MOD_CTRL) {
     HtkAppMenuOpen(0, TermHeight - 1);
     return;
   }
   if (e->key == TERM_KEY_TAB &&
     !(htk_focus && htk_focus->kind == HTK_TERM && !(e->mods & TERM_MOD_SHIFT))) {
+      // Custom editors can use Tab for content navigation before focus moves.
+      if (htk_focus && htk_focus->kind != HTK_TERM && htk_focus->keyfn &&
+        htk_focus->keyfn(htk_focus, e)) return;
       if (e->mods & TERM_MOD_SHIFT)  // a terminal keeps plain Tab
         HtkFocusMove(-1);
       else
         HtkFocusMove(1);
       return;
     }
-  if (e->key == TERM_KEY_F10 && top) {
+  if (top && (e->key == TERM_KEY_F10 && !e->mods || e->key == 'm' && e->mods == TERM_MOD_ALT)) {
     HtkCtl *m = top->kids;
     while (m && m->kind != HTK_MENU)
       m = m->sib;
@@ -939,6 +967,13 @@ U0 HtkFini()
 
 U0 HtkQuit()
 {
+  HtkCtl *w = htk_windows;
+
+  while (w) {
+    if (w->closing && !w->closing(w))
+      return;
+    w = w->sib;
+  }
   htk_running = FALSE;
 }
 

@@ -52,6 +52,67 @@ send copies through OSC 52 to terminals that permit host clipboard access.
 `HtkCtrlCHandler(fn, data)` plus `HTK_CTRLC_CALLBACK` queues `fn(data)` on
 HTK's event-loop thread, suitable for a confirmation dialog.
 
+## Markdown widgets
+
+The [word processor](../../doc/word.md) uses `HtkMarkdownNew(edit)` from
+`markdown.hc`, compact `HtkToolButtonNew` buttons and a single-row
+`HtkToolbarNew`. `HTK_FLOW` is available for wrapping controls.
+`choice.hc` provides grid/list choices and `HtkEmojiPick`;
+`history.hc` provides a history picker, and `filepick.hc` provides
+`HtkFilePickFor(owner, directory)` without changing the working directory.
+All dialog results and Markdown widget state belong to their instances.
+Markdown task-list checkboxes toggle on click in View mode, on double-click
+in Edit mode, and with Space on the current task's source line in View mode.
+Only the `[ ]`/`[x]` state byte changes, with one undo entry; ordinary text
+stays locked in View. Fenced and tab-indented code is inert. Set the Markdown
+view's `task_interactive` to FALSE for strict read-only viewers or source
+editors; the Vim example does this.
+
+`HtkClipboardSetStrs` / `HtkClipboardGet` preserve explicit byte lengths,
+including embedded NUL. The older C-string clipboard helpers still work.
+
+Vim support is optional: compile with `aholyc -D UI_HTK_VIMODE app.hc`, or
+define `UI_HTK_VIMODE` before including HTK. Without it, `vim.hc`, its input
+hooks, control state, history dependency and desktop setting are omitted.
+The Word and Vim examples define this flag themselves.
+When enabled, multiline and Markdown editors share Vim mode from `vim.hc`.
+Their cursor is a block in Normal/Visual modes and a vertical bar in Insert.
+Ordinary text editing and command prompts use a bar. Set an entry, multiline
+or Markdown control's `cursor_shape` to `TERM_CURSOR_BLOCK`, `TERM_CURSOR_BAR`
+or `TERM_CURSOR_DEFAULT` to choose its shape outside Vim mode; Vim overrides
+that choice while enabled. The focused control selects the shape at draw time.
+`HtkVimSet(TRUE)` enables it for existing windows and future textarea controls;
+`HtkVimMode(editor, FALSE)` overrides one control. The desktop Settings checkbox
+saves this preference as `vim_mode = 1` in `[htk]`. State belongs to each editor.
+Normal mode supports `h/j/k/l`, `w/b/W/B`, `0/^/$`, `gg/G`, `i/a/I/A`, `o/O`,
+`J`, `x`, `dd/yy`, `dw/cw`, `p/P`, `u`, and Ctrl+R. Esc returns from Insert
+to Normal. `J` joins source lines with Vim spacing and trims indentation.
+Insert typing (including spaces, line breaks and deletions) groups with `cw`
+or `o/O` as one undo step until navigation, a command, Esc or a save boundary.
+Motions and edits preserve UTF-8 boundaries; read-only editors reject changes.
+Ctrl-F/PageDown and Ctrl-B/PageUp page in every Vim mode with two rows of
+overlap, extending Visual selections. Markdown paging follows display rows,
+including wrapping, and excludes the ruler and footer from the page height.
+Insert mode provides Ctrl-A/E (line start/end), Ctrl-P/N (previous/next line),
+Ctrl-D/H (delete next/previous character), Ctrl-K (cut to line end or its newline),
+Ctrl-U (cut to line start), Ctrl-W (cut previous word), Ctrl-Y (paste), and
+Ctrl-T (transpose characters). Consecutive cuts combine in the clipboard;
+each cut/paste is one undo step. Ctrl-Y remains redo outside Insert mode.
+`V` enters Visual line mode and `v` enters Visual character mode. Motions
+extend the inclusive selection; `o` swaps its active end. `y` copies,
+`d`/`x` deletes, `c` enters Insert to change it, and `p/P` replaces it with
+the clipboard. Esc cancels. `HtkVimCaret(control, fallback)` supplies the
+logical caret while `CEdit` retains ordinary exclusive selection bounds.
+Custom textarea controls can set `vim_editor`, inherit `htk_vim_mode`, and call
+`HtkVimKey(control, edit, event)` with their `CEdit` model before ordinary input.
+Their optional `vim_changed` callback refreshes UI when the setting changes.
+An optional `vim_page(control, edit, direction)` callback maps paging through
+the adapter's visual layout; `direction` is -1 or 1. App key handlers can use
+`HtkVimControl(control, event)` to give these Ctrl bindings precedence while
+that Vim editor is focused.
+Adapters should cancel Visual selection through `HtkVimCancel(control, edit)`
+when disabling the mode or placing the caret with the mouse.
+
 ## Layout
 
 Tiling containers compute a preferred size bottom-up, then divide space
@@ -65,6 +126,8 @@ button to bring it back), `[□]` maximizes over the desktop and `[▣]`
 restores, `[■]` closes (`HtkWindowMinimize/Maximize/Restore/Close`).  A
 `HtkStatusbarNew` control draws as an inverse strip, so a box with the
 status bar last gives a docked bar like the GTK/Cocoa/Win32 backends.
+Status bars can also hold children: an expanding label yields its width to
+fixed buttons at the right, allowing view modes alongside document statistics.
 On Termux, tap or swipe the title text to start **Move**, then tap the
 destination for the title point you grabbed. The bottom row shows the
 Move prompt. Termux reports finger swipes as wheel events at a fixed cell,
@@ -112,8 +175,10 @@ Call this after `HtkInit` / `UiInit` to override loaded settings.
 The window bar's `[App]` button (and a right click on the desktop) opens
 registered apps, Settings... and Quit. Settings picks a theme preset, the
 desktop/window-bar/border colors, whether the bar is always shown, a clock at
-its right and dimming of unfocused windows (`htk_bar_always`,
-`htk_bar_clock`, `htk_dim_inactive`, `HtkThemePreset`). **Save** persists
+its right, Vim mode for textarea editors, window shadows, and dimming of
+unfocused windows (`htk_bar_always`, `htk_bar_clock`, `htk_window_shadow`,
+`htk_dim_inactive`, `HtkThemePreset`). Window shadows preview immediately.
+**Save** persists
 these choices in `~/htk.ini`; **Reset** restores defaults and removes that
 file. Build with `-DHTK_NODESK` to drop that layer: the bar then appears only
 while windows are minimized.
@@ -149,11 +214,21 @@ own context menu: build one with `HtkContextMenuNew` (+ `HtkMenuItem`,
 `HtkSubMenu` for ▸ submenus), assign it to `ctl->menu`, and a right click
 on the control (or anything inside it) pops it up; `HtkMenuOpenAt` shows a
 menu at an arbitrary cell.
+`HtkMenuSeparator(menu)` adds a horizontal rule between action groups;
+keyboard navigation skips separator rows. Word and Vim use these in their
+window menus. Serial draws the rules as ASCII dashes.
 
 ## Theme
 
 Every color lives in the runtime `htk_theme` struct; assign any field to
-restyle live, `HtkThemeDefault()` restores the Borland palette:
+restyle live. `HtkThemeDefault()` restores the Borland palette.
+
+Presets are Borland (dark blue contents), Light Borland (the original pale
+palette), Dark, Light, Teal, Modern, and Serial. Modern uses charcoal surfaces
+and a muted sage accent, with a basic-color fallback. Serial uses basic ANSI colors
+and ASCII glyphs, including window borders, controls, and Unicode fallbacks;
+document and clipboard bytes remain unchanged. `menu_bg/menu_fg` and
+`tool_bg/tool_fg` color the separate window menubar and toolbar strips.
 
 ```holyc
 htk_theme.frame = TERM_BRIGHT_YELLOW;
@@ -168,16 +243,28 @@ One `HtkCtl` class describes every widget; behavior is dispatched by
 edit, entries fire `submit` on Enter — those hooks plus the `user` pointer
 are the whole adapter surface `lib/ui/htk.hc` needs.  The loop (`HtkMain`,
 or `HtkStep(timeout)` for custom loops) polls `lib/term` events: Tab cycles
-focus, F10 opens menus and Left/Right hop between them, ESC dismisses
+focus, F10 or Alt-M opens the window menubar, Left/Right hop between menus,
+ESC dismisses
 dialogs, Enter fires a window's default button (`link`),
 mouse clicks/drags/wheel route by hit test, ^C sets `TermInterrupted` and
 ends the loop.  Timers and queued calls share one hook list
 (`HtkHookAdd`), driven by `TermMs()`.
 Desktop shortcuts: **Ctrl-Tab** / **Ctrl-Shift-Tab** cycle visible windows,
 **Ctrl-G** opens the active window's system menu, and **Ctrl-O** opens App.
+**Alt-A** or **Alt-F10** opens App even when an application uses Ctrl-O for Open.
+Custom move/resize bindings have precedence over these menu shortcuts.
 In an open menu or combo box, **j** and **k** move the selection down and up.
 For a menubar menu, **h** and **l** move to the previous and next top-level
 menu (and back out of or into submenus).
 
 See `examples/htk.hc` for native use, `examples/ui/*.hc` with `-DUI_HTK`
 for the portable path.
+
+`examples/vim.hc` combines the shared Vim handler and Markdown control's
+literal source mode into a split source editor; see [its guide](../../doc/vim.md).
+For `HTK_SPLIT`, `value` from 1 to 999 sets the first child's share in
+thousandths (`500` gives equal panes), following window resizes. Zero keeps
+the first child's preferred size. Source views offer `no_wrap` and
+`tab_width` (default four). `CEdit.spliced(edit, a, b, size)` optionally
+notifies views of each replacement, including undo/redo, so other panes can
+adjust their positions without copying the document.

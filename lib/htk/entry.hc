@@ -10,6 +10,7 @@ HtkCtl *HtkEntryNew(U8 *text, I64 limit=0)
   c->cursor = StrLen(text);
   c->high = limit;
   c->focusable = TRUE;
+  c->cursor_shape = TERM_CURSOR_BAR;
   c->expand = TRUE;
   return c;
 }
@@ -67,6 +68,9 @@ U0 HtkTextDelete(HtkCtl *c, I64 at, I64 count)
 
   if (c->readonly || at < 0 || count < 1 || at >= length)
     return;
+  #ifdef UI_HTK_VIMODE
+  if (c->text_edit) { EditFini(c->text_edit); EditInit(c->text_edit); }
+  #endif
   StrCpy(c->text + at, c->text + at + count);
   if (c->cursor > at)
     c->cursor = at;
@@ -189,8 +193,7 @@ U0 HtkEntryDraw(HtkCtl *c)
     at = c->x + c->w - 1;
   }
   if (focused && !c->disabled) {
-    TermGotoXY(at, c->y);
-    TermShowCursor(TRUE);
+    HtkShowCursor(c, at, c->y);
   }
 }
 
@@ -267,7 +270,12 @@ HtkCtl *HtkMultilineNew(U8 *text)
 
   HtkSetText(c, text);
   c->focusable = TRUE;
+  c->cursor_shape = TERM_CURSOR_BAR;
   c->expand = TRUE;
+  #ifdef UI_HTK_VIMODE
+  c->vim_editor = TRUE;
+  c->vim_mode = htk_vim_mode;
+  #endif
   return c;
 }
 
@@ -299,6 +307,10 @@ U0 HtkMultilineDraw(HtkCtl *c)
   I64 i = 0, row = 0, col = 0, x, y, line = 1, lines = 1;
   I64 crow = 0, ccol = 0, total = 1, width, gutter = 0, digits = 1;
   I64 sel_from = -1, sel_to = -1;
+  I64 caret = c->cursor;
+  #ifdef UI_HTK_VIMODE
+  caret = HtkVimCaret(c, caret);
+  #endif
   Bool continuation = FALSE;
   U8 number[16];
 
@@ -318,7 +330,7 @@ U0 HtkMultilineDraw(HtkCtl *c)
 
   // Locate cursor and total visual rows, including soft wraps.
   i = 0;
-  while (i < c->cursor && c->text[i]) {
+  while (i < caret && c->text[i]) {
     if (c->text[i] == '\n') {
       crow++;
       ccol = 0;
@@ -364,9 +376,19 @@ U0 HtkMultilineDraw(HtkCtl *c)
       HtkStr(c->x + digits - StrLen(number), c->y + row - c->top, number,
         HTK_C_DIM, HTK_C_FIELD_BG);
     }
-    if (!c->text[i])
+    if (!c->text[i]) {
+      #ifdef UI_HTK_VIMODE
+      if (c->vim_visual == 2 && c->cursor == c->anchor && row >= c->top && row < c->top + c->h)
+        HtkChr(c->x + gutter + col, c->y + row - c->top, ' ', HTK_C_SEL_FG, HTK_C_SEL_BG);
+      #endif
       break;
+    }
     if (c->text[i] == '\n') {
+      #ifdef UI_HTK_VIMODE
+      if (c->vim_visual && i >= sel_from && i < sel_to && row >= c->top && row < c->top + c->h)
+        HtkRect(c->x + gutter + col, c->y + row - c->top,
+          1 + (width - col - 1) * (c->vim_visual == 2), 1, ' ', HTK_C_SEL_FG, HTK_C_SEL_BG);
+      #endif
       row++;
       line++;
       col = 0;
@@ -414,8 +436,7 @@ U0 HtkMultilineDraw(HtkCtl *c)
     x = c->x + gutter + ccol;
     if (x > c->x + gutter + width - 1)
       x = c->x + gutter + width - 1;
-    TermGotoXY(x, c->y + crow - c->top);
-    TermShowCursor(TRUE);
+    HtkShowCursor(c, x, c->y + crow - c->top);
   }
 }
 
@@ -440,6 +461,9 @@ Bool HtkMultilineKey(HtkCtl *c, CTermEvent *e)
   I64 start, up;
 
   c->scroll_hold = FALSE;
+  #ifdef UI_HTK_VIMODE
+  if (HtkTextVimKey(c, e)) return TRUE;
+  #endif
 
   if (key == TERM_KEY_ENTER) {
     HtkTextDeleteSelection(c);

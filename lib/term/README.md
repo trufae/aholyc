@@ -65,6 +65,7 @@ U0   TermAttr(I64 attr);   // TERM_BOLD|UNDERLINE|REVERSE|ITALIC|STRIKE|DIM|BLIN
 U0   TermPutChar(I64 ch);  U0 TermPuts(U8 *text);
 U0   TermPrint(U8 *fmt, ...);
 U0   TermShowCursor(Bool visible=TRUE);
+U0   TermSetCursorShape(I64 shape=TERM_CURSOR_DEFAULT);
 
 U0   TermCommit();                            // sync the grid to the screen
 U0   TermRedraw();                            // force a full repaint
@@ -84,6 +85,16 @@ Bool TermLegacy();                            // console without ANSI
 I64  TermMs();                                // monotonic milliseconds
 U64  TermPeek(I64 x, I64 y);                  // read back a drawn cell
 ```
+
+Cursor shapes are `TERM_CURSOR_BLOCK` (steady block), `TERM_CURSOR_BAR`
+(steady vertical `|`), and `TERM_CURSOR_DEFAULT` (reset to blinking block).
+Shape changes take effect on `TermCommit`, including when no cells or cursor
+coordinates changed. Unchanged shapes emit nothing, and `TermFini` resets
+an explicit ANSI shape before leaving the terminal.
+These use [DECSCUSR cursor styles](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html).
+Legacy Win32 consoles expose only cursor height, so the bar falls back to
+a thin underline; shutdown restores their original cursor size and visibility.
+See [Microsoft's cursor API](https://learn.microsoft.com/en-us/windows/console/setconsolecursorinfo).
 
 Colors are the 16 ANSI colors (`TERM_BLACK` … `TERM_BRIGHT_WHITE`) plus
 `TERM_DEFAULT`; `TermColor256(n)` and `TermColorRgb(r, g, b)` give values
@@ -125,3 +136,8 @@ Main;
 ```
 
 See `examples/term.hc` for a fuller demo with mouse and resize handling.
+
+Define `TERM_CTRL_Z_KEY` before including `term.hc` when an application needs
+Ctrl+Z as a key (for example undo). On POSIX this disables the terminal's
+suspend control characters while raw mode is active, preserving SIGINT for
+Ctrl+C and restoring the original termios state on exit.
