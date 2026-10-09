@@ -61,6 +61,12 @@ The [word processor](../../doc/word.md) uses `HtkMarkdownNew(edit)` from
 `history.hc` provides a history picker, and `filepick.hc` provides
 `HtkFilePickFor(owner, directory)` without changing the working directory.
 All dialog results and Markdown widget state belong to their instances.
+Markdown task-list checkboxes toggle on click in View mode, on double-click
+in Edit mode, and with Space on the current task's source line in View mode.
+Only the `[ ]`/`[x]` state byte changes, with one undo entry; ordinary text
+stays locked in View. Fenced and tab-indented code is inert. Set the Markdown
+view's `task_interactive` to FALSE for strict read-only viewers or source
+editors; the Vim example does this.
 
 `HtkClipboardSetStrs` / `HtkClipboardGet` preserve explicit byte lengths,
 including embedded NUL. The older C-string clipboard helpers still work.

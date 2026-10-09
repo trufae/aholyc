@@ -152,6 +152,11 @@ U0 TestSource()
   Check(view->rows == 1 && view->columns == 100, "nowrap keeps long source line intact");
   view->no_wrap = FALSE; HtkMdRender(view); cells = view->viewport;
   Check(view->rows > 1 && view->columns <= cells, "wrap uses pane width");
+  StrBufClear(&edit->text); StrBufPutS(&edit->text, "- [ ] task\n");
+  edit->cursor = 3; edit->anchor = -1; edit->readonly = TRUE;
+  view->mode = HTK_MD_SOURCE_READ; Key(' ');
+  Check(Equal(edit, "- [ ] task\n") && edit->readonly,
+    "Vim source-file readonly mode does not permit Markdown task mutations");
   VimFree(app);
 }
 

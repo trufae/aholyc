@@ -22,6 +22,73 @@ class CMdTable
 
 Bool MdTableProbe(CStrs *text, U8 *p, CMdTable *table);
 
+// Return the state byte in a list task marker, or NULL for ordinary text.
+U8 *MdTaskMarker(CStrs *line)
+{
+  U8 *p = line->a, *start;
+
+  while (p < line->b && *p == ' ') p++;
+  while (p < line->b && *p == '>') {
+    p++;
+    while (p < line->b && *p == ' ') p++;
+  }
+  if (p == line->b) return NULL;
+  if (*p == '-' || *p == '*' || *p == '+') p++;
+  else {
+    start = p;
+    while (p < line->b && *p >= '0' && *p <= '9') p++;
+    if (p == start || p - start > 9 || p == line->b || *p != '.' && *p != ')') return NULL;
+    p++;
+  }
+  if (p == line->b || *p != ' ' && *p != '\t') return NULL;
+  while (p < line->b && (*p == ' ' || *p == '\t')) p++;
+  if (line->b - p < 3 || p[0] != '[' || p[2] != ']' ||
+    p[1] != ' ' && p[1] != 'x' && p[1] != 'X') return NULL;
+  if (p + 3 < line->b && p[3] != ' ' && p[3] != '\t') return NULL;
+  return p + 1;
+}
+
+// Locate a task on the source line containing at; fenced code is inert.
+I64 MdTaskAt(CStrs *text, I64 at)
+{
+  U8 *p = text->a, *next, *marker;
+  CStrs line;
+  CMdBlock code;
+
+  if (at < 0 || at > StrsLen(text)) return -1;
+  while (p < text->b) {
+    if (MdCodeAt(text, p, &code)) {
+      if (at < code.source.b - text->a) return -1;
+      next = code.source.b;
+    } else {
+      next = MdNextLine(text, p, &line);
+      if (at < next - text->a || at == StrsLen(text) && next == text->b && text->b[-1] != '\n') {
+        marker = MdTaskMarker(&line);
+        if (marker) return marker - text->a;
+        return -1;
+      }
+    }
+    p = next;
+  }
+  return -1;
+}
+
+// Change only the marker, preserving caret/selection and one undo boundary.
+Bool MdEditTask(CEdit *edit, I64 at)
+{
+  I64 marker = MdTaskAt(&edit->text, at), cursor = edit->cursor, anchor = edit->anchor;
+  U8 state = ' ';
+  CStrs text;
+  Bool changed;
+
+  if (edit->readonly || marker < 0) return FALSE;
+  if (edit->text.a[marker] == ' ') state = 'x';
+  StrsInitN(&text, &state, 1);
+  changed = EditReplace(edit, marker, marker + 1, &text);
+  if (changed) { edit->cursor = cursor; edit->anchor = anchor; }
+  return changed;
+}
+
 // Walk whole paragraphs/known divs, protecting fenced code and tables.
 U8 *MdParagraphNext(CStrs *text, U8 *p, CStrs *body, I64 *kind)
 {

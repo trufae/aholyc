@@ -247,6 +247,7 @@ CVimPane *VimPaneNew(CVimApp *app, CVimBuffer *buffer)
   pane->ctl->submit = &VimPaneChanged;
   view = pane->ctl->data;
   view->mode = HTK_MD_SOURCE; view->no_wrap = TRUE; view->tab_width = 8; view->hide_status = TRUE;
+  view->task_interactive = FALSE; // Source-file readonly mode stays strict.
   if (buffer->edit.readonly) view->mode |= HTK_MD_READ;
   pane->ctl->vim_mode = TRUE;
   pane->next = app->panes; app->panes = pane;
