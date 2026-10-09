@@ -52,6 +52,19 @@ for b in $backends; do
 	done
 done
 
+# The Markdown editor model, exports, widgets, and window actions run headless.
+for b in $backends; do
+	[ "$b" = js ] && continue
+	if ./aholyc -b "$b" tests/word.HC -o "tests/out/word-$b" \
+		2>"tests/out/word-$b.err" && "tests/out/word-$b"; then
+		echo "ok   $b/word"
+	else
+		echo "FAIL $b/word"
+		head -5 "tests/out/word-$b.err"
+		fail=1
+	fi
+done
+
 # Native assembly: a top-level block defines a callable symbol, while an
 # @inline function exercises local operands and block-local @@ labels.
 asmok=1

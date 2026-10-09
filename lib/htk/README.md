@@ -52,6 +52,18 @@ send copies through OSC 52 to terminals that permit host clipboard access.
 `HtkCtrlCHandler(fn, data)` plus `HTK_CTRLC_CALLBACK` queues `fn(data)` on
 HTK's event-loop thread, suitable for a confirmation dialog.
 
+## Markdown widgets
+
+The [word processor](../../doc/word.md) uses `HtkMarkdownNew(edit)` from
+`markdown.hc`, compact `HtkToolButtonNew` buttons and the wrapping `HTK_FLOW`
+container. `choice.hc` provides grid/list choices and `HtkEmojiPick`;
+`history.hc` provides a history picker, and `filepick.hc` provides
+`HtkFilePickFor(owner, directory)` without changing the working directory.
+All dialog results and Markdown widget state belong to their instances.
+
+`HtkClipboardSetStrs` / `HtkClipboardGet` preserve explicit byte lengths,
+including embedded NUL. The older C-string clipboard helpers still work.
+
 ## Layout
 
 Tiling containers compute a preferred size bottom-up, then divide space

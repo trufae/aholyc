@@ -56,6 +56,13 @@ $ make AHOLYC_BACKEND_C=0 AHOLYC_BACKEND_JS=0  # LLVM-only build
 to `1`. `#exe{}` works with every output backend, but needs the C backend
 to execute its compile-time block.
 
+## Markdown editor
+
+`make word && ./word examples/word.md` launches the HolyC/HTK word processor.
+It has independent source/rendered and editable/read-only toggles, multiple
+windows, formatting, tables, undo history, document guides and exports.
+See [the editor guide](doc/word.md) for keys and reusable library APIs.
+
 ## Library
 
 `make` also builds `libaholyc.a` and `install` installs `<aholyc.h>`. Create
