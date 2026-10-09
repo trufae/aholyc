@@ -70,6 +70,7 @@ extern I64 FreeLibrary(U8 *module);
 #define WORD_RULE 80
 #define WORD_PAGE_BREAK 81
 #define WORD_CODE_BLOCK 82
+#define WORD_VIM 83
 
 class CWordApp;
 class CWordDoc
@@ -82,6 +83,9 @@ class CWordDoc
   HtkCtl *outline;
   HtkCtl *source;
   HtkCtl *editable;
+  HtkCtl *vim;
+  HtkCtl *status;
+  HtkCtl *stats;
   HtkCtl *link_menu;
   CStrBuf path, target;
   I64 outline_revision, link_a, link_b;
@@ -97,6 +101,39 @@ CWordDoc *WordNew(CWordApp *app, U8 *path=NULL);
 Bool WordLoad(CWordDoc *doc, U8 *path);
 Bool WordSave(CWordDoc *doc, Bool save_as=FALSE);
 
+U0 WordStatus(CWordDoc *doc)
+{
+  CEdit *edit = &doc->edit;
+  I64 at = 0, next, rune, words = 0, chars = 0, line = 1, column = 1;
+  Bool in_word = FALSE, space;
+  U8 *mode = "EDIT", *dirty = "", *text;
+
+  while (at < StrsLen(&edit->text)) {
+    next = EditNext(edit, at, 1);
+    rune = edit->text.a[at];
+    Utf8DecodeRune(edit->text.a + at, next - at, &rune);
+    space = EditSpace(rune);
+    if (!space && !in_word) words++;
+    in_word = !space;
+    chars++;
+    if (at < edit->cursor) {
+      if (rune == '\n') { line++; column = 1; }
+      else column++;
+    }
+    at = next;
+  }
+  if (doc->view->vim_mode) {
+    mode = "NORMAL";
+    if (doc->view->vim_insert) mode = "INSERT";
+  }
+  if (edit->readonly) mode = "READ";
+  if (edit->revision != edit->saved) dirty = " *";
+  text = MStrPrint("%d words %d chars | Ln %d Col %d | %s%s", words, chars,
+    line, column, mode, dirty);
+  HtkSetText(doc->stats, text);
+  Free(text);
+}
+
 U0 WordOutlineHit(HtkCtl *tree)
 {
   CWordDoc *doc = tree->user(CWordDoc *);
@@ -109,6 +146,7 @@ U0 WordOutlineHit(HtkCtl *tree)
     HtkMdRender(view);
     doc->view->top = view->caret_y;
     view->follow = FALSE;
+    WordStatus(doc);
     HtkSetFocus(doc->view);
   }
 }
@@ -132,6 +170,12 @@ U0 WordRefresh(HtkCtl *view)
   CHtkMarkdown *mdview = doc->view->data;
   doc->source->value = (mdview->mode & HTK_MD_SOURCE) != 0;
   doc->editable->value = !doc->edit.readonly;
+  if (doc->source->value) HtkSetText(doc->source, "Source");
+  else HtkSetText(doc->source, "Render");
+  if (doc->editable->value) HtkSetText(doc->editable, "Edit");
+  else HtkSetText(doc->editable, "View");
+  doc->vim->value = doc->view->vim_mode;
+  WordStatus(doc);
   HtkSetText(doc->window, title);
   Free(title);
   kid = HtkWindowContent(doc->window)->kids->kids;
@@ -486,6 +530,111 @@ U0 WordExport(CWordDoc *doc, I64 format)
   Free(path);
 }
 
+class CWordSearch
+{
+  CWordDoc *doc;
+  HtkCtl *window;
+  HtkCtl *query;
+  HtkCtl *replacement;
+  HtkCtl *replace_toggle;
+  HtkCtl *all;
+  HtkCtl *replace_box;
+  HtkCtl *run;
+  HtkCtl *message;
+};
+
+U0 WordSearchApply(HtkCtl *button)
+{
+  CWordSearch *search = button->user(CWordSearch *);
+  CEdit *edit = &search->doc->edit;
+  CStrs query, replacement;
+  I64 a, b, count = 0;
+  U8 *message;
+
+  StrsInitS(&query, search->query->text);
+  StrsInitS(&replacement, search->replacement->text);
+  if (StrsEmpty(&query)) { HtkSetText(search->message, "Enter text to find."); return; }
+  if (!search->replace_toggle->value) {
+    if (EditFind(edit, &query)) HtkSetText(search->message, "Match selected.");
+    else HtkSetText(search->message, "Text not found.");
+  } else {
+    if (edit->readonly) { HtkSetText(search->message, "Enable Editable to replace text."); return; }
+    if (search->all->value) count = EditReplaceAll(edit, &query, &replacement);
+    else {
+      EditSelection(edit, &a, &b);
+      if (b - a != StrsLen(&query) || MemCmp(edit->text.a + a, query.a, b - a)) {
+        if (EditFind(edit, &query)) EditSelection(edit, &a, &b);
+        else b = a;
+      }
+      if (b > a && EditReplace(edit, a, b, &replacement)) count = 1;
+    }
+    message = MStrPrint("Replaced %d matches.", count);
+    HtkSetText(search->message, message); Free(message);
+  }
+  HtkMdChanged(search->doc->view);
+}
+
+U0 WordSearchMode(HtkCtl *toggle)
+{
+  CWordSearch *search = toggle->user(CWordSearch *);
+  HtkCtl *content = HtkWindowContent(search->window);
+  U8 *label = "Find next";
+
+  search->replace_box->hidden = !search->replace_toggle->value;
+  if (search->replace_toggle->value) {
+    label = "Replace";
+    if (search->all->value) label = "Replace all";
+  }
+  HtkSetText(search->run, label);
+  HtkMeasureCtl(content);
+  search->window->h = content->ph + 2;
+  HtkWindowLayout(search->window);
+  htk_dirty = TRUE;
+}
+
+HtkCtl *WordSearchDialog(CWordDoc *doc, CWordSearch *search)
+{
+  HtkCtl *box = HtkDialogBody("Find text (literal, case sensitive; wraps):");
+  HtkCtl *row = HtkButtonBarNew;
+
+  search->doc = doc;
+  search->query = HtkEntryNew(""); search->query->low = 40;
+  search->query->user = search; search->query->submit = &WordSearchApply;
+  HtkAdd(box, search->query);
+  search->replace_toggle = HtkCheckboxNew("Replace", FALSE);
+  search->replace_toggle->user = search; search->replace_toggle->changed = &WordSearchMode;
+  HtkAdd(box, search->replace_toggle);
+  search->replace_box = HtkDialogBody("Replace with (empty deletes matches):");
+  search->replace_box->hidden = TRUE;
+  search->replacement = HtkEntryNew("");
+  search->replacement->user = search; search->replacement->submit = &WordSearchApply;
+  HtkAdd(search->replace_box, search->replacement);
+  search->all = HtkCheckboxNew("Replace all matches", FALSE);
+  search->all->user = search; search->all->changed = &WordSearchMode;
+  HtkAdd(search->replace_box, search->all);
+  HtkAdd(box, search->replace_box);
+  search->message = HtkNew(HTK_LABEL); HtkSetText(search->message, " ");
+  HtkAdd(box, search->message);
+  search->run = HtkButtonNew("Find next");
+  search->run->user = search; search->run->changed = &WordSearchApply;
+  HtkAdd(row, search->run);
+  HtkAdd(row, HtkDialogButton("Close", FALSE));
+  HtkAdd(box, row);
+  search->window = HtkDialogNew("Find / replace", box);
+  search->window->link = search->run;
+  return search->window;
+}
+
+U0 WordSearch(CWordDoc *doc)
+{
+  CWordSearch search;
+  HtkCtl *window = WordSearchDialog(doc, &search);
+
+  HtkSetFocus(search.query);
+  HtkModalFor(window, doc->window);
+  HtkDestroy(window);
+}
+
 U0 WordAction(CWordDoc *doc, I64 action)
 {
   U8 *text = NULL, *prefix, *found, *names[FONT_STYLE_COUNT];
@@ -510,7 +659,8 @@ U0 WordAction(CWordDoc *doc, I64 action)
     i = HTK_MD_SOURCE;
     if (action == WORD_EDITABLE) i = HTK_MD_READ;
     HtkMarkdownMode(doc->view, view->mode ^ i);
-  } else if (action == WORD_LINES) view->line_numbers = !view->line_numbers;
+  } else if (action == WORD_VIM) HtkVimSet(!doc->view->vim_mode);
+  else if (action == WORD_LINES) view->line_numbers = !view->line_numbers;
   else if (action == WORD_RULER_TOP) view->ruler_top = !view->ruler_top;
   else if (action == WORD_RULER_LEFT) view->ruler_left = !view->ruler_left;
   else if (action == WORD_WIDTH || action == WORD_PAGE_SIZE) {
@@ -554,15 +704,7 @@ U0 WordAction(CWordDoc *doc, I64 action)
   } else if (action == WORD_LINK_SYSTEM) WordSystem(doc);
   else if (action == WORD_LINK_COPY) HtkClipboardSetStrs(&doc->target);
   else if (action == WORD_FIND) {
-    text = HtkPromptFor(doc->window, "Find", "Text (wraps at end):");
-    if (text && *text) {
-      size = StrLen(text);
-      found = MemMem(edit->text.a + edit->cursor, StrsLen(&edit->text) - edit->cursor, text, size);
-      if (!found) found = MemMem(edit->text.a, StrsLen(&edit->text), text, size);
-      if (found) { edit->anchor = found - edit->text.a; edit->cursor = edit->anchor + size; }
-      else HtkNotify("Text not found", 2000);
-    }
-    Free(text);
+    WordSearch(doc);
   } else if (edit->readonly) {
     HtkNotify("Enable Editable to change the document", 2000);
     return;
@@ -664,11 +806,15 @@ CWordDoc *WordNew(CWordApp *app, U8 *path=NULL)
   HtkCtl *box, *bar, *split, *menu, *sub;
   CHtkMarkdown *view;
   I64 i;
-  U8 *labels[19] = {"New", "Open", "Save", "Undo", "Redo", "Cut", "Copy", "Paste",
-    "B", "I", "U", "FG", "BG", "Font", "Emoji", "Link", "Table", "Find", "TOC"};
-  I64 actions[19] = {WORD_NEW, WORD_OPEN, WORD_SAVE, WORD_UNDO, WORD_REDO,
-    WORD_CUT, WORD_COPY, WORD_PASTE, WORD_BOLD, WORD_ITALIC, WORD_UNDERLINE,
-    WORD_FG, WORD_BG, WORD_FONT, WORD_EMOJI, WORD_LINK, WORD_TABLE, WORD_FIND, WORD_OUTLINE};
+  U8 *edit_labels[5] = {"Undo", "Redo", "Cut", "Copy", "Paste"};
+  I64 edit_actions[5] = {WORD_UNDO, WORD_REDO, WORD_CUT, WORD_COPY, WORD_PASTE};
+  U8 *format_labels[8] = {"Bold", "Italic", "Underline", "Text color...",
+    "Background color...", "Font...", "Emoji...", "Link..."};
+  I64 format_actions[8] = {WORD_BOLD, WORD_ITALIC, WORD_UNDERLINE, WORD_FG,
+    WORD_BG, WORD_FONT, WORD_EMOJI, WORD_LINK};
+  U8 *tools[7] = {"B", "I", "U", "☺", "↗", "⌕", "☰"};
+  I64 tool_actions[7] = {WORD_BOLD, WORD_ITALIC, WORD_UNDERLINE, WORD_EMOJI,
+    WORD_LINK, WORD_FIND, WORD_OUTLINE};
   U8 *tables[8] = {"Insert table", "Add row", "Add column", "Delete row",
     "Delete column", "Align left", "Align center", "Align right"};
   U8 *borders[4] = {"Single", "Round", "ASCII", "None"};
@@ -697,12 +843,13 @@ CWordDoc *WordNew(CWordApp *app, U8 *path=NULL)
   WordItem(doc, menu, "Close         Ctrl-W", WORD_CLOSE);
   WordItem(doc, menu, "Quit          Ctrl-Q", WORD_QUIT);
   menu = HtkMenuNew(doc->window, "Edit");
-  for (i = 3; i < 8; i++) WordItem(doc, menu, labels[i], actions[i]);
+  for (i = 0; i < 5; i++) WordItem(doc, menu, edit_labels[i], edit_actions[i]);
   WordItem(doc, menu, "History...", WORD_HISTORY);
   WordItem(doc, menu, "Select all    Ctrl-A", WORD_ALL);
-  WordItem(doc, menu, "Find...       Ctrl-F", WORD_FIND);
+  WordItem(doc, menu, "Find / replace... Ctrl-F", WORD_FIND);
+  WordItem(doc, menu, "Toggle Vim mode", WORD_VIM);
   menu = HtkMenuNew(doc->window, "Format");
-  for (i = 8; i < 16; i++) WordItem(doc, menu, labels[i], actions[i]);
+  for (i = 0; i < 8; i++) WordItem(doc, menu, format_labels[i], format_actions[i]);
   WordItem(doc, menu, "Image...", WORD_IMAGE);
   WordItem(doc, menu, "Heading", WORD_HEADING);
   WordItem(doc, menu, "Bullet list", WORD_LIST);
@@ -733,10 +880,9 @@ CWordDoc *WordNew(CWordApp *app, U8 *path=NULL)
   WordItem(doc, menu, "Next section", WORD_NEXT_SECTION);
   box = HtkNew(HTK_BOX);
   box->vertical = TRUE;
-  bar = HtkNew(HTK_FLOW);
-  doc->source = WordItem(doc, bar, "Source", WORD_SOURCE);
-  doc->editable = WordItem(doc, bar, "Editable", WORD_EDITABLE);
-  for (i = 0; i < 19; i++) WordItem(doc, bar, labels[i], actions[i]);
+  bar = HtkToolbarNew;
+  for (i = 0; i < 7; i++) WordItem(doc, bar, tools[i], tool_actions[i]);
+  doc->vim = WordItem(doc, bar, "V", WORD_VIM);
   HtkAdd(box, bar);
   split = HtkNew(HTK_SPLIT);
   split->expand = TRUE;
@@ -751,6 +897,14 @@ CWordDoc *WordNew(CWordApp *app, U8 *path=NULL)
   HtkAdd(split, doc->outline);
   HtkAdd(split, doc->view);
   HtkAdd(box, split);
+  doc->status = HtkStatusbarNew("");
+  doc->status->bottom = TRUE;
+  doc->stats = HtkNew(HTK_LABEL);
+  doc->stats->expand = TRUE;
+  HtkAdd(doc->status, doc->stats);
+  doc->source = WordItem(doc, doc->status, "Render", WORD_SOURCE);
+  doc->editable = WordItem(doc, doc->status, "Edit", WORD_EDITABLE);
+  HtkAdd(box, doc->status);
   HtkAdd(doc->window, box);
   doc->link_menu = HtkContextMenuNew;
   doc->link_menu->parent = doc->window;

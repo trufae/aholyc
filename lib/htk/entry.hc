@@ -67,6 +67,7 @@ U0 HtkTextDelete(HtkCtl *c, I64 at, I64 count)
 
   if (c->readonly || at < 0 || count < 1 || at >= length)
     return;
+  if (c->text_edit) { EditFini(c->text_edit); EditInit(c->text_edit); }
   StrCpy(c->text + at, c->text + at + count);
   if (c->cursor > at)
     c->cursor = at;
@@ -268,6 +269,8 @@ HtkCtl *HtkMultilineNew(U8 *text)
   HtkSetText(c, text);
   c->focusable = TRUE;
   c->expand = TRUE;
+  c->vim_editor = TRUE;
+  c->vim_mode = htk_vim_mode;
   return c;
 }
 
@@ -440,6 +443,7 @@ Bool HtkMultilineKey(HtkCtl *c, CTermEvent *e)
   I64 start, up;
 
   c->scroll_hold = FALSE;
+  if (HtkTextVimKey(c, e)) return TRUE;
 
   if (key == TERM_KEY_ENTER) {
     HtkTextDeleteSelection(c);

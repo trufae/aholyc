@@ -27,7 +27,7 @@ U0 HtkOpsInit()
   HtkOps(HTK_GROUP, &HtkGroupMeasure, &HtkGroupLayout, &HtkGroupDraw, 0);
   HtkOps(HTK_TAB, &HtkTabMeasure, &HtkTabLayout, &HtkTabDraw, &HtkTabKey);
   HtkOps(HTK_LABEL, &HtkLabelMeasure, 0, &HtkLabelDraw, 0);
-  HtkOps(HTK_STATUS, &HtkStatusMeasure, 0, &HtkLabelDraw, 0);
+  HtkOps(HTK_STATUS, &HtkStatusMeasure, &HtkBoxLayout, &HtkStatusDraw, 0);
   HtkOps(HTK_SEP, &HtkSepMeasure, 0, &HtkSepDraw, 0);
   HtkOps(HTK_BUTTON, &HtkButtonMeasure, 0, &HtkButtonDraw, &HtkButtonKey);
   HtkOps(HTK_MENUITEM, &HtkButtonMeasure, 0, 0, 0);
@@ -869,6 +869,10 @@ U0 HtkKey(CTermEvent *e)
   }
   if (top && top->keyfn && top->keyfn(top, e))
     return;
+  if (e->mods == TERM_MOD_ALT && (e->key == 'a' || e->key == TERM_KEY_F10)) {
+    HtkAppMenuOpen(0, TermHeight - 1);
+    return;
+  }
   if (e->key == 'o' && e->mods & TERM_MOD_CTRL) {
     HtkAppMenuOpen(0, TermHeight - 1);
     return;
@@ -881,7 +885,7 @@ U0 HtkKey(CTermEvent *e)
         HtkFocusMove(1);
       return;
     }
-  if (e->key == TERM_KEY_F10 && top) {
+  if (top && (e->key == TERM_KEY_F10 && !e->mods || e->key == 'm' && e->mods == TERM_MOD_ALT)) {
     HtkCtl *m = top->kids;
     while (m && m->kind != HTK_MENU)
       m = m->sib;

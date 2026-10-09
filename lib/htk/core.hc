@@ -2,6 +2,8 @@
 // drawing over lib/term cells.  Every widget is one HtkCtl; behavior lives
 // in per-widget files and is dispatched by kind in loop.hc.
 
+#include "../text/edit.hc"
+
 #define HTK_WINDOW    0
 #define HTK_BOX       1
 #define HTK_GRID      2
@@ -62,13 +64,17 @@ class HtkTheme
   I64 field_bg, field_fg; // entry/combo/spin fields
   I64 sel_bg, sel_fg;     // menu/list selection
   I64 bar_bg, bar_fg;     // desktop App/window bar
+  I64 menu_bg, menu_fg;   // window menubar
+  I64 tool_bg, tool_fg;   // window toolbar
   I64 accent;
+  Bool ascii;            // serial-friendly chrome and symbol fallbacks
 };
 
 HtkTheme htk_theme;
 
-U0 HtkThemeDefault()
+U0 HtkThemeLightBorland()
 {
+  htk_theme.ascii = FALSE;
   htk_theme.desk_fg = TERM_CYAN;
   htk_theme.desk_bg = TERM_BLUE;
   htk_theme.bg = TERM_WHITE;
@@ -85,7 +91,22 @@ U0 HtkThemeDefault()
   htk_theme.sel_fg = TERM_BRIGHT_WHITE;
   htk_theme.bar_bg = TERM_BLUE;
   htk_theme.bar_fg = TERM_BRIGHT_WHITE;
+  htk_theme.menu_bg = TERM_BLUE;
+  htk_theme.menu_fg = TERM_BRIGHT_WHITE;
+  htk_theme.tool_bg = TERM_CYAN;
+  htk_theme.tool_fg = TERM_BLACK;
   htk_theme.accent = TERM_BLUE;
+}
+
+U0 HtkThemeDefault()
+{
+  HtkThemeLightBorland;
+  htk_theme.bg = TERM_BLUE;
+  htk_theme.fg = TERM_WHITE;
+  htk_theme.dim = TERM_CYAN;
+  htk_theme.frame = TERM_BRIGHT_CYAN;
+  htk_theme.title = TERM_BRIGHT_WHITE;
+  htk_theme.menu_bg = TERM_GRAY;
 }
 
 #define HTK_C_DESK_FG  htk_theme.desk_fg
@@ -104,6 +125,10 @@ U0 HtkThemeDefault()
 #define HTK_C_SEL_FG   htk_theme.sel_fg
 #define HTK_C_BAR_BG   htk_theme.bar_bg
 #define HTK_C_BAR_FG   htk_theme.bar_fg
+#define HTK_C_MENU_BG  htk_theme.menu_bg
+#define HTK_C_MENU_FG  htk_theme.menu_fg
+#define HTK_C_TOOL_BG  htk_theme.tool_bg
+#define HTK_C_TOOL_FG  htk_theme.tool_fg
 #define HTK_C_ACCENT   htk_theme.accent
 
 #define HTK_TILE_LEFT 1
@@ -170,6 +195,10 @@ class HtkCtl
   Bool (*keyfn)(HtkCtl *c, CTermEvent *e); // optional key override
   Bool (*closing)(HtkCtl *c); // window close veto, including application quit
   U0 (*destroy)(HtkCtl *c); // release caller-owned payload on HtkDestroy
+  U0 (*vim_changed)(HtkCtl *c); // editor mode change notification
+  CEdit *text_edit;    // multiline history; text stays owned by ->text at rest
+  Bool vim_editor, vim_mode, vim_insert;
+  I64 vim_pending;
   I64 fn, data;      // canvas draw callback / table cell callback + data
   I64 user;          // adapter's UiCtl
   I64 value;         // state: checked, position, selection, tab index
@@ -298,6 +327,11 @@ Bool HtkSettingsLoad();
 Bool HtkSettingsSaved();
 U0 HtkOpsInit();                 // fills the per-kind tables (loop.hc)
 Bool htk_ops_ready;
+Bool htk_vim_mode;       // default/global setting for textarea editors
+U0 HtkVimSet(Bool enabled);
+U0 HtkVimMode(HtkCtl *c, Bool enabled);
+Bool HtkVimKey(HtkCtl *c, CEdit *edit, CTermEvent *e);
+Bool HtkTextVimKey(HtkCtl *c, CTermEvent *e);
 
 HtkCtl *HtkNew(I64 kind)
 {
@@ -352,6 +386,7 @@ U0 HtkAdd(HtkCtl *parent, HtkCtl *kid)
 
 U0 HtkFreeText(HtkCtl *c)
 {
+  if (c->text_edit) { EditFini(c->text_edit); EditInit(c->text_edit); }
   if (c->text != htk_empty)
     Free(c->text);
   c->text = htk_empty;
@@ -392,6 +427,7 @@ U0 HtkDestroy(HtkCtl *c)
     c->destroy(c);
   HtkDestroy(c->menu);
   HtkFreeText(c);
+  if (c->text_edit) { EditFini(c->text_edit); Free(c->text_edit); }
   Free(c);
 }
 
@@ -467,7 +503,29 @@ HtkCtl *HtkKidAt(HtkCtl *c, I64 index)
   return k;
 }
 
-// Display width in runes, up to the first newline terminator.
+// ASCII fallback is a presentation choice; source/clipboard bytes stay UTF-8.
+I64 HtkGlyph(I64 rune)
+{
+  if (!htk_theme.ascii || rune < 128) return rune;
+  if (rune == HTK_R_H || rune == HTK_R_DH) return '-';
+  if (rune == HTK_R_V || rune == HTK_R_DV) return '|';
+  if (rune >= 0x2500 && rune <= 0x257F) return '+';
+  if (rune == HTK_R_MED || rune == HTK_R_LIGHT) return '.';
+  if (rune == HTK_R_BLOCK || rune == HTK_R_CLOSE) return '#';
+  if (rune == HTK_R_MAX || rune == HTK_R_RESTORE) return 'O';
+  if (rune == HTK_R_RIGHT) return '>';
+  if (rune == HTK_R_DOWN || rune == HTK_R_OPEN) return 'v';
+  if (rune == HTK_R_DOT) return '*';
+  if (rune == 0xB6) return 'S';
+  if (rune == 0x270E) return 'E';
+  if (rune == 0x263A) return ':';
+  if (rune == 0x2197) return '&';
+  if (rune == 0x2315) return '/';
+  if (rune == 0x2630) return '=';
+  return '?';
+}
+
+// Display width in cells, up to the first newline terminator.
 I64 HtkRunes(U8 *text)
 {
   I64 i = 0, n = 0;
@@ -475,7 +533,7 @@ I64 HtkRunes(U8 *text)
   if (!text)
     return 0;
   while (text[i] && text[i] != '\n') {
-    n += Utf8CellWidth(TermRuneNext(text, &i));
+    n += Utf8CellWidth(HtkGlyph(TermRuneNext(text, &i)));
   }
   return n;
 }
@@ -544,6 +602,7 @@ I64 HtkDimColor(I64 color)
 
 U0 HtkChr(I64 x, I64 y, I64 rune, I64 fg, I64 bg, I64 attr=0)
 {
+  rune = HtkGlyph(rune);
   if (htk_paint_dim) {  // inactive window: everything a shade darker
     fg = HtkDimColor(fg);
     bg = HtkDimColor(bg);
@@ -564,7 +623,7 @@ U0 HtkStr(I64 x, I64 y, U8 *text, I64 fg, I64 bg, I64 attr=0)
     rune = TermRuneNext(text, &i);
     if (rune < ' ' || rune == 127) rune = 0xFFFD;
     HtkChr(x, y, rune, fg, bg, attr);
-    x += Utf8CellWidth(rune);
+    x += Utf8CellWidth(HtkGlyph(rune));
   }
 }
 

@@ -70,6 +70,14 @@ I64 EditNext(CEdit *edit, I64 at, I64 direction)
   return at;
 }
 
+// Unicode whitespace shared by word motions and source statistics.
+Bool EditSpace(I64 rune)
+{
+  return rune <= ' ' || rune == 0x85 || rune == 0xA0 || rune == 0x1680 ||
+    rune >= 0x2000 && rune <= 0x200A || rune == 0x2028 || rune == 0x2029 ||
+    rune == 0x202F || rune == 0x205F || rune == 0x3000;
+}
+
 U0 EditSelection(CEdit *edit, I64 *a, I64 *b)
 {
   *a = edit->cursor;
@@ -142,6 +150,44 @@ Bool EditInsert(CEdit *edit, CStrs *text)
 
   EditSelection(edit, &a, &b);
   return EditReplace(edit, a, b, text);
+}
+
+Bool EditFind(CEdit *edit, CStrs *query)
+{
+  U8 *found;
+  I64 size = StrsLen(query), length = StrsLen(&edit->text);
+
+  if (size < 1) return FALSE;
+  found = MemMem(edit->text.a + edit->cursor, length - edit->cursor, query->a, size);
+  if (!found) found = MemMem(edit->text.a, length, query->a, size);
+  if (!found) return FALSE;
+  edit->typing = FALSE;
+  edit->anchor = found - edit->text.a;
+  edit->cursor = edit->anchor + size;
+  return TRUE;
+}
+
+// Replace non-overlapping, literal matches as one undo step.
+I64 EditReplaceAll(CEdit *edit, CStrs *query, CStrs *replacement)
+{
+  CStrBuf out;
+  U8 *p = edit->text.a, *found;
+  I64 size = StrsLen(query), count = 0;
+
+  if (edit->readonly || size < 1) return 0;
+  StrBufInit(&out);
+  while (p < edit->text.b) {
+    found = MemMem(p, edit->text.b - p, query->a, size);
+    if (!found) break;
+    StrBufPutN(&out, p, found - p);
+    StrBufPutStrs(&out, replacement);
+    p = found + size;
+    count++;
+  }
+  StrBufPutN(&out, p, edit->text.b - p);
+  if (count && !EditReplace(edit, 0, StrsLen(&edit->text), &out)) count = 0;
+  StrBufFini(&out);
+  return count;
 }
 
 // Coalesce adjacent typing until a space, navigation, command or save boundary.
