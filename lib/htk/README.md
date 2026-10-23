@@ -207,6 +207,8 @@ a pty with `$SHELL` on Unix, ConPTY with `%COMSPEC%` on Windows, an xterm
 subset with 16/256/true colors, Tab and ^C forwarded while focused;
 `HtkTerminalWindow()` wraps one in a window and the desktop layer offers it
 as App > Terminal.
+Child output is parsed in bounded batches so a busy program cannot starve
+the desktop's input loop; large backlogs are polled again sooner.
 A right click on a title bar, or its top-left `[=]` system-menu button, opens
 the window menu (Minimize, Maximize or Restore, Tile ▸ Left/Right/Top/Bottom,
 Close).  Any control can carry its
