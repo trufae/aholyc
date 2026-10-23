@@ -146,6 +146,17 @@ U0 TestMarkdown()
   Check(Equal(&label, "# One\ntext\n## Child\nmore\n"), "parent section includes children");
   MdSection(&input, 20, &label);
   Check(Equal(&label, "## Child\nmore\n"), "child section range");
+  StrsInitS(&input, "- one\n+ two\n* three\n  - nested\ninline - text\n\t- code\n```\n- fenced\n```\n");
+  StrBufClear(&output);
+  MarkdownInit(&md, &MdExportText, NULL, &export); md.utf8 = TRUE; md.code_pad = FALSE;
+  MarkdownRenderStrs(&md, &input);
+  Check(MdFind(output.a, output.b, "• one") && MdFind(output.a, output.b, "• two") &&
+    MdFind(output.a, output.b, "• three") && MdFind(output.a, output.b, "• nested") &&
+    MdFind(output.a, output.b, "inline - text") && MdFind(output.a, output.b, "- code") &&
+    MdFind(output.a, output.b, "- fenced"), "UTF-8 list bullets preserve inline text and code");
+  StrBufClear(&output); md.utf8 = FALSE;
+  MarkdownRenderStrs(&md, &input);
+  Check(!MdFind(output.a, output.b, "•"), "ASCII rendering does not introduce UTF-8 bullets");
   StrBufFini(&export.links);
   StrBufFini(&output);
 }
