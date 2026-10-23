@@ -740,6 +740,17 @@ I64 HtkBg(HtkCtl *c, I64 normal)
   return normal;
 }
 
+// Flat toolbar/status content keeps its surface through nested layout boxes.
+I64 HtkBarKind(HtkCtl *c)
+{
+  c = c->parent;
+  while (c && c->kind != HTK_WINDOW) {
+    if (c->kind == HTK_TOOLBAR || c->kind == HTK_STATUS) return c->kind;
+    c = c->parent;
+  }
+  return 0;
+}
+
 // Clip save/restore around a nested paint (scroll viewports, canvases).
 #define HTK_CLIP_DEPTH 8
 I64 htk_clip_stack[HTK_CLIP_DEPTH * 4];

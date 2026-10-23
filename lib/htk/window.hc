@@ -491,6 +491,12 @@ U0 HtkWindowLayout(HtkCtl *w)
   content->y = w->y + 1 + bar;
   content->w = w->w - 4;
   content->h = w->h - 2 - bar;
+  // A window's vertical stack gives toolbar strips the whole interior.
+  // Ordinary rows retain their padding in HtkBoxLayout.
+  if (content->kind == HTK_TOOLBAR || content->kind == HTK_BOX && content->vertical) {
+    content->x--;
+    content->w += 2;
+  }
   HtkLayoutCtl(content);
 }
 

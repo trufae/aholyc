@@ -88,6 +88,10 @@ U0 HtkBoxLayout(HtkCtl *c)
           k->y = at;
         k->w = c->w;
         k->h = k->ph;
+        if (c->parent && c->parent->kind == HTK_WINDOW && k->kind != HTK_TOOLBAR) {
+          k->x++;
+          k->w = MaxI64(0, k->w - 2);
+        }
       } else {
         k->x = at;
         k->y = c->y;

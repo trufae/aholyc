@@ -21,7 +21,7 @@ U0 HtkButtonDraw(HtkCtl *c)
   I64 fg = HtkInk(c, HTK_C_BTN_FG);
   I64 pad;
 
-  if (c->parent && c->parent->kind == HTK_TOOLBAR) {
+  if (HtkBarKind(c) == HTK_TOOLBAR) {
     bg = HTK_C_TOOL_BG;
     fg = HtkInk(c, HTK_C_TOOL_FG);
   }
@@ -66,11 +66,12 @@ U0 HtkToolButtonDraw(HtkCtl *c)
 {
   I64 bg = HtkBg(c, HTK_C_BG), attr = 0;
   I64 fg = HtkInk(c, HTK_C_FG);
+  I64 bar = HtkBarKind(c);
 
-  if (c->parent && c->parent->kind == HTK_TOOLBAR) {
+  if (bar == HTK_TOOLBAR) {
     bg = HtkBg(c, HTK_C_TOOL_BG);
     fg = HtkInk(c, HTK_C_TOOL_FG);
-  } else if (c->parent && c->parent->kind == HTK_STATUS) {
+  } else if (bar == HTK_STATUS) {
     bg = HtkBg(c, HTK_C_DIM);
     fg = HtkInk(c, HTK_C_TITLE);
   }
