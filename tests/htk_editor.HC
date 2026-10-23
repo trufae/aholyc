@@ -67,4 +67,31 @@ if (scroll->top != 1 || editor->mouse_handled) {
 HtkWindowClose(window); HtkDestroy(window); EditFini(&edit);
 Free(term_back); Free(term_front);
 
+// Code-token callbacks must not split UTF-8 into individual bytes. The same
+// diagram must retain its columns and source mapping in source/render modes.
+term_width = 60; term_height = 12; TermBuffersAlloc; HtkThemeDefault;
+EditInit(&edit);
+StrBufPutS(&edit.text, "```text\n╲╱│→é😀界A\nESIL → IR → AST\n```\n");
+editor = HtkMarkdownNew(&edit); editor->w = 40; editor->h = 8;
+HtkSetFocus(editor);
+I64 mode, x, y;
+I64 arrow = MdFind(edit.text.a, edit.text.b, "→") - edit.text.a;
+I64 glyphs[10] = {0x2572, 0x2571, 0x2502, 0x2192, 0xE9, 0x1F600,
+  TERM_CELL_CONT, 0x754C, TERM_CELL_CONT, 'A'};
+for (mode = HTK_MD_EDIT; mode <= HTK_MD_SOURCE_READ; mode++) {
+  HtkMarkdownMode(editor, mode); edit.cursor = arrow;
+  HtkClipAll; HtkMdDraw(editor);
+  x = 3; y = 1;  // rendered code has a Copy/language header above its first line
+  if (mode & HTK_MD_SOURCE) { x = 0; y = 1; }
+  for (i = 0; i < 10; i++) {
+    if (TermCellChar(TermPeek(x + i, y)) != glyphs[i]) {
+      "FAIL UTF-8 diagram glyph/column in Markdown mode %d at column %d\n", mode, i;
+      Exit(1);
+    }
+  }
+  if (HtkMdHit(editor->data, x + 3, y) != arrow) {
+    "FAIL UTF-8 code diagram source mapping\n"; Exit(1);
+  }
+}
+HtkDestroy(editor); EditFini(&edit); Free(term_back); Free(term_front);
 "ok htk editor\n";
