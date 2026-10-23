@@ -76,6 +76,26 @@ U0 TestSettingsKeys()
 U0 TestSettingsDialog()
 {
   HtkSettingsOpen;
+  htk_set_theme->value = 4;
+  HtkSettingsTheme(htk_set_theme);
+  Check(HtkSettingsApply(NULL) && htk_theme.desk_bg != TERM_BLUE &&
+    htk_theme.bar_bg != TERM_BLUE && htk_theme.frame != TERM_BLUE &&
+    htk_theme.frame != TERM_BRIGHT_BLUE,
+    "applying Modern does not restore the previous theme's blue colors");
+  term_color_depth = 16777216;
+  HtkThemePreset(0); HtkSettingsSync;
+  htk_set_theme->value = 4; HtkSettingsTheme(htk_set_theme);
+  I64 modern_desk = htk_theme.desk_bg, modern_bar = htk_theme.bar_bg, modern_frame = htk_theme.frame;
+  Check(HtkSettingsApply(NULL) && htk_theme.desk_bg == modern_desk &&
+    htk_theme.bar_bg == modern_bar && htk_theme.frame == modern_frame,
+    "Modern retains its truecolor palette through Apply");
+  U8 *modern = HtkSettingsText;
+  HtkThemePreset(0); HtkSettingsLoadText(modern); Free(modern);
+  Check(TermColorToRgb(htk_theme.desk_bg) == 0x101110 &&
+    TermColorToRgb(htk_theme.tool_bg) == 0x404440,
+    "Modern saves and reloads neutral surfaces with a distinct toolbar");
+  term_color_depth = 16;
+  HtkThemePreset(0); HtkSettingsSync;
   Check(!StrCmp(htk_set_move->text, "Alt+F7") &&
     !StrCmp(htk_set_resize->text, "Alt+F8"), "Settings shows default shortcuts");
   HtkSetText(htk_set_move, "Alt+x");
