@@ -90,7 +90,7 @@ U0 MdCodeLine(CMarkdown *md, CStrs *line, Bool *comment)
   U8 *p = line->a, *start;
   U8 *words = " if else for while do switch case break return class struct enum typedef extern public static const import from def fn function let var void int char bool true false NULL U0 U8 U16 U32 U64 I8 I16 I32 I64 F64 Bool try catch throw new delete sizeof include define " ;
   CStrs token;
-  I64 style, quote;
+  I64 style, quote, rune;
   U8 *word;
 
   while (p < line->b) {
@@ -123,7 +123,12 @@ U0 MdCodeLine(CMarkdown *md, CStrs *line, Bool *comment)
         if (end - word == p - start && !MemCmp(word, start, p - start)) style = 1;
         word = end;
       }
-    } else p++;
+    } else {
+      // Every callback slice must end on a rune boundary: cell renderers
+      // decode slices independently, so splitting an arrow into bytes
+      // produces replacement characters and changes the diagram's width.
+      p += MaxI64(1, Utf8DecodeRune(p, line->b - p, &rune));
+    }
     md->source = start;
     if (style) MdStyle(md, MD_STYLE_CODE_TOKEN, style);
     MdText(md, start, p);
