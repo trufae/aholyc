@@ -209,6 +209,10 @@ subset with 16/256/true colors, Tab and ^C forwarded while focused;
 as App > Terminal.
 Child output is parsed in bounded batches so a busy program cannot starve
 the desktop's input loop; large backlogs are polled again sooner.
+Plain text uses a batched parser and packed-cell
+drawing; an unobscured terminal directly inside the top window repaints its
+contents without laying out and redrawing the desktop. Menus, notifications,
+and overlapping windows retain the normal composition path.
 A right click on a title bar, or its top-left `[=]` system-menu button, opens
 the window menu (Minimize, Maximize or Restore, Tile ▸ Left/Right/Top/Bottom,
 Close).  Any control can carry its

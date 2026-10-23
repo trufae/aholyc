@@ -311,6 +311,7 @@ U0 HtkTermInterrupt();           // ^C to a focused terminal (terminal.hc)
 U0 HtkTermClosed(HtkCtl *w);     // shells of a closing window
 U0 HtkTermMeasure(HtkCtl *c);
 U0 HtkTermDraw(HtkCtl *c);
+U0 HtkTermRefresh();
 Bool HtkTermKey(HtkCtl *c, CTermEvent *e);
 U0 HtkPopupPush(HtkCtl *popup);
 U0 HtkPopupPop();
