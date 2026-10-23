@@ -255,6 +255,18 @@ dialogs, Enter fires a window's default button (`link`),
 mouse clicks/drags/wheel route by hit test, ^C sets `TermInterrupted` and
 ends the loop.  Timers and queued calls share one hook list
 (`HtkHookAdd`), driven by `TermMs()`.
+Mouse-wheel reports scroll one display row in scroll containers, multiline
+editors, Markdown views, tables, and trees, bounded by the last full viewport.
+They preserve the caret and selection; keyboard navigation resumes following
+them. `HtkScrollCtl(control, rows)` uses the same per-widget scroll dispatch
+as the wheel; a custom control can supply `scrollfn` and use `HtkScrollRows`
+for shared bounds and manual-scroll ownership. Returning FALSE passes a
+wheel report to the enclosing control. At a scroll boundary, return TRUE
+to keep the parent stationary. Native trees and tables show a scrollbar;
+Markdown views can enable one with `control->scrollbar = TRUE`.
+Canvas mouse callbacks can set `ctl->mouse_handled = TRUE` to consume
+an event and prevent a second scroll in an enclosing container. This flag is
+reset before each canvas mouse callback.
 Desktop shortcuts: **Ctrl-Tab** / **Ctrl-Shift-Tab** cycle visible windows,
 **Ctrl-G** opens the active window's system menu, and **Ctrl-O** opens App.
 **Alt-A** or **Alt-F10** opens App even when an application uses Ctrl-O for Open.

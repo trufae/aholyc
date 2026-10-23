@@ -575,7 +575,7 @@ U0 TestVimShortcuts()
   doc->view->vim_insert = FALSE; doc->view->vim_at = 0; doc->view->top = 0;
   view->no_wrap = FALSE; view->column_width = 8;
   HtkMdDraw(doc->view); WindowKey('f', TERM_MOD_CTRL); HtkMdDraw(doc->view);
-  Check(doc->edit.cursor == 32 && view->caret_y == 4 && doc->view->top == 4,
+  Check(doc->edit.cursor == 4 * view->width && view->caret_y == 4 && doc->view->top == 4,
     "Word Ctrl-F advances four wrapped display rows");
   WindowKey('b', TERM_MOD_CTRL); HtkMdDraw(doc->view);
   Check(doc->edit.cursor == 0 && doc->view->top == 0, "wrapped source Ctrl-B returns to start");
@@ -628,6 +628,106 @@ U0 TaskClick(CWordDoc *doc, I64 at, I64 mods=0)
 
   TaskPoint(doc, at, &x, &y);
   TaskMouse(x, y, TRUE, FALSE, mods); TaskMouse(x, y, FALSE, FALSE, mods);
+}
+
+U0 Wheel(HtkCtl *c, I64 button)
+{
+  CTermEvent e;
+
+  MemSet(&e, 0, sizeof(CTermEvent));
+  e.type = TERM_EVENT_MOUSE; e.button = button; e.pressed = TRUE;
+  e.x = c->x + c->w / 2; e.y = c->y + c->h / 2;
+  HtkMouse(&e);
+}
+
+U0 TestWheel()
+{
+  CWordApp app;
+  CWordDoc *doc = WordNew(&app);
+  HtkCtl *c = doc->view, *selected;
+  CHtkMarkdown *view = c->data;
+  I64 mode, layout, i, top, span, cursor, anchor, thumb, at;
+
+  StrBufPutS(&doc->edit.text, "# First\n");
+  for (i = 0; i < 60; i++) StrBufPutS(&doc->edit.text, "long wrapped line with é and words\n");
+  StrBufPutS(&doc->edit.text, "# Second\nlast section\n");
+  WordRefresh(c); HtkWindowLayout(doc->window); HtkSetFocus(c);
+  view->ruler_top = TRUE; view->ruler_left = TRUE; view->column_width = 16;
+  view->page_lines = 8;
+  for (mode = HTK_MD_EDIT; mode <= HTK_MD_SOURCE_READ; mode++) {
+    for (layout = HTK_MD_CONTINUOUS; layout <= HTK_MD_SECTION; layout++) {
+      HtkMarkdownMode(c, mode); view->layout = layout; view->section_at = 0;
+      doc->edit.cursor = 0; doc->edit.anchor = -1; c->top = 0;
+      // A mode switch or key can leave caret-follow pending before a wheel.
+      Wheel(c, TERM_MOUSE_WHEEL_DOWN);
+      Check(c->top == 1 && !view->follow, "wheel moves one display row and cancels pending caret-follow");
+      HtkClipAll; HtkMdDraw(c);
+      Check(c->top == 1, "redraw does not pull wheel scrolling back to the caret");
+      thumb = MaxI64(1, view->height * view->height / view->rows);
+      at = c->top * (view->height - thumb) / (view->rows - view->height);
+      Check(c->scrollbar && TermCellChar(TermPeek(c->x + c->w - 1,
+        c->y + view->inset + at)) == HTK_R_BLOCK,
+        "Word shows its scrollbar thumb beside the text viewport");
+      cursor = doc->edit.cursor; anchor = doc->edit.anchor;
+      for (i = 0; i < 12; i++) {
+        top = c->top;
+        Wheel(c, TERM_MOUSE_WHEEL_DOWN); HtkMdDraw(c);
+        Check(c->top == top + 1, "consecutive wheel-down reports each advance one row");
+        Wheel(c, TERM_MOUSE_WHEEL_UP); HtkMdDraw(c); HtkMdDraw(c);
+        Check(c->top == top, "wheel direction reverses exactly without redraw jitter");
+      }
+      Check(doc->edit.cursor == cursor && doc->edit.anchor == anchor,
+        "wheel scrolling leaves the insertion point and selection unchanged");
+      span = MaxI64(0, view->rows - view->height);
+      Check(span > 1, "wheel fixture exceeds the viewport in every layout");
+      c->top = span - 1;
+      Wheel(c, TERM_MOUSE_WHEEL_DOWN); HtkMdDraw(c);
+      Check(c->top == span, "wheel reaches the final full viewport");
+      Check(TermCellChar(TermPeek(c->x + c->w - 1,
+        c->y + view->inset + view->height - 1)) == HTK_R_BLOCK,
+        "scrollbar thumb reaches the bottom without covering the footer");
+      Wheel(c, TERM_MOUSE_WHEEL_DOWN); HtkMdDraw(c);
+      Check(c->top == span, "wheel cannot scroll into blank space after the document");
+      Wheel(c, TERM_MOUSE_WHEEL_UP); HtkMdDraw(c);
+      Check(c->top == span - 1, "first wheel-up at the bottom responds immediately");
+      c->top = 0; Wheel(c, TERM_MOUSE_WHEEL_UP); HtkMdDraw(c);
+      Check(c->top == 0, "wheel-up stays at the first row");
+      TaskMouse(c->x + c->w - 1, c->y + view->inset + view->height - 1, TRUE);
+      TaskMouse(c->x + c->w - 1, c->y + view->inset + view->height - 1, FALSE);
+      Check(c->top == span && doc->edit.cursor == cursor && doc->edit.anchor == anchor,
+        "scrollbar clicks move the viewport without moving the caret or selection");
+      TaskMouse(c->x + c->w - 1, c->y + view->inset + view->height - 1, TRUE);
+      TaskMouse(c->x + c->w - 4, c->y + view->inset, TRUE, TRUE);
+      TaskMouse(c->x + c->w - 4, c->y + view->inset, FALSE);
+      Check(c->top == 0 && !htk_drag && doc->edit.cursor == cursor && doc->edit.anchor == anchor,
+        "scrollbar drag keeps capture when the mouse leaves its column");
+      c->top = view->rows - 1; HtkMdDraw(c);
+      Check(c->top == span, "redraw clamps stale offsets to a full viewport");
+    }
+  }
+  EditFini(&doc->edit); EditInit(&doc->edit);
+  for (i = 0; i < 50; i++) StrBufPutS(&doc->edit.text, "# Heading\nbody\n");
+  doc->outline_revision = -1; WordRefresh(c); HtkWindowLayout(doc->window);
+  HtkMarkdownMode(c, HTK_MD_SOURCE); view->layout = HTK_MD_CONTINUOUS;
+  HtkTreeSelect(doc->outline, 0);
+  selected = doc->outline->link; cursor = doc->edit.cursor;
+  c->top = 10; view->follow = FALSE;
+  Wheel(doc->outline, TERM_MOUSE_WHEEL_DOWN); HtkTreeDraw(doc->outline);
+  Check(doc->outline->top == 1 && doc->outline->link == selected &&
+    doc->edit.cursor == cursor && c->top == 10,
+    "outline wheel scrolls one row without navigating to another heading");
+  Wheel(doc->outline, TERM_MOUSE_WHEEL_UP); HtkTreeDraw(doc->outline);
+  Check(doc->outline->top == 0 && c->top == 10, "outline wheel-up reverses without moving the document");
+  Wheel(doc->outline, TERM_MOUSE_WHEEL_DOWN); HtkTreeDraw(doc->outline);
+  HtkSetFocus(doc->outline); WindowKey(TERM_KEY_UP); HtkTreeDraw(doc->outline);
+  Check(doc->outline->top == 0 && doc->outline->link == selected && !doc->outline->scroll_hold,
+    "outline keyboard navigation makes the selected heading visible again");
+  EditFini(&doc->edit); EditInit(&doc->edit); StrBufPutS(&doc->edit.text, "short");
+  HtkMarkdownMode(c, HTK_MD_SOURCE); c->top = 10;
+  Wheel(c, TERM_MOUSE_WHEEL_DOWN); HtkMdDraw(c);
+  Check(c->top == 0, "short documents do not scroll into blank rows");
+  doc->window->closing = NULL; doc->window->submit = NULL;
+  HtkWindowClose(doc->window); WordDispose(doc, 0);
 }
 
 U0 TestTasks()
@@ -917,6 +1017,7 @@ TestSearch;
 TestMarkdownVim;
 TestTableNavigation;
 TestVimShortcuts;
+TestWheel;
 TestTasks;
 TestAlignment;
 TestPdf;

@@ -1067,6 +1067,7 @@ CWordDoc *WordNew(CWordApp *app, U8 *path=NULL)
   doc->outline->user = doc;
   doc->outline->changed = &WordOutlineHit;
   doc->view = HtkMarkdownNew(&doc->edit);
+  doc->view->scrollbar = TRUE;
   doc->view->user = doc;
   doc->view->submit = &WordRefresh;
   view = doc->view->data;

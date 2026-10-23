@@ -264,6 +264,110 @@ U0 TestTouchTitle()
   UiWindowClose(win);
 }
 
+I64 selection_events;
+
+U0 OnSelection(HtkCtl *c)
+{
+  selection_events++;
+}
+
+U0 ScrollWheel(HtkCtl *c, I64 button)
+{
+  U8 *report = MStrPrint("\x1B[<%d;%d;%dM", button,
+    c->x + c->w / 2 + 1, c->y + c->h / 2 + 1);
+
+  Mouse(report);
+  Free(report);
+}
+
+U0 TestScrollControls()
+{
+  HtkCtl *w, *c, *child, *selected;
+  I64 kind, i, rows, span, cursor, anchor, selection;
+  U8 text[256];
+
+  text[0] = 0;
+  for (i = 0; i < 60; i++) StrCpy(text + StrLen(text), "row\n");
+  TermBuffersAlloc;
+  for (kind = 0; kind < 4; kind++) {
+    w = HtkWindowNew("Scroll", 40, 12);
+    if (kind == 0) {
+      c = HtkNew(HTK_SCROLL);
+      child = HtkCanvasNew(30, 60, 0, 0); HtkAdd(c, child);
+    } else if (kind == 1) {
+      c = HtkMultilineNew(text); c->cursor = 0; c->anchor = -1;
+    } else if (kind == 2) {
+      c = HtkTableNew(0, 0); HtkTableColumn(c, "Rows"); c->high = 60; c->value = 0;
+    } else {
+      c = HtkTreeNew;
+      for (i = 0; i < 60; i++) HtkTreeAdd(c, NULL, "row");
+    }
+    c->expand = TRUE; c->scrollbar = TRUE; c->changed = &OnSelection;
+    HtkAdd(w, c); HtkSetFocus(c); HtkWindowLayout(w);
+    HtkClipAll; HtkDrawCtl(c);
+    cursor = c->cursor; anchor = c->anchor; selection = c->value; selected = c->link;
+    selection_events = 0;
+    ScrollWheel(c, 65); HtkDrawCtl(c);
+    Check(c->top == 1, "each scroll control advances one row per decoded wheel report");
+    ScrollWheel(c, 65); ScrollWheel(c, 64); HtkDrawCtl(c); HtkDrawCtl(c);
+    Check(c->top == 1 && c->cursor == cursor && c->anchor == anchor &&
+      c->value == selection && c->link == selected && !selection_events,
+      "redraw and direction reversal preserve viewport, caret and selection");
+    rows = 60;
+    if (kind == 1) rows = c->high;
+    span = rows - c->h + (kind == 2);
+    for (i = 0; i < 80; i++) ScrollWheel(c, 65);
+    HtkDrawCtl(c);
+    Check(c->top == span, "wheel clamps at the final full viewport");
+    ScrollWheel(c, 64); HtkDrawCtl(c);
+    Check(c->top == span - 1, "wheel-up responds immediately after repeated scrolling at the bottom");
+    if (kind) {
+      htk_dirty = FALSE; Key("\x1B[A");
+      Check(htk_dirty, "keyboard navigation repaints after releasing manual scroll hold");
+      HtkDrawCtl(c);
+      Check(c->top == 0 && !c->scroll_hold, "keyboard navigation follows the caret or selection again");
+    }
+    Tap(c->x + c->w - 1, c->y + c->h - 1); HtkDrawCtl(c);
+    Check(c->top == span && c->value == selection && c->link == selected && !selection_events,
+      "native scrollbar clicks preserve selection and reach the final viewport");
+    U8 *report = MStrPrint("\x1B[<0;%d;%dM", c->x + c->w, c->y + c->h);
+    Mouse(report); Free(report);
+    report = MStrPrint("\x1B[<32;%d;%dM", c->x + c->w - 3, c->y + 1 + (kind == 2));
+    Mouse(report); Free(report);
+    report = MStrPrint("\x1B[<0;%d;%dm", c->x + c->w - 3, c->y + 1 + (kind == 2));
+    Mouse(report); Free(report);
+    Check(c->top == 0 && !htk_drag && c->value == selection && c->link == selected,
+      "native scrollbar drag keeps capture outside its column");
+    HtkWindowClose(w); HtkDestroy(w);
+  }
+  Free(term_back); Free(term_front); term_back = NULL; term_front = NULL;
+}
+
+Bool CustomScroll(HtkCtl *c, I64 rows)
+{
+  if (c->user) return FALSE;
+  return HtkScrollRows(c, rows, 40, c->h);
+}
+
+U0 TestScrollDispatch()
+{
+  HtkCtl *w = HtkWindowNew("Custom scroll", 40, 12);
+  HtkCtl *outer = HtkNew(HTK_SCROLL), *canvas = HtkCanvasNew(30, 20, 0, 0);
+
+  canvas->scrollfn = &CustomScroll;
+  HtkAdd(outer, canvas); HtkAdd(w, outer); HtkWindowLayout(w);
+  Check(HtkScrollCtl(canvas, 3) && canvas->top == 3,
+    "custom widgets share programmatic and wheel scroll dispatch");
+  ScrollWheel(outer, 65);
+  Check(canvas->top == 4 && !outer->top, "custom scroll callback consumes one row before its parent");
+  canvas->top = 40 - canvas->h; ScrollWheel(outer, 65);
+  Check(canvas->top == 40 - canvas->h && !outer->top,
+    "consuming a wheel at a child boundary keeps the parent stationary");
+  canvas->user = 1; ScrollWheel(outer, 65);
+  Check(outer->top == 1, "declining a wheel delegates to the enclosing scroll control");
+  HtkWindowClose(w); HtkDestroy(w);
+}
+
 U0 TestKeyboardGeometry()
 {
   UiCtl *win = UiWindowNew("Keyboard", 320, 160);
@@ -378,6 +482,8 @@ TestTouchMove;
 TestCanvas;
 TestTouchTitle;
 TestKeyboardGeometry;
+TestScrollControls;
+TestScrollDispatch;
 term_started = FALSE;
 dup2(saved_input, 0);
 close(saved_input);

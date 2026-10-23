@@ -307,7 +307,6 @@ U0 HtkScrollLayout(HtkCtl *c)
 U0 HtkScrollDraw(HtkCtl *c)
 {
   HtkCtl *k = c->kids;
-  I64 i, at, bar;
 
   if (!k)
     return;
@@ -315,16 +314,7 @@ U0 HtkScrollDraw(HtkCtl *c)
   HtkClipSet(c->x, c->y, c->w - 1, c->h);
   HtkDrawCtl(k);
   HtkClipPop;
-  for (i = 0; i < c->h; i++)
-    HtkChr(c->x + c->w - 1, c->y + i, HTK_R_LIGHT, HTK_C_DIM, HTK_C_BG);
-  if (k->ph > c->h) {
-    bar = c->h * c->h / k->ph;
-    if (bar < 1)
-      bar = 1;
-    at = c->top * (c->h - bar) / (k->ph - c->h);
-    for (i = 0; i < bar; i++)
-      HtkChr(c->x + c->w - 1, c->y + at + i, HTK_R_MED, HTK_C_FG, HTK_C_BG);
-  }
+  HtkScrollbarDraw(c, k->ph, c->h);
 }
 
 Bool HtkScrollKey(HtkCtl *c, CTermEvent *e)
@@ -347,6 +337,14 @@ Bool HtkScrollKey(HtkCtl *c, CTermEvent *e)
     c->top = 0;
   htk_dirty = TRUE;
   return TRUE;
+}
+
+Bool HtkScrollWheel(HtkCtl *c, I64 rows)
+{
+  I64 total = 0;
+
+  if (c->kids) total = c->kids->ph;
+  return HtkScrollRows(c, rows, total, c->h);
 }
 
 // A wrapping toolbar. Measure uses the owning window's current inner width.

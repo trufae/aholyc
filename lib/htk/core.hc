@@ -195,6 +195,7 @@ class HtkCtl
   U0 (*changed)(HtkCtl *c);
   U0 (*submit)(HtkCtl *c);   // entry: Enter pressed
   Bool (*keyfn)(HtkCtl *c, CTermEvent *e); // optional key override
+  Bool (*scrollfn)(HtkCtl *c, I64 rows); // optional scroll override; TRUE consumes it
   Bool (*closing)(HtkCtl *c); // window close veto, including application quit
   U0 (*destroy)(HtkCtl *c); // release caller-owned payload on HtkDestroy
   #ifdef UI_HTK_VIMODE
@@ -225,6 +226,7 @@ class HtkCtl
   U8 kind;
   U8 mouse_button;
   Bool mouse_pressed, mouse_motion;
+  Bool mouse_handled; // canvas callback consumed this event; do not scroll parents
   Bool vertical;
   Bool right;        // horizontal box: start its non-expanding kids at right
   Bool bottom;       // vertical parent: reserve this control at its bottom
@@ -234,7 +236,7 @@ class HtkCtl
   Bool hidden;
   Bool secret;       // password entry
   Bool line_numbers, wrap, scrollbar; // multiline editor display options
-  Bool scroll_hold;   // multiline: preserve an explicit scrollbar position
+  Bool scroll_hold;   // preserve manual scrolling until caret/selection navigation
   Bool readonly;     // entry/multiline: navigation only
   Bool closed;       // window dismissed
   Bool minimized;    // window parked on the taskbar
@@ -304,6 +306,7 @@ U0 HtkMeasureCtl(HtkCtl *c);
 U0 HtkLayoutCtl(HtkCtl *c);
 U0 HtkDrawCtl(HtkCtl *c);
 Bool HtkKeyCtl(HtkCtl *c, CTermEvent *e);
+Bool HtkScrollCtl(HtkCtl *c, I64 rows);
 U0 HtkSetFocus(HtkCtl *c);
 U0 HtkPopupOpen(HtkCtl *popup);
 U0 HtkAppMenuOpen(I64 x, I64 y);
@@ -767,6 +770,36 @@ U0 HtkClipPop()
   htk_clip_y = at[1];
   htk_clip_x2 = at[2];
   htk_clip_y2 = at[3];
+}
+
+// Shared scroll bounds and manual-scroll ownership, in display rows.
+Bool HtkScrollRows(HtkCtl *c, I64 rows, I64 total, I64 height)
+{
+  c->top = MaxI64(0, MinI64(MaxI64(0, total - MaxI64(1, height)), c->top + rows));
+  c->scroll_hold = TRUE;
+  htk_dirty = TRUE;
+  return TRUE;
+}
+
+U0 HtkScrollbarDraw(HtkCtl *c, I64 total, I64 height, I64 inset=0)
+{
+  I64 i, thumb, at;
+
+  if (height < 1 || total <= height) return;
+  thumb = MaxI64(1, height * height / total);
+  at = c->top * (height - thumb) / (total - height);
+  for (i = 0; i < height; i++)
+    HtkChr(c->x + c->w - 1, c->y + inset + i, HTK_R_LIGHT, HTK_C_DIM, HTK_C_FIELD_BG);
+  for (i = 0; i < thumb; i++)
+    HtkChr(c->x + c->w - 1, c->y + inset + at + i, HTK_R_BLOCK, HTK_C_ACCENT, HTK_C_FIELD_BG);
+}
+
+U0 HtkScrollbarMouse(HtkCtl *c, I64 y, I64 total, I64 height, I64 inset=0)
+{
+  I64 at = MaxI64(0, MinI64(height - 1, y - c->y - inset));
+  I64 target = at * MaxI64(0, total - height) / MaxI64(1, height - 1);
+
+  HtkScrollRows(c, target - c->top, total, height);
 }
 
 // Keep a selection index visible inside a scrolled viewport.

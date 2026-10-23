@@ -7,13 +7,15 @@
 #define HTK_KINDS 34
 I64 htk_measure[HTK_KINDS], htk_layout[HTK_KINDS];
 I64 htk_draw[HTK_KINDS], htk_key[HTK_KINDS];
+I64 htk_scroll[HTK_KINDS];
 
-U0 HtkOps(I64 kind, I64 measure, I64 layout, I64 draw, I64 key)
+U0 HtkOps(I64 kind, I64 measure, I64 layout, I64 draw, I64 key, I64 scroll=0)
 {
   htk_measure[kind] = measure;
   htk_layout[kind] = layout;
   htk_draw[kind] = draw;
   htk_key[kind] = key;
+  htk_scroll[kind] = scroll;
 }
 
 U0 HtkOpsInit()
@@ -23,7 +25,7 @@ U0 HtkOpsInit()
   HtkOps(HTK_GRID, &HtkGridMeasure, &HtkGridLayout, &HtkKidsDraw, 0);
   HtkOps(HTK_SPLIT, &HtkSplitMeasure, &HtkSplitLayout, &HtkSplitDraw, 0);
   HtkOps(HTK_SCROLL, &HtkScrollMeasure, &HtkScrollLayout, &HtkScrollDraw,
-    &HtkScrollKey);
+    &HtkScrollKey, &HtkScrollWheel);
   HtkOps(HTK_GROUP, &HtkGroupMeasure, &HtkGroupLayout, &HtkGroupDraw, 0);
   HtkOps(HTK_TAB, &HtkTabMeasure, &HtkTabLayout, &HtkTabDraw, &HtkTabKey);
   HtkOps(HTK_LABEL, &HtkLabelMeasure, 0, &HtkLabelDraw, 0);
@@ -33,7 +35,7 @@ U0 HtkOpsInit()
   HtkOps(HTK_MENUITEM, &HtkButtonMeasure, 0, 0, 0);
   HtkOps(HTK_ENTRY, &HtkEntryMeasure, 0, &HtkEntryDraw, &HtkEntryKey);
   HtkOps(HTK_MULTILINE, &HtkMultilineMeasure, 0, &HtkMultilineDraw,
-    &HtkMultilineKey);
+    &HtkMultilineKey, &HtkMultilineWheel);
   HtkOps(HTK_CHECKBOX, &HtkCheckboxMeasure, 0, &HtkCheckboxDraw,
     &HtkCheckboxKey);
   HtkOps(HTK_RADIO, &HtkRadioMeasure, 0, &HtkRadioDraw, &HtkRadioKey);
@@ -41,8 +43,8 @@ U0 HtkOpsInit()
   HtkOps(HTK_PROGRESS, &HtkSliderMeasure, 0, &HtkProgressDraw, 0);
   HtkOps(HTK_SPIN, &HtkSpinMeasure, 0, &HtkSpinDraw, &HtkSpinKey);
   HtkOps(HTK_COMBO, &HtkComboMeasure, 0, &HtkComboDraw, &HtkComboKey);
-  HtkOps(HTK_TABLE, &HtkTableMeasure, 0, &HtkTableDraw, &HtkTableKey);
-  HtkOps(HTK_TREE, &HtkTreeMeasure, 0, &HtkTreeDraw, &HtkTreeKey);
+  HtkOps(HTK_TABLE, &HtkTableMeasure, 0, &HtkTableDraw, &HtkTableKey, &HtkTableWheel);
+  HtkOps(HTK_TREE, &HtkTreeMeasure, 0, &HtkTreeDraw, &HtkTreeKey, &HtkTreeWheel);
   HtkOps(HTK_CANVAS, 0, 0, &HtkCanvasDraw, 0);
   HtkOps(HTK_TERM, &HtkTermMeasure, 0, &HtkTermDraw, &HtkTermKey);
   HtkOps(HTK_SWITCH, &HtkSwitchMeasure, 0, &HtkSwitchDraw, &HtkSwitchKey);
@@ -93,6 +95,16 @@ Bool HtkKeyCtl(HtkCtl *c, CTermEvent *e)
   if (!key)
     return FALSE;
   return key(c, e);
+}
+
+// Scroll dispatch is shared by native controls, modal lists and custom views.
+Bool HtkScrollCtl(HtkCtl *c, I64 rows)
+{
+  Bool (*scroll)(HtkCtl *c, I64 rows) = c->scrollfn;
+
+  if (!scroll) scroll = htk_scroll[c->kind];
+  if (c->disabled || !scroll) return FALSE;
+  return scroll(c, rows);
 }
 
 // Deepest visible control containing the point; later siblings win.
@@ -367,6 +379,7 @@ U0 HtkCanvasMouse(HtkCtl *c, CTermEvent *e)
   c->mouse_mods = e->mods;
   c->mouse_pressed = e->pressed;
   c->mouse_motion = e->motion;
+  c->mouse_handled = FALSE;
   if (c->mouse_x < 0)
     c->mouse_x = 0;
   if (c->mouse_y < 0)
@@ -376,6 +389,18 @@ U0 HtkCanvasMouse(HtkCtl *c, CTermEvent *e)
   if (c->mouse_y >= c->h)
     c->mouse_y = c->h - 1;
   HtkFire(c);
+}
+
+U0 HtkNativeScrollbarMouse(HtkCtl *c, I64 y)
+{
+  I64 total = c->high, inset = c->kind == HTK_TABLE;
+
+  if (c->kind == HTK_TREE) total = HtkTreeCount(c);
+  else if (c->kind == HTK_SCROLL) {
+    total = 0;
+    if (c->kids) total = c->kids->ph;
+  }
+  HtkScrollbarMouse(c, y, total, c->h - inset, inset);
 }
 
 U0 HtkWindowMouse(HtkCtl *w, CTermEvent *e)
@@ -501,6 +526,14 @@ U0 HtkWindowMouse(HtkCtl *w, CTermEvent *e)
     HtkSetFocus(hit);
   if (hit->disabled)
     return;
+  if (press && e->x == hit->x + hit->w - 1 &&
+    (hit->kind == HTK_SCROLL || hit->scrollbar &&
+      (hit->kind == HTK_MULTILINE || hit->kind == HTK_TREE || hit->kind == HTK_TABLE))) {
+    HtkNativeScrollbarMouse(hit, e->y);
+    htk_drag = hit;
+    htk_drag_scroll = TRUE;
+    return;
+  }
   switch (hit->kind) {
   case HTK_TOOLBUTTON:
   case HTK_BUTTON:
@@ -600,25 +633,17 @@ U0 HtkWindowMouse(HtkCtl *w, CTermEvent *e)
     }
     break;
   }
-  if (e->button == TERM_MOUSE_WHEEL_UP || e->button == TERM_MOUSE_WHEEL_DOWN) {
+  if (hit->kind == HTK_CANVAS && hit->mouse_handled)
+    return;
+  if (e->pressed && !e->motion &&
+    (e->button == TERM_MOUSE_WHEEL_UP || e->button == TERM_MOUSE_WHEEL_DOWN)) {
     HtkCtl *seek = hit;
     I64 step = 1;
     if (e->button == TERM_MOUSE_WHEEL_UP)
       step = -1;
-    while (seek && seek->kind != HTK_SCROLL && seek->kind != HTK_TABLE &&
-      seek->kind != HTK_TREE)
+    while (seek) {
+      if (HtkScrollCtl(seek, step)) return;
       seek = seek->parent;
-    if (seek) {
-      if (seek->kind == HTK_TABLE)
-        HtkTableSelect(seek, seek->value + step);
-      else if (seek->kind == HTK_TREE)
-        HtkTreeSelect(seek, HtkTreeIndexOf(seek, seek->link) + step);
-      else {
-        seek->top += step * 2;
-        if (seek->top < 0)
-          seek->top = 0;
-        htk_dirty = TRUE;
-      }
     }
   }
 }
@@ -661,7 +686,9 @@ U0 HtkMouse(CTermEvent *e)
         htk_drag->y = e->y - htk_drag_dy;
       }
       htk_dirty = TRUE;
-    } else if (htk_drag->kind == HTK_SLIDER)
+    } else if (htk_drag_scroll)
+      HtkNativeScrollbarMouse(htk_drag, e->y);
+    else if (htk_drag->kind == HTK_SLIDER)
       HtkSliderMouse(htk_drag, e->x);
     else if (htk_drag->kind == HTK_CANVAS)
       HtkCanvasMouse(htk_drag, e);
