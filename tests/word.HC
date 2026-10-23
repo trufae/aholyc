@@ -743,6 +743,68 @@ U0 TestWheel()
   HtkWindowClose(doc->window); WordDispose(doc, 0);
 }
 
+U0 TestResizeAnchor()
+{
+  CWordApp app;
+  CWordDoc *doc = WordNew(&app);
+  HtkCtl *c = doc->view;
+  CHtkMarkdown *view = c->data;
+  I64 mode, layout, i, at, top, row, cursor, anchor;
+  I64 widths[8] = {72, 55, 84, 48, 65, 79, 52, 96};
+  U8 *line;
+
+  StrBufPutS(&doc->edit.text, "# Resize anchor\n");
+  for (i = 0; i < 80; i++) {
+    line = MStrPrint("line %d: é😀 text wrapping across several rows keeps the same place in the document\n", i);
+    StrBufPutS(&doc->edit.text, line); Free(line);
+  }
+  StrBufPutS(&doc->edit.text, "# End\nend\n");
+  view->ruler_top = TRUE; view->line_numbers = TRUE;
+  for (mode = HTK_MD_EDIT; mode <= HTK_MD_SOURCE_READ; mode++) {
+    for (layout = HTK_MD_CONTINUOUS; layout <= HTK_MD_SECTION; layout++) {
+      doc->window->w = 96; doc->window->h = 24;
+      HtkWindowLayout(doc->window); HtkMarkdownMode(c, mode);
+      view->layout = layout; view->section_at = 0;
+      doc->edit.cursor = 0; doc->edit.anchor = -1; c->top = 0;
+      HtkClipAll; HtkMdDraw(c);
+      doc->window->w = 72; doc->window->h = 20;
+      HtkWindowLayout(doc->window); HtkMdDraw(c);
+      Check(c->top == 0, "resizing at the start keeps the document's first character fixed");
+      doc->window->w = 96; doc->window->h = 24;
+      HtkWindowLayout(doc->window); HtkMdDraw(c);
+      c->top = 24; HtkMdDraw(c);
+      top = c->top; at = HtkMdHit(view, view->left, top);
+      cursor = doc->edit.cursor; anchor = doc->edit.anchor;
+      for (i = 0; i < 8; i++) {
+        doc->window->w = widths[i]; doc->window->h = 20 + i % 4;
+        HtkWindowLayout(doc->window);
+        // Query the anchor in the new layout without leaving the caret there.
+        doc->edit.cursor = at; HtkMdRender(view); row = view->caret_y;
+        doc->edit.cursor = cursor;
+        HtkMdDraw(c); HtkMdDraw(c);
+        Check(c->top == row, "resizing keeps the same source character in the first visible display row");
+        Check(doc->edit.cursor == cursor && doc->edit.anchor == anchor && !doc->edit.undo,
+          "resizing does not move the caret, change selection or create undo history");
+      }
+      doc->window->w = 96; doc->window->h = 24;
+      HtkWindowLayout(doc->window); HtkMdDraw(c);
+      Check(c->top == top && HtkMdHit(view, view->left, c->top) == at,
+        "resizing back restores the exact viewport without accumulated wrap drift");
+      Wheel(c, TERM_MOUSE_WHEEL_DOWN); HtkMdDraw(c);
+      Check(c->top == top + 1, "wheel scrolling remains one row after a resize");
+      at = HtkMdHit(view, view->left, c->top);
+      doc->window->w = 72; HtkWindowLayout(doc->window);
+      doc->edit.cursor = at; HtkMdRender(view); row = view->caret_y;
+      doc->edit.cursor = cursor; HtkMdDraw(c);
+      Check(c->top == row, "manual scrolling establishes a fresh source anchor for the next resize");
+      doc->window->w = 96; HtkWindowLayout(doc->window); HtkMdDraw(c);
+      Check(c->top == top + 1, "new resize gestures do not return to an older scroll position");
+    }
+  }
+  doc->window->closing = NULL; doc->window->submit = NULL;
+  HtkWindowClose(doc->window); WordDispose(doc, 0);
+}
+
 U0 TestTasks()
 {
   CWordApp app;
@@ -1031,6 +1093,7 @@ TestMarkdownVim;
 TestTableNavigation;
 TestVimShortcuts;
 TestWheel;
+TestResizeAnchor;
 TestTasks;
 TestAlignment;
 TestPdf;
