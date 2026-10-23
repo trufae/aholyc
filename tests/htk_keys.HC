@@ -486,6 +486,8 @@ U0 TestCursorShape()
 U0 TestThemes()
 {
   HtkCtl *window = HtkWindowNew("Palette", 50, 10), *menu, *bar, *button;
+  HtkCtl *row = HtkNew(HTK_BOX), *label = HtkNew(HTK_LABEL), *plain_tool = HtkButtonNew("Run");
+  HtkCtl *separator = HtkNew(HTK_SEP);
   U8 *saved;
   I64 i, x;
 
@@ -494,6 +496,8 @@ U0 TestThemes()
   HtkMenuItem(menu, "Open");
   bar = HtkToolbarNew; button = HtkToolButtonNew("¶");
   HtkAdd(bar, button); HtkAdd(window, bar);
+  HtkSetText(label, "Tools"); HtkAdd(row, label); HtkAdd(row, separator); HtkAdd(row, plain_tool);
+  HtkAdd(bar, row);
   for (i = 0; i < HTK_THEME_COUNT; i++) {
     HtkThemePreset(i);
     HtkWindowLayout(window);
@@ -504,6 +508,12 @@ U0 TestThemes()
     Check(TermCellBg(term_back[(window->y + 1) * TermWidth + window->x + 1]) == htk_theme.menu_bg &&
       TermCellBg(term_back[bar->y * TermWidth + bar->x + bar->w - 1]) == htk_theme.tool_bg,
       "menubar and toolbar draw their theme backgrounds");
+    Check(bar->x == window->x + 1 && bar->w == window->w - 2,
+      "toolbar fills the frame interior without blank edge columns");
+    Check(TermCellBg(TermPeek(label->x, label->y)) == htk_theme.tool_bg &&
+      TermCellBg(TermPeek(separator->x, separator->y)) == htk_theme.tool_bg &&
+      TermCellBg(TermPeek(plain_tool->x, plain_tool->y)) == htk_theme.tool_bg,
+      "toolbar background continues through nested labels, separators and buttons");
   }
   HtkThemePreset(5);
   for (x = 0; x < TermWidth * TermHeight; x++) term_back[x] = 0;

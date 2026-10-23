@@ -176,6 +176,8 @@ U0 TestWindow()
   HtkCtl *bar = HtkWindowContent(doc->window)->kids, *button = bar->kids;
   Check(bar->kind == HTK_TOOLBAR && bar->h == 1 && bar->y == doc->window->y + 2,
     "one toolbar row below the menubar");
+  Check(bar->x == doc->window->x + 1 && bar->w == doc->window->w - 2,
+    "toolbar spans the full interior width of its window frame");
   Check(HtkKidCount(bar) == 11 && doc->status->h == 1 &&
     doc->status->y == doc->window->y + doc->window->h - 2, "compact toolbar and docked statusbar");
   Check(doc->outline_button->parent == doc->status &&

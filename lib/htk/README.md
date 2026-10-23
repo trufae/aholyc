@@ -235,6 +235,8 @@ and a muted sage accent, with a basic-color fallback. Serial uses basic ANSI col
 and ASCII glyphs, including window borders, controls, and Unicode fallbacks;
 document and clipboard bytes remain unchanged. `menu_bg/menu_fg` and
 `tool_bg/tool_fg` color the separate window menubar and toolbar strips.
+Toolbar strips span the frame interior; nested labels and buttons inherit
+their toolbar surface.
 
 ```holyc
 htk_theme.frame = TERM_BRIGHT_YELLOW;

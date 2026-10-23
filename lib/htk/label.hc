@@ -25,13 +25,17 @@ U0 HtkLabelDraw(HtkCtl *c)
   I64 i = 0, y = c->y;
   I64 bg = HTK_C_BG;
   I64 fg = HtkInk(c, HTK_C_FG);
+  I64 bar = HtkBarKind(c);
 
   if (c->kind == HTK_STATUS) {  // docked bar: inverse strip like the frame
     HtkRect(c->x, c->y, c->w, c->h, ' ', HTK_C_TITLE, HTK_C_DIM);
     HtkStr(c->x + 1, c->y, c->text, HTK_C_TITLE, HTK_C_DIM);
     return;
   }
-  if (c->parent && c->parent->kind == HTK_STATUS) {
+  if (bar == HTK_TOOLBAR) {
+    bg = HTK_C_TOOL_BG; fg = HtkInk(c, HTK_C_TOOL_FG);
+    HtkRect(c->x, c->y, c->w, c->h, ' ', fg, bg);
+  } else if (bar == HTK_STATUS) {
     bg = HTK_C_DIM; fg = HTK_C_TITLE;
     HtkRect(c->x, c->y, c->w, c->h, ' ', fg, bg);
   }
@@ -53,8 +57,11 @@ U0 HtkSepMeasure(HtkCtl *c)
 
 U0 HtkSepDraw(HtkCtl *c)
 {
-  I64 i;
+  I64 i, fg = HTK_C_DIM, bg = HTK_C_BG;
+
+  if (HtkBarKind(c) == HTK_TOOLBAR) { fg = HTK_C_TOOL_FG; bg = HTK_C_TOOL_BG; }
+  else if (HtkBarKind(c) == HTK_STATUS) { fg = HTK_C_TITLE; bg = HTK_C_DIM; }
 
   for (i = c->x; i < c->x + c->w; i++)
-    HtkChr(i, c->y, HTK_R_H, HTK_C_DIM, HTK_C_BG);
+    HtkChr(i, c->y, HTK_R_H, fg, bg);
 }
