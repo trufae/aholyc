@@ -2,7 +2,7 @@
 // Windows through ConPTY) inside a window. A small xterm subset is
 // understood (cursor motion, erasing, insert/delete, scroll regions, SGR
 // with 16/256/true colors); keys, Tab and ^C go to the shell while the
-// control has focus. Not built with HTK_NODESK.
+// control has focus.
 
 #define HTK_TERM_PARAMS 16
 #define HTK_TERM_PUMP_BYTES 65536
@@ -26,6 +26,7 @@ class CHtkTerm
   I64 utf8_len;
   Bool cursor_hidden;
   Bool exited;
+  Bool repaint;            // output waiting to be drawn
   Bool pending_output;     // batch filled; poll again promptly
 };
 
@@ -481,6 +482,31 @@ U0 HtkTermByte(CHtkTerm *t, I64 byte)
     HtkTermPut(t, byte);
 }
 
+// Copy printable ASCII runs with one pen calculation and one wrap check per
+// row. Escape sequences and UTF-8 still use the byte parser, across reads.
+U0 HtkTermFeed(CHtkTerm *t, U8 *bytes, I64 count)
+{
+  I64 i = 0, end, room;
+  U64 pen, *cell;
+
+  while (i < count) {
+    if (!t->state && !t->utf8_len && bytes[i] >= 0x20 && bytes[i] < 0x7F &&
+      t->cx < t->cols) {
+      pen = HtkTermBlank(t) & ~0x1FFFFF | (t->attr & 0x7F) << 21;
+      room = t->cols - t->cx;
+      end = i + room;
+      if (end > count)
+        end = count;
+      cell = t->cells + t->cy * t->cols + t->cx;
+      room = i;
+      while (i < end && bytes[i] >= 0x20 && bytes[i] < 0x7F)
+        *cell++ = pen | bytes[i++];
+      t->cx += i - room;
+    } else
+      HtkTermByte(t, bytes[i++]);
+  }
+}
+
 // --- pty backend -----------------------------------------------------------------
 // HtkPtySpawn/Read/Write/Resize/Alive/Close come from pty_posix.hc or
 // pty_windows.hc (selected in htk.hc before this file).
@@ -489,8 +515,8 @@ U0 HtkTermByte(CHtkTerm *t, I64 byte)
 // or the other windows. Pending output is picked up by the next poll tick.
 Bool HtkTermPump(CHtkTerm *t)
 {
-  U8 buffer[4096];
-  I64 n = 1, total = 0, capacity, i;
+  U8 buffer[16384];
+  I64 n = 1, total = 0, capacity;
   Bool changed = FALSE;
 
   if (t->exited)
@@ -504,8 +530,7 @@ Bool HtkTermPump(CHtkTerm *t)
       capacity = sizeof(buffer);
     n = HtkPtyRead(t, buffer, capacity);
     if (n > 0) {
-      for (i = 0; i < n; i++)
-        HtkTermByte(t, buffer[i]);
+      HtkTermFeed(t, buffer, n);
       total += n;
       changed = TRUE;
     }
@@ -538,6 +563,35 @@ CHtkTerm *HtkTermOf(HtkCtl *c)
   return c->data(CHtkTerm *);
 }
 
+// A plain terminal in the top window can repaint its own contents without
+// laying out and painting the whole desktop. Overlays use normal composition.
+Bool HtkTermCanRefresh(HtkCtl *c)
+{
+  HtkCtl *w = HtkTop;
+
+  return c && w && HtkWindowContent(w) == c && !c->hidden &&
+    !htk_popup && !htk_notices && !htk_move;
+}
+
+U0 HtkTermRefresh()
+{
+  HtkCtl *w = HtkTop, *c;
+
+  if (!w)
+    return;
+  c = HtkWindowContent(w);
+  if (!c || c->kind != HTK_TERM || !c->data ||
+    !HtkTermOf(c)->repaint || !HtkTermCanRefresh(c))
+    return;
+  TermSetCursorShape;
+  TermShowCursor(FALSE);
+  HtkClipAll;
+  HtkClipSet(w->x + 1, w->y + 1, w->w - 2, w->h - 2);
+  HtkDrawCtl(c);
+  HtkClipAll;
+  TermCommit;
+}
+
 U0 HtkTermTick(I64 a, I64 b)
 {
   HtkCtl *c = a;
@@ -551,8 +605,11 @@ U0 HtkTermTick(I64 a, I64 b)
     return;
   t = HtkTermOf(c);
 
-  if (HtkTermPump(t))
-    htk_dirty = TRUE;
+  if (HtkTermPump(t)) {
+    t->repaint = TRUE;
+    if (!HtkTermCanRefresh(c))
+      htk_dirty = TRUE;
+  }
   // Express this as a guarded re-arm rather than an early return.  Besides
   // making the one-shot timer ownership explicit, this avoids a dead block
   // after `return` in the LLVM output (some builds could spin in that block
@@ -593,23 +650,46 @@ U0 HtkTermMeasure(HtkCtl *c)
 U0 HtkTermDraw(HtkCtl *c)
 {
   CHtkTerm *t = HtkTermOf(c);
-  I64 x, y, fg, bg, attr;
+  I64 x, y, fg, bg, attr, x1, x2, y1, y2, rune;
+  U64 *source, *dest;
   U64 cell;
 
   HtkTermResize(t, c->w, c->h);
-  for (y = 0; y < t->rows; y++)
-    for (x = 0; x < t->cols; x++) {
-      cell = t->cells[y * t->cols + x];
-      fg = TermCellFg(cell);
-      bg = TermCellBg(cell);
-      attr = TermCellAttr(cell);
-      if (attr & TERM_REVERSE) {
-        fg = TermCellBg(cell);
-        bg = TermCellFg(cell);
+  t->repaint = FALSE;
+  x1 = htk_clip_x - c->x;
+  y1 = htk_clip_y - c->y;
+  x2 = htk_clip_x2 - c->x;
+  y2 = htk_clip_y2 - c->y;
+  if (x1 < 0) x1 = 0;
+  if (y1 < 0) y1 = 0;
+  if (x2 > c->w) x2 = c->w;
+  if (y2 > c->h) y2 = c->h;
+  for (y = y1; y < y2 && x1 < x2; y++) {
+    source = t->cells + y * t->cols;
+    dest = term_back + (c->y + y) * term_width + c->x + x1;
+    for (x = x1; x < x2; x++) {
+      cell = source[x];
+      rune = TermCellChar(cell);
+      // Both grids use the same packed cells. Ordinary narrow glyphs need
+      // no unpack/repack, Unicode width lookup, or color conversion.
+      if (!htk_theme.ascii && !htk_paint_dim && rune >= 0x20 && rune < 0x7F &&
+        !(cell & (TERM_REVERSE << 21)) &&
+        TermCellChar(dest[x - x1]) != TERM_CELL_CONT &&
+        (c->x + x + 1 >= term_width || TermCellChar(dest[x - x1 + 1]) != TERM_CELL_CONT))
+        dest[x - x1] = cell;
+      else {
+        fg = TermCellFg(cell);
+        bg = TermCellBg(cell);
+        attr = TermCellAttr(cell);
+        if (attr & TERM_REVERSE) {
+          fg = TermCellBg(cell);
+          bg = TermCellFg(cell);
+        }
+        HtkChr(c->x + x, c->y + y, rune, fg, bg,
+          attr & ~TERM_REVERSE);
       }
-      HtkChr(c->x + x, c->y + y, TermCellChar(cell), fg, bg,
-        attr & ~TERM_REVERSE);
     }
+  }
   if (t->exited)
     HtkStr(c->x, c->y + t->rows - 1, "[exited]", TERM_BRIGHT_WHITE, TERM_RED);
   if (HtkFocused(c) && !t->cursor_hidden && !t->exited) {

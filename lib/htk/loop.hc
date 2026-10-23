@@ -925,7 +925,8 @@ Bool HtkStep(I64 timeout)
   if (htk_dirty) {
     htk_dirty = FALSE;
     HtkRedraw;
-  }
+  } else
+    HtkTermRefresh;
   if (!TermPollEvent(&e, timeout))
     return FALSE;
   if (e.type == TERM_EVENT_RESIZE)
