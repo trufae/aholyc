@@ -28,8 +28,12 @@ class CHtkMarkdown
   I64 query_x, query_y, hit, hit_distance, link_a, link_b;
   I64 hit_x, hit_y, hit_cells, task_click_at, task_click_ms, task_click_revision;
   I64 attr, fg, bg, link_start, link_end, press_at;
+  I64 frame_at, frame_bias, frame_w, frame_h, frame_top, frame_left;
+  I64 frame_serial, frame_mode, frame_layout, frame_section;
+  I64 resize_at, resize_bias, resize_row, resize_distance;
   CStrs target, hit_target;
   Bool paint, query, follow, fit, dragging, hit_source, task_interactive, scrollbar_drag;
+  Bool framed, resizing, locate_resize;
   U0 (*linkfn)(HtkCtl *c, I64 a, I64 b, CStrs *target);
 };
 
@@ -170,6 +174,18 @@ U0 HtkMdText(CMarkdown *md, CStrs *text)
     if ((view->mode & HTK_MD_SOURCE) && !view->no_wrap && view->x + cells > view->width && rune != '\n') {
       HtkMdNewline(view);
     }
+    if (view->paint && view->frame_at < 0 && source && view->y >= c->top &&
+      view->x + cells > view->left) {
+      view->frame_at = at;
+      view->frame_bias = view->y - c->top;
+    }
+    if (view->locate_resize) {
+      distance = AbsI64(at - view->resize_at);
+      if (distance < view->resize_distance || source && distance == view->resize_distance) {
+        view->resize_distance = distance;
+        view->resize_row = view->y;
+      }
+    }
     HtkMdGuide(view, at);
     distance = AbsI64(at - caret);
     if (distance < view->distance || source && distance == view->distance) {
@@ -246,6 +262,8 @@ U0 HtkMdRender(CHtkMarkdown *view, Bool paint=FALSE)
   caret = HtkVimCaret(view->ctl, caret);
   #endif
   view->paint = paint;
+  if (paint) view->frame_at = -1;
+  if (view->locate_resize) view->resize_distance = I64_MAX;
   view->x = 0;
   view->y = 0;
   view->columns = 0;
@@ -283,6 +301,11 @@ U0 HtkMdRender(CHtkMarkdown *view, Bool paint=FALSE)
     view->caret_x = view->x;
     view->caret_y = view->y;
   }
+  if (view->locate_resize && view->resize_at == view->range_b) view->resize_row = view->y;
+  if (paint && view->frame_at < 0) {
+    view->frame_at = view->range_b;
+    view->frame_bias = MaxI64(0, view->y - view->ctl->top);
+  }
   if (view->query) {
     distance = AbsI64(view->y - view->query_y) * 1000000 + AbsI64(view->x - view->query_x);
     if (distance < view->hit_distance) {
@@ -310,8 +333,24 @@ U0 HtkMdDraw(HtkCtl *c)
   CHtkMarkdown *view = c->data(CHtkMarkdown *);
   I64 x, y, col, row;
   U8 *status;
+  Bool stable = view->framed && !view->follow && c->top == view->frame_top &&
+    view->left == view->frame_left && view->edit->serial == view->frame_serial &&
+    view->mode == view->frame_mode && view->layout == view->frame_layout &&
+    view->section_at == view->frame_section;
+  Bool resized = stable && (c->w != view->frame_w || c->h != view->frame_h);
 
+  if (!stable) view->resizing = FALSE;
+  if (resized && !view->resizing) {
+    view->resize_at = view->frame_at;
+    view->resize_bias = view->frame_bias;
+    view->resizing = TRUE;
+  }
+  // Keep the original source anchor throughout a resize gesture. Re-anchoring
+  // to each newly wrapped row would accumulate rounding drift at every step.
+  view->locate_resize = resized;
   HtkMdRender(view);
+  if (resized) c->top = MaxI64(0, view->resize_row - view->resize_bias);
+  view->locate_resize = FALSE;
   if (view->follow) {
     HtkScrollIntoView(c, view->caret_y, view->height);
     if (view->caret_x < view->left) view->left = view->caret_x;
@@ -362,6 +401,11 @@ U0 HtkMdDraw(HtkCtl *c)
   if (HtkFocused(c) && !view->edit->readonly && x >= 0 && x < view->viewport && y >= view->inset && y < c->h - !view->hide_status) {
     HtkShowCursor(c, c->x + view->gutter + x, c->y + y);
   }
+  view->frame_w = c->w; view->frame_h = c->h;
+  view->frame_top = c->top; view->frame_left = view->left;
+  view->frame_serial = view->edit->serial; view->frame_mode = view->mode;
+  view->frame_layout = view->layout; view->frame_section = view->section_at;
+  view->framed = TRUE;
 }
 
 U0 HtkMdChanged(HtkCtl *c)
@@ -518,6 +562,7 @@ Bool HtkMdScroll(HtkCtl *c, I64 rows)
   CHtkMarkdown *view = c->data;
 
   view->task_click_at = -1;
+  view->framed = FALSE;
   HtkMdRender(view);
   view->follow = FALSE;
   return HtkScrollRows(c, rows, view->rows, view->height);
@@ -537,11 +582,13 @@ U0 HtkMdMouse(HtkCtl *c)
     return;
   }
   if (c->mouse_button != TERM_MOUSE_LEFT) { view->task_click_at = -1; return; }
+  if (c->mouse_pressed && !c->mouse_motion) view->framed = FALSE;
   if (c->mouse_pressed && !c->mouse_motion)
     view->scrollbar_drag = c->scrollbar && c->mouse_x == c->w - 1 &&
       c->mouse_y >= view->inset && c->mouse_y < view->inset + view->height;
   if (view->scrollbar_drag) {
     view->task_click_at = -1;
+    view->framed = FALSE;
     HtkMdRender(view);
     view->follow = FALSE;
     HtkScrollbarMouse(c, c->y + c->mouse_y, view->rows, view->height, view->inset);
