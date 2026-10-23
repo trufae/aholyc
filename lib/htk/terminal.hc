@@ -5,6 +5,7 @@
 // control has focus. Not built with HTK_NODESK.
 
 #define HTK_TERM_PARAMS 16
+#define HTK_TERM_PUMP_BYTES 65536
 
 class CHtkTerm
 {
@@ -25,6 +26,7 @@ class CHtkTerm
   I64 utf8_len;
   Bool cursor_hidden;
   Bool exited;
+  Bool pending_output;     // batch filled; poll again promptly
 };
 
 // pty backend (pty_posix.hc / pty_windows.hc, included after this file)
@@ -357,10 +359,37 @@ U0 HtkTermCsi(CHtkTerm *t, I64 final)
     t->cy = t->rows - 1;
 }
 
+// C0 controls execute without re-entering the escape-sequence parser.
+U0 HtkTermControl(CHtkTerm *t, I64 byte)
+{
+  if (byte == '\n' || byte == 0x0B || byte == 0x0C)
+    HtkTermNewline(t);
+  else if (byte == '\r')
+    t->cx = 0;
+  else if (byte == 8) {
+    if (t->cx > 0)
+      t->cx--;
+  } else if (byte == '\t') {
+    t->cx = (t->cx / 8 + 1) * 8;
+    if (t->cx >= t->cols)
+      t->cx = t->cols - 1;
+  }
+}
+
 U0 HtkTermByte(CHtkTerm *t, I64 byte)
 {
   I64 rune, need;
 
+  if (t->state != 3 && byte < 0x20) {
+    t->utf8_len = 0;
+    if (byte == 0x1B)
+      t->state = 1;  // ESC restarts even an incomplete CSI
+    else if (byte == 0x18 || byte == 0x1A)
+      t->state = 0;  // CAN/SUB cancel the pending sequence
+    else
+      HtkTermControl(t, byte);
+    return;
+  }
   if (t->state == 1) {  // after ESC
     t->state = 0;
     if (byte == '[') {
@@ -403,7 +432,11 @@ U0 HtkTermByte(CHtkTerm *t, I64 byte)
     if (byte >= '0' && byte <= '9') {
       if (t->nparams == 0)
         t->nparams = 1;
-      t->params[t->nparams - 1] = t->params[t->nparams - 1] * 10 + byte - '0';
+      // Saturate oversized parameters before multiplication can overflow.
+      rune = t->params[t->nparams - 1] * 10 + byte - '0';
+      if (rune > 65535)
+        rune = 65535;
+      t->params[t->nparams - 1] = rune;
     } else if (byte == ';') {
       if (t->nparams == 0)
         t->nparams = 1;
@@ -414,8 +447,7 @@ U0 HtkTermByte(CHtkTerm *t, I64 byte)
     else if (byte >= 0x40 && byte <= 0x7E) {
       t->state = 0;
       HtkTermCsi(t, byte);
-    } else if (byte < 0x20)
-      HtkTermByte(t, byte);  // C0 controls act even inside a sequence
+    }
     return;
   }
   if (t->state == 3) {  // OSC: title and friends, ended by BEL or ESC \\
@@ -445,19 +477,6 @@ U0 HtkTermByte(CHtkTerm *t, I64 byte)
   if (byte >= 0xC0) {
     t->utf8[0] = byte;
     t->utf8_len = 1;
-  } else if (byte == 0x1B)
-    t->state = 1;
-  else if (byte == '\n' || byte == 0x0B || byte == 0x0C)
-    HtkTermNewline(t);
-  else if (byte == '\r')
-    t->cx = 0;
-  else if (byte == 8) {
-    if (t->cx > 0)
-      t->cx--;
-  } else if (byte == '\t') {
-    t->cx = (t->cx / 8 + 1) * 8;
-    if (t->cx >= t->cols)
-      t->cx = t->cols - 1;
   } else if (byte >= 0x20 && byte < 0x7F)
     HtkTermPut(t, byte);
 }
@@ -466,11 +485,12 @@ U0 HtkTermByte(CHtkTerm *t, I64 byte)
 // HtkPtySpawn/Read/Write/Resize/Alive/Close come from pty_posix.hc or
 // pty_windows.hc (selected in htk.hc before this file).
 
-// Drain pending output; TRUE when the screen changed.
+// Read a bounded batch so a continuously writing child cannot starve input
+// or the other windows. Pending output is picked up by the next poll tick.
 Bool HtkTermPump(CHtkTerm *t)
 {
   U8 buffer[4096];
-  I64 n = 1, i;
+  I64 n = 1, total = 0, capacity, i;
   Bool changed = FALSE;
 
   if (t->exited)
@@ -478,14 +498,19 @@ Bool HtkTermPump(CHtkTerm *t)
   // Keep the read condition in the loop header.  Apart from being clearer,
   // this avoids emitting an unreachable constant-true tail on the LLVM
   // backend (which could become a self-branch in the generated executable).
-  while (n > 0) {
-    n = HtkPtyRead(t, buffer, sizeof(buffer));
+  while (n > 0 && total < HTK_TERM_PUMP_BYTES) {
+    capacity = HTK_TERM_PUMP_BYTES - total;
+    if (capacity > sizeof(buffer))
+      capacity = sizeof(buffer);
+    n = HtkPtyRead(t, buffer, capacity);
     if (n > 0) {
       for (i = 0; i < n; i++)
         HtkTermByte(t, buffer[i]);
+      total += n;
       changed = TRUE;
     }
   }
+  t->pending_output = total == HTK_TERM_PUMP_BYTES;
   if (!HtkPtyAlive(t)) {
     t->exited = TRUE;
     changed = TRUE;
@@ -517,6 +542,7 @@ U0 HtkTermTick(I64 a, I64 b)
 {
   HtkCtl *c = a;
   CHtkTerm *t;
+  I64 delay = 20;
 
   // Window close releases the pty before its one-shot poll hook is due.
   // That last queued tick must become a no-op instead of dereferencing the
@@ -531,8 +557,10 @@ U0 HtkTermTick(I64 a, I64 b)
   // making the one-shot timer ownership explicit, this avoids a dead block
   // after `return` in the LLVM output (some builds could spin in that block
   // when a PTY exits).
+  if (t->pending_output)
+    delay = 1;  // yield to input without throttling a large output backlog
   if (!t->exited)
-    HtkHookAdd(20, 0, &HtkTermTick, c, 0);  // re-arm while the shell lives
+    HtkHookAdd(delay, 0, &HtkTermTick, c, 0);
 }
 
 HtkCtl *HtkTerminalNew(I64 cols=80, I64 rows=24)
