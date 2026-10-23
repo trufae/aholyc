@@ -104,7 +104,7 @@ U0 HtkThemePreset(I64 index)
       htk_theme.bg = TermColorRgb(24, 26, 24);
       htk_theme.field_bg = TermColorRgb(18, 20, 18);
       htk_theme.menu_bg = TermColorRgb(40, 44, 41);
-      htk_theme.tool_bg = TermColorRgb(56, 63, 58);
+      htk_theme.tool_bg = TermColorRgb(64, 68, 64);
       htk_theme.tool_fg = TERM_BRIGHT_WHITE;
       htk_theme.bar_bg = htk_theme.menu_bg;
       htk_theme.btn_bg = htk_theme.tool_bg;
@@ -467,10 +467,26 @@ U0 HtkSettingsReset(HtkCtl *button)
 
 // Theme selection is immediately visible.  This also makes the combobox a
 // useful preview rather than requiring users to infer that Apply is needed.
+U0 HtkSettingsSyncColors()
+{
+  htk_desk_custom = -1; htk_bar_custom = -1; htk_frame_custom = -1;
+  if (htk_theme.desk_bg >= 16) htk_desk_custom = htk_theme.desk_bg;
+  if (htk_theme.bar_bg >= 16) htk_bar_custom = htk_theme.bar_bg;
+  if (htk_theme.frame >= 16) htk_frame_custom = htk_theme.frame;
+  htk_set_desk->value = -1; htk_set_bar_color->value = -1; htk_set_frame_color->value = -1;
+  if (htk_theme.desk_bg < 16) htk_set_desk->value = htk_theme.desk_bg;
+  if (htk_theme.bar_bg < 16) htk_set_bar_color->value = htk_theme.bar_bg;
+  if (htk_theme.frame < 16) htk_set_frame_color->value = htk_theme.frame;
+}
+
 U0 HtkSettingsTheme(HtkCtl *combo)
 {
-  if (combo->value >= 0 && combo->value < HTK_THEME_COUNT)
+  if (combo->value >= 0 && combo->value < HTK_THEME_COUNT) {
     HtkThemePreset(combo->value);
+    // Apply/Save must use the newly selected palette, rather than restoring
+    // stale color choices from the previous theme's controls.
+    HtkSettingsSyncColors;
+  }
 }
 
 U0 HtkSettingsShadow(HtkCtl *button)
@@ -565,15 +581,7 @@ U0 HtkSettingsSync()
   if (!htk_set_theme)
     return;
   htk_set_theme->value = htk_desk_theme;
-  htk_set_desk->value = -1;
-  htk_set_bar_color->value = -1;
-  htk_set_frame_color->value = -1;
-  if (htk_theme.desk_bg < 16)
-    htk_set_desk->value = htk_theme.desk_bg;
-  if (htk_theme.bar_bg < 16)
-    htk_set_bar_color->value = htk_theme.bar_bg;
-  if (htk_theme.frame < 16)
-    htk_set_frame_color->value = htk_theme.frame;
+  HtkSettingsSyncColors;
   htk_set_bar->value = htk_bar_always;
   htk_set_clock->value = htk_bar_clock;
   htk_set_dim->value = htk_dim_inactive;

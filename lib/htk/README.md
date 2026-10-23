@@ -236,7 +236,8 @@ and ASCII glyphs, including window borders, controls, and Unicode fallbacks;
 document and clipboard bytes remain unchanged. `menu_bg/menu_fg` and
 `tool_bg/tool_fg` color the separate window menubar and toolbar strips.
 Toolbar strips span the frame interior; nested labels and buttons inherit
-their toolbar surface.
+their toolbar surface. Modern uses charcoal, neutral gray and sage colors;
+selecting a preset also updates Settings' color controls before Apply/Save.
 
 ```holyc
 htk_theme.frame = TERM_BRIGHT_YELLOW;
