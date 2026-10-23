@@ -64,7 +64,7 @@ viewport. Scrolling the outline moves its list without selecting a heading;
 click a heading to navigate to it.
 The editor's right-hand scrollbar shows the visible range; click its track
 or drag it to scroll without moving the caret. The toolbar fills the frame's
-inside width.
+inside width, and rendered unordered lists use UTF-8 bullets.
 
 Some terminals send Ctrl+I as Tab and cannot distinguish shifted control
 letters. Use the corresponding menu or button there. Copies always populate

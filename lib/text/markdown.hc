@@ -807,7 +807,7 @@ U0 MarkdownRenderStrs(CMarkdown *md, CStrs *input)
   CMdAlignment aligned;
   CStrs line, word;
   U8 *next_line;
-  U8 *word_start, *word_end;
+  U8 *word_start, *word_end, *list_marker = NULL, *marker;
   Bool comment;
 
   md->end = input->b;
@@ -850,6 +850,11 @@ U0 MarkdownRenderStrs(CMarkdown *md, CStrs *input)
         goto next;
       }
       next_line = MdNextLine(input, b, &line);
+      list_marker = NULL;
+      marker = line.a;
+      while (marker < line.b && *marker == ' ') marker++;
+      if (line.b - marker > 1 && (*marker == '-' || *marker == '+' || *marker == '*') &&
+        (marker[1] == ' ' || marker[1] == '\t')) list_marker = marker;
       if (MdPageBreak(&line)) {
         MdStyle(md, MD_STYLE_PAGE_BREAK, 1);
         b = next_line;
@@ -927,6 +932,11 @@ U0 MarkdownRenderStrs(CMarkdown *md, CStrs *input)
         MdCodeBlockStart(md);
       else
         MdTextS(md, "  ");
+    }
+    if (!md->codeblock && md->utf8 && b == list_marker) {
+      MdTextS(md, "•");
+      md->col++; b++;
+      goto next;
     }
     if (!md->codeblock) {
       n = MdRich(md, b);

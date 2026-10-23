@@ -552,7 +552,7 @@ I64 HtkGlyph(I64 rune)
   if (rune == HTK_R_MAX || rune == HTK_R_RESTORE) return 'O';
   if (rune == HTK_R_RIGHT) return '>';
   if (rune == HTK_R_DOWN || rune == HTK_R_OPEN) return 'v';
-  if (rune == HTK_R_DOT) return '*';
+  if (rune == HTK_R_DOT || rune == 0x2022) return '*';
   if (rune == 0xB6) return 'S';
   if (rune == 0x270E) return 'E';
   if (rune == 0x263A) return ':';
