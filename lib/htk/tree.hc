@@ -7,6 +7,7 @@ HtkCtl *HtkTreeNew()
 
   c->focusable = TRUE;
   c->expand = TRUE;
+  c->scrollbar = TRUE;
   return c;
 }
 
@@ -86,8 +87,10 @@ U0 HtkTreeDraw(HtkCtl *c)
   I64 sel = HtkTreeIndexOf(c, c->link);
   HtkCtl *node;
 
-  if (sel >= 0)
+  if (sel >= 0 && !c->scroll_hold)
     HtkScrollIntoView(c, sel, c->h);
+  c->top = MaxI64(0, MinI64(MaxI64(0, total - c->h), c->top));
+  c->high = total;
   for (i = c->top; i < total && i - c->top < c->h; i++) {
     probe = 0;
     depth = 0;
@@ -110,6 +113,7 @@ U0 HtkTreeDraw(HtkCtl *c)
     }
     HtkStr(c->x + depth * 2 + 2, c->y + i - c->top, node->text, fg, bg);
   }
+  if (c->scrollbar) HtkScrollbarDraw(c, total, c->h);
 }
 
 U0 HtkTreeSelect(HtkCtl *c, I64 index)
@@ -123,7 +127,13 @@ U0 HtkTreeSelect(HtkCtl *c, I64 index)
   if (index >= total)
     index = total - 1;
   node = HtkTreeWalk(c, 0, index, &probe, NULL);
-  if (!node || node == c->link)
+  if (!node)
+    return;
+  if (c->scroll_hold) {
+    c->scroll_hold = FALSE;
+    htk_dirty = TRUE;
+  }
+  if (node == c->link)
     return;
   c->link = node;
   HtkFire(c);
@@ -140,6 +150,7 @@ U0 HtkTreeClick(HtkCtl *c, I64 index)
   node = HtkTreeWalk(c, 0, index, &probe, NULL);
   if (!node)
     return;
+  c->scroll_hold = FALSE;
   if (c->link == node) HtkFire(c);
   else HtkTreeSelect(c, index);
   if (node->kids) {
@@ -157,15 +168,24 @@ Bool HtkTreeKey(HtkCtl *c, CTermEvent *e)
   else if (e->key == TERM_KEY_DOWN)
     HtkTreeSelect(c, sel + 1);
   else if (e->key == TERM_KEY_RIGHT && c->link) {
+    c->scroll_hold = FALSE;
     c->link->value = TRUE;
     htk_dirty = TRUE;
   } else if (e->key == TERM_KEY_LEFT && c->link) {
+    c->scroll_hold = FALSE;
     c->link->value = FALSE;
     htk_dirty = TRUE;
   } else if (e->key == TERM_KEY_ENTER && c->link) {
+    c->scroll_hold = FALSE;
+    htk_dirty = TRUE;
     if (c->submit) c->submit(c);
     else { c->link->value = !c->link->value; HtkFire(c); }
   } else
     return FALSE;
   return TRUE;
+}
+
+Bool HtkTreeWheel(HtkCtl *c, I64 rows)
+{
+  return HtkScrollRows(c, rows, HtkTreeCount(c), c->h);
 }

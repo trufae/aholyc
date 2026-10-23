@@ -48,7 +48,7 @@ for b in $backends; do
 		head -5 "tests/out/term-cursor-$b.err"
 		fail=1
 	fi
-	for name in mouse keys editor terminal; do
+	for name in mouse keys editor terminal filepick; do
 		if ./aholyc -b "$b" "tests/htk_$name.HC" -o "tests/out/htk-$name-$b" \
 			2>"tests/out/htk-$name-$b.err" && "tests/out/htk-$name-$b"; then
 			echo "ok   $b/htk-$name"

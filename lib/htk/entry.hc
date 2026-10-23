@@ -362,6 +362,7 @@ U0 HtkMultilineDraw(HtkCtl *c)
   }
   if (!c->scroll_hold)
     HtkScrollIntoView(c, crow, c->h);
+  c->top = MaxI64(0, MinI64(MaxI64(0, total - MaxI64(1, c->h)), c->top));
   HtkRect(c->x, c->y, c->w, c->h, ' ', HTK_C_FIELD_FG, HTK_C_FIELD_BG);
   i = 0;
   row = 0;
@@ -417,19 +418,7 @@ U0 HtkMultilineDraw(HtkCtl *c)
     if (c->text[i] && row - c->top >= c->h)
       break;
   }
-  if (c->scrollbar && total > c->h) {
-    I64 span = total - c->h;
-    I64 thumb_h = c->h * c->h / total;
-    I64 thumb;
-    if (thumb_h < 1)
-      thumb_h = 1;
-    // Map 0..span onto 0..(height-thumb), so the last row is exactly flush
-    // with the bottom regardless of integer rounding.
-    thumb = c->top * (c->h - thumb_h) / span;
-    for (i = 0; i < thumb_h; i++)
-      HtkChr(c->x + c->w - 1, c->y + thumb + i, HTK_R_BLOCK,
-        HTK_C_DIM, HTK_C_FIELD_BG);
-  }
+  if (c->scrollbar) HtkScrollbarDraw(c, total, c->h);
   c->high = total;  // visual row count, used for scrollbar mouse dragging
   if (HtkFocused(c) && !c->disabled && crow >= c->top &&
     crow < c->top + c->h) {
@@ -442,17 +431,7 @@ U0 HtkMultilineDraw(HtkCtl *c)
 
 U0 HtkMultilineScrollMouse(HtkCtl *c, I64 y)
 {
-  I64 span = c->high - c->h, at = y - c->y;
-
-  if (span < 1 || c->h < 2)
-    return;
-  if (at < 0)
-    at = 0;
-  if (at >= c->h)
-    at = c->h - 1;
-  c->top = at * span / (c->h - 1);
-  c->scroll_hold = TRUE;
-  htk_dirty = TRUE;
+  HtkScrollbarMouse(c, y, c->high, c->h);
 }
 
 Bool HtkMultilineKey(HtkCtl *c, CTermEvent *e)
@@ -460,7 +439,10 @@ Bool HtkMultilineKey(HtkCtl *c, CTermEvent *e)
   I64 key = e->key;
   I64 start, up;
 
-  c->scroll_hold = FALSE;
+  if (c->scroll_hold) {
+    c->scroll_hold = FALSE;
+    htk_dirty = TRUE;
+  }
   #ifdef UI_HTK_VIMODE
   if (HtkTextVimKey(c, e)) return TRUE;
   #endif
@@ -490,4 +472,9 @@ Bool HtkMultilineKey(HtkCtl *c, CTermEvent *e)
     return HtkEntryKey(c, e);
   htk_dirty = TRUE;
   return TRUE;
+}
+
+Bool HtkMultilineWheel(HtkCtl *c, I64 rows)
+{
+  return HtkScrollRows(c, rows, c->high, c->h);
 }

@@ -79,6 +79,7 @@ U0 HtkFileFill(CHtkFilePick *pick, U8 *path)
   pick->tree->kids = NULL;
   pick->tree->link = NULL;
   pick->tree->top = 0;
+  pick->tree->scroll_hold = FALSE;
   Free(pick->directory);
   pick->directory = owned;
   HtkSetText(pick->entry, owned);

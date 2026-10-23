@@ -29,7 +29,7 @@ class CHtkMarkdown
   I64 hit_x, hit_y, hit_cells, task_click_at, task_click_ms, task_click_revision;
   I64 attr, fg, bg, link_start, link_end, press_at;
   CStrs target, hit_target;
-  Bool paint, query, follow, fit, dragging, hit_source, task_interactive;
+  Bool paint, query, follow, fit, dragging, hit_source, task_interactive, scrollbar_drag;
   U0 (*linkfn)(HtkCtl *c, I64 a, I64 b, CStrs *target);
 };
 
@@ -252,7 +252,7 @@ U0 HtkMdRender(CHtkMarkdown *view, Bool paint=FALSE)
   view->gutter = 6 * view->line_numbers + 3 * view->ruler_left;
   view->inset = view->ruler_top;
   view->height = MaxI64(1, view->ctl->h - view->inset - !view->hide_status);
-  view->viewport = MaxI64(1, view->ctl->w - view->gutter);
+  view->viewport = MaxI64(1, view->ctl->w - view->gutter - view->ctl->scrollbar);
   view->width = view->viewport;
   if (view->column_width) view->width = MaxI64(8, MinI64(view->width, view->column_width));
   view->page_row = 0; view->page_number = 0;
@@ -318,7 +318,7 @@ U0 HtkMdDraw(HtkCtl *c)
     if (view->caret_x >= view->left + view->viewport) view->left = view->caret_x - view->viewport + 1;
     view->follow = FALSE;
   }
-  c->top = MaxI64(0, MinI64(c->top, view->rows - 1));
+  c->top = MaxI64(0, MinI64(c->top, MaxI64(0, view->rows - view->height)));
   view->left = MaxI64(0, MinI64(view->left, MaxI64(0, view->columns - view->viewport + 1)));
   HtkRect(c->x, c->y, c->w, c->h, ' ', HTK_C_FIELD_FG, HTK_C_FIELD_BG);
   // Guides must extend through empty rows, including a trailing empty line.
@@ -340,6 +340,7 @@ U0 HtkMdDraw(HtkCtl *c)
   }
   #endif
   HtkMdGuide(view, view->range_b);
+  if (c->scrollbar) HtkScrollbarDraw(c, view->rows, view->height, view->inset);
   if (view->ruler_top) {
     for (x = 0; x < view->viewport; x++) {
       col = x + view->left + 1;
@@ -512,6 +513,16 @@ Bool HtkMdKey(HtkCtl *c, CTermEvent *e)
   return TRUE;
 }
 
+Bool HtkMdScroll(HtkCtl *c, I64 rows)
+{
+  CHtkMarkdown *view = c->data;
+
+  view->task_click_at = -1;
+  HtkMdRender(view);
+  view->follow = FALSE;
+  return HtkScrollRows(c, rows, view->rows, view->height);
+}
+
 U0 HtkMdMouse(HtkCtl *c)
 {
   CHtkMarkdown *view = c->data(CHtkMarkdown *);
@@ -519,13 +530,24 @@ U0 HtkMdMouse(HtkCtl *c)
   I64 at, task = -1, now;
 
   if (c->mouse_button == TERM_MOUSE_WHEEL_UP || c->mouse_button == TERM_MOUSE_WHEEL_DOWN) {
-    view->task_click_at = -1;
-    at = 3;
-    if (c->mouse_button == TERM_MOUSE_WHEEL_UP) at = -3;
-    c->top = MaxI64(0, c->top + at);
+    if (!c->mouse_pressed || c->mouse_motion) return;
+    at = 1;
+    if (c->mouse_button == TERM_MOUSE_WHEEL_UP) at = -1;
+    c->mouse_handled = HtkScrollCtl(c, at);
     return;
   }
   if (c->mouse_button != TERM_MOUSE_LEFT) { view->task_click_at = -1; return; }
+  if (c->mouse_pressed && !c->mouse_motion)
+    view->scrollbar_drag = c->scrollbar && c->mouse_x == c->w - 1 &&
+      c->mouse_y >= view->inset && c->mouse_y < view->inset + view->height;
+  if (view->scrollbar_drag) {
+    view->task_click_at = -1;
+    HtkMdRender(view);
+    view->follow = FALSE;
+    HtkScrollbarMouse(c, c->y + c->mouse_y, view->rows, view->height, view->inset);
+    if (!c->mouse_pressed && !c->mouse_motion) view->scrollbar_drag = FALSE;
+    return;
+  }
   edit->typing = FALSE;
   if (!view->hide_status && c->mouse_y == c->h - 1) {
     view->task_click_at = -1;
@@ -627,6 +649,7 @@ HtkCtl *HtkMarkdownNew(CEdit *edit)
   c->focusable = TRUE;
   c->cursor_shape = TERM_CURSOR_BAR;
   c->keyfn = &HtkMdKey;
+  c->scrollfn = &HtkMdScroll;
   c->changed = &HtkMdMouse;
   c->destroy = &HtkMdDestroy;
   #ifdef UI_HTK_VIMODE

@@ -10,6 +10,7 @@ HtkCtl *HtkTableNew(I64 cellfn, I64 data)
   c->value = -1;
   c->focusable = TRUE;
   c->expand = TRUE;
+  c->scrollbar = TRUE;
   return c;
 }
 
@@ -46,7 +47,7 @@ U0 HtkTableDraw(HtkCtl *c)
 
   if (!ncols)
     return;
-  span = c->w / ncols;
+  span = (c->w - c->scrollbar) / ncols;
   if (span < 3)
     span = 3;
   // Header.
@@ -59,8 +60,9 @@ U0 HtkTableDraw(HtkCtl *c)
     k = k->sib;
   }
   // Keep the selection visible.
-  if (c->value >= 0)
+  if (c->value >= 0 && !c->scroll_hold)
     HtkScrollIntoView(c, c->value, c->h - 1);
+  c->top = MaxI64(0, MinI64(MaxI64(0, c->high - MaxI64(1, c->h - 1)), c->top));
   for (row = c->top; row < c->high && row - c->top < c->h - 1; row++) {
     fg = HTK_C_FG;
     bg = HTK_C_BG;
@@ -74,6 +76,7 @@ U0 HtkTableDraw(HtkCtl *c)
       HtkStr(c->x + col * span, c->y + 1 + row - c->top,
         HtkTableCell(c, row, col), fg, bg);
   }
+  if (c->scrollbar) HtkScrollbarDraw(c, c->high, c->h - 1, 1);
 }
 
 U0 HtkTableSelect(HtkCtl *c, I64 row)
@@ -82,6 +85,10 @@ U0 HtkTableSelect(HtkCtl *c, I64 row)
     row = 0;
   if (row >= c->high)
     row = c->high - 1;
+  if (c->scroll_hold) {
+    c->scroll_hold = FALSE;
+    htk_dirty = TRUE;
+  }
   if (row == c->value)
     return;
   c->value = row;
@@ -111,4 +118,9 @@ Bool HtkTableKey(HtkCtl *c, CTermEvent *e)
   else
     return FALSE;
   return TRUE;
+}
+
+Bool HtkTableWheel(HtkCtl *c, I64 rows)
+{
+  return HtkScrollRows(c, rows, c->high, c->h - 1);
 }

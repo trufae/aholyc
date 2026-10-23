@@ -58,6 +58,13 @@ source line/column, editing mode, and an asterisk for unsaved changes.
 | F10 / Alt+M | Window menubar; arrows navigate, Enter activates, Esc dismisses |
 | Alt+A / Alt+F10 | Desktop App menu |
 
+Each mouse-wheel report scrolls one display row, including wrapped lines.
+Scrolling keeps the caret and selection in place and stops at the last full
+viewport. Scrolling the outline moves its list without selecting a heading;
+click a heading to navigate to it.
+The editor's right-hand scrollbar shows the visible range; click its track
+or drag it to scroll without moving the caret.
+
 Some terminals send Ctrl+I as Tab and cannot distinguish shifted control
 letters. Use the corresponding menu or button there. Copies always populate
 HTK's shared, length-bounded clipboard and also emit OSC 52 in the application;
