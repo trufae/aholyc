@@ -43,7 +43,7 @@ static bool is_c_varargs(Obj *fn) {
 }
 
 /* user `extern` function without an explicit assembler name: declared under
- * an HC_EX() alias bound to the real symbol so its I64-shaped prototype
+ * an HC_EX() alias bound to the real symbol so its generated prototype
  * never clashes with libc headers the runtime already includes */
 static bool is_user_import(Obj *fn) {
 	return fn->is_func && fn->is_extern && !fn->from_prelude && !fn->link_name;
@@ -63,12 +63,8 @@ static const char *scalar_ctype(Type *ty) {
 	return "hc_i64"; /* I64/U64/pointers/functions */
 }
 
-static const char *value_ctype(Type *ty) {
-	return ty->kind == TY_F64? "hc_f64": "hc_i64";
-}
-
-static const char *extern_ctype(Type *ty) {
-	return is_ptr (ty)? "void *": value_ctype (ty);
+static const char *abi_ctype(Type *ty) {
+	return is_ptr (ty)? "void *": scalar_ctype (ty);
 }
 
 static bool signed_i1(Type *ty) {
@@ -150,7 +146,7 @@ static void emit_fnum(CGen *cg, double d) {
 	sb_printf (cg->out, "%s", buf);
 }
 
-static void emit_rt_arg(CGen *cg, Node *a, Type *pty) {
+static void emit_abi_arg(CGen *cg, Node *a, Type *pty) {
 	if (!is_ptr (pty)) {
 		emit_val (cg, a);
 	} else if (a->kind == ND_STR) {
@@ -158,9 +154,28 @@ static void emit_rt_arg(CGen *cg, Node *a, Type *pty) {
 	} else if (a->kind == ND_ADDR && a->lhs->kind == ND_VAR) {
 		sb_printf (cg->out, "%s%s", is_agg (a->lhs->ty)? "": "&", objname (cg, a->lhs->var));
 	} else {
-		sb_printf (cg->out, "(void *)(intptr_t)");
+		sb_printf (cg->out, "(void *)(uintptr_t)");
 		emit_val (cg, a);
 	}
+}
+
+static void emit_c_vararg(CGen *cg, Node *a) {
+	Type *ty = a->ty;
+	if (is_ptr (ty)) {
+		emit_abi_arg (cg, a, ty);
+		return;
+	}
+	if (ty->kind == TY_INT && ty->size < 8) {
+		const char *ct = ty->size < 4? "int32_t": scalar_ctype (ty);
+		sb_printf (cg->out, "(%s)", ct);
+	}
+	emit_val (cg, a);
+}
+
+static Type *indirect_func_type(Node *n) {
+	Type *ty = n->lhs? n->lhs->ty: NULL;
+	return ty && ty->kind == TY_PTR && ty->base &&
+		ty->base->kind == TY_FUNC? ty->base: NULL;
 }
 
 static void emit_call(CGen *cg, Node *n, bool value) {
@@ -169,8 +184,8 @@ static void emit_call(CGen *cg, Node *n, bool value) {
 	if (isvoid) {
 		sb_printf (cg->out, "(");
 	}
-	if (value && fn && fn->is_extern && is_ptr (fn->ty->base)) {
-		sb_printf (cg->out, "(hc_i64)(intptr_t)");
+	if (value && fn && is_ptr (fn->ty->base)) {
+		sb_printf (cg->out, "(hc_i64)(uintptr_t)");
 	}
 	if (fn) {
 		sb_printf (cg->out, "%s(", objname (cg, fn));
@@ -179,11 +194,7 @@ static void emit_call(CGen *cg, Node *n, bool value) {
 		int i = 0;
 		for (; a && i < n->nfixed; a = a->next, i++) {
 			sb_printf (cg->out, "%s", i? ", ": "");
-			if (fn->is_extern) {
-				emit_rt_arg (cg, a, p->ty);
-			} else {
-				emit_val (cg, a);
-			}
+			emit_abi_arg (cg, a, p->ty);
 			if (p) {
 				p = p->next;
 			}
@@ -195,7 +206,7 @@ static void emit_call(CGen *cg, Node *n, bool value) {
 				if (i) {
 					sb_printf (cg->out, ", ");
 				}
-				emit_val (cg, e);
+				emit_c_vararg (cg, e);
 			}
 		} else if (fn->is_variadic) {
 			/* count extras */
@@ -207,9 +218,6 @@ static void emit_call(CGen *cg, Node *n, bool value) {
 				sb_printf (cg->out, ", ");
 			}
 			sb_printf (cg->out, "%d, ", extras);
-			if (!fn->is_extern) {
-				sb_printf (cg->out, "(hc_i64)(intptr_t)");
-			}
 			if (extras == 0) {
 				sb_printf (cg->out, "(hc_i64 *)0");
 			} else {
@@ -231,37 +239,53 @@ static void emit_call(CGen *cg, Node *n, bool value) {
 		}
 		sb_printf (cg->out, ")");
 	} else {
-		Type *fnty = n->lhs->ty->kind == TY_PTR? n->lhs->ty->base: NULL;
-		bool holyva = fnty && fnty->kind == TY_FUNC &&
-			fnty->is_holyc_variadic;
-		bool retf = n->ty && n->ty->kind == TY_F64;
-		sb_printf (cg->out, "((%s(*)(", retf? "hc_f64": "hc_i64");
-		bool first = true;
-		Node *extra = n->args;
-		int fixed = 0;
-		for (; extra && (!holyva || fixed < n->nfixed);
-				extra = extra->next, fixed++) {
-			sb_printf (cg->out, "%s", first? "": ", ");
-			first = false;
-			sb_printf (cg->out, "%s", value_ctype (extra->ty));
+		Type *fnty = indirect_func_type (n);
+		bool holyva = fnty && fnty->is_holyc_variadic;
+		Type *ret = fnty && fnty->base? fnty->base: n->ty;
+		bool retf = ret && ret->kind == TY_F64;
+		if (value && is_ptr (ret)) {
+			sb_printf (cg->out, "(hc_i64)(uintptr_t)");
 		}
-		if (holyva) {
-			sb_printf (cg->out, "%shc_i64, hc_i64", first? "": ", ");
-			first = false;
+		sb_printf (cg->out, "((%s(*)(", retf? "hc_f64":
+			ret && ret->kind == TY_VOID? "void": abi_ctype (ret));
+		bool first = true;
+		if (fnty) {
+			for (int i = 0; i < fnty->nparams; i++) {
+				sb_printf (cg->out, "%s%s", first? "": ", ",
+					abi_ctype (fnty->params[i]));
+				first = false;
+			}
+			if (holyva) {
+				sb_printf (cg->out, "%shc_i64, void *", first? "": ", ");
+				first = false;
+			} else if (fnty->is_variadic) {
+				sb_printf (cg->out, "%s...", first? "": ", ");
+				first = false;
+			}
+		} else {
+			for (Node *e = n->args; e; e = e->next) {
+				sb_printf (cg->out, "%s%s", first? "": ", ",
+					abi_ctype (e->ty));
+				first = false;
+			}
 		}
 		if (first) {
 			sb_printf (cg->out, "void");
 		}
-		sb_printf (cg->out, "))(intptr_t)");
+		sb_printf (cg->out, "))(uintptr_t)");
 		emit_val (cg, n->lhs);
 		sb_printf (cg->out, ")(");
 		first = true;
+		int i = 0;
 		Node *e = n->args;
-		for (fixed = 0; e && (!holyva || fixed < n->nfixed);
-				e = e->next, fixed++) {
+		for (; e && (!holyva || i < n->nfixed); e = e->next, i++) {
 			sb_printf (cg->out, "%s", first? "": ", ");
 			first = false;
-			emit_val (cg, e);
+			if (fnty && i >= fnty->nparams) {
+				emit_c_vararg (cg, e);
+			} else {
+				emit_abi_arg (cg, e, fnty? fnty->params[i]: e->ty);
+			}
 		}
 		if (holyva) {
 			int extras = 0;
@@ -272,7 +296,7 @@ static void emit_call(CGen *cg, Node *n, bool value) {
 			if (!extras) {
 				sb_printf (cg->out, "0");
 			} else {
-				sb_printf (cg->out, "(hc_i64)(intptr_t)(hc_i64[]){");
+				sb_printf (cg->out, "(hc_i64[]){");
 				for (Node *x = e; x; x = x->next) {
 					if (x != e) {
 						sb_printf (cg->out, ", ");
@@ -302,7 +326,7 @@ static void emit_load(CGen *cg, Node *n) {
 		return;
 	}
 	if (ty->kind == TY_F64) {
-		sb_printf (cg->out, "*(hc_f64 *)(intptr_t)");
+		sb_printf (cg->out, "*(hc_f64 *)(uintptr_t)");
 		emit_addr (cg, n);
 		return;
 	}
@@ -311,7 +335,7 @@ static void emit_load(CGen *cg, Node *n) {
 	} else if (ty->kind == TY_INT && ty->size < 8) {
 		sb_printf (cg->out, "(hc_i64)");
 	}
-	sb_printf (cg->out, "*(%s *)(intptr_t)", scalar_ctype (ty));
+	sb_printf (cg->out, "*(%s *)(uintptr_t)", scalar_ctype (ty));
 	emit_addr (cg, n);
 	if (ty->bits) {
 		emit_bits_end (cg, ty);
@@ -393,14 +417,16 @@ static void emit_val(CGen *cg, Node *n) {
 		emit_fnum (cg, n->fval);
 		break;
 	case ND_STR:
-		sb_printf (cg->out, "(hc_i64)(intptr_t)hcs%d", n->str_id);
+		sb_printf (cg->out, "(hc_i64)(uintptr_t)hcs%d", n->str_id);
 		break;
 	case ND_VAR: {
 		Obj *v = n->var;
 		if (is_fs_obj (v)) {
-			sb_printf (cg->out, "(hc_i64)(intptr_t)__hc_fs()");
+			sb_printf (cg->out, "(hc_i64)(uintptr_t)__hc_fs()");
 		} else if (is_agg (v->ty)) {
-			sb_printf (cg->out, "(hc_i64)(intptr_t)%s", objname (cg, v));
+			sb_printf (cg->out, "(hc_i64)(uintptr_t)%s", objname (cg, v));
+		} else if (v->is_extern && is_ptr (v->ty)) {
+			sb_printf (cg->out, "(hc_i64)(uintptr_t)%s", objname (cg, v));
 		} else if (v->ty->kind == TY_F64) {
 			sb_printf (cg->out, "%s", objname (cg, v));
 		} else if (v->ty->bits) {
@@ -415,7 +441,7 @@ static void emit_val(CGen *cg, Node *n) {
 		break;
 	}
 	case ND_FUNCNAME:
-		sb_printf (cg->out, "(hc_i64)(intptr_t)&%s", objname (cg, n->func));
+		sb_printf (cg->out, "(hc_i64)(uintptr_t)&%s", objname (cg, n->func));
 		break;
 	case ND_DEREF:
 		if (is_agg (n->ty)) {
@@ -433,11 +459,18 @@ static void emit_val(CGen *cg, Node *n) {
 	case ND_ASSIGN: {
 		Node *l = n->lhs;
 		if (l->ty && l->ty->kind == TY_CLASS) {
-			sb_printf (cg->out, "(hc_i64)(intptr_t)memcpy((void *)(intptr_t)");
+			sb_printf (cg->out, "(hc_i64)(uintptr_t)memcpy((void *)(uintptr_t)");
 			emit_addr (cg, l);
-			sb_printf (cg->out, ", (void *)(intptr_t)");
+			sb_printf (cg->out, ", (void *)(uintptr_t)");
 			emit_val (cg, n->rhs);
 			sb_printf (cg->out, ", %d)", l->ty->size);
+			break;
+		}
+		if (l->kind == ND_VAR && l->var->is_extern && is_ptr (l->ty)) {
+			sb_printf (cg->out, "((hc_i64)(uintptr_t)(%s = (void *)(uintptr_t)",
+				objname (cg, l->var));
+			emit_val (cg, n->rhs);
+			sb_printf (cg->out, "))");
 			break;
 		}
 		if (l->kind == ND_VAR && !is_agg (l->ty)) {
@@ -450,7 +483,7 @@ static void emit_val(CGen *cg, Node *n) {
 			sb_printf (cg->out, ")");
 			break;
 		}
-		sb_printf (cg->out, "(*(%s *)(intptr_t)", scalar_ctype (l->ty));
+		sb_printf (cg->out, "(*(%s *)(uintptr_t)", scalar_ctype (l->ty));
 		emit_addr (cg, l);
 		sb_printf (cg->out, " = ");
 		emit_narrowed (cg, n->rhs, l->ty);
@@ -575,9 +608,9 @@ static void emit_addr(CGen *cg, Node *n) {
 	switch (n->kind) {
 	case ND_VAR:
 		if (is_agg (n->var->ty)) {
-			sb_printf (cg->out, "(hc_i64)(intptr_t)%s", objname (cg, n->var));
+				sb_printf (cg->out, "(hc_i64)(uintptr_t)%s", objname (cg, n->var));
 		} else {
-			sb_printf (cg->out, "(hc_i64)(intptr_t)&%s", objname (cg, n->var));
+				sb_printf (cg->out, "(hc_i64)(uintptr_t)&%s", objname (cg, n->var));
 		}
 		break;
 	case ND_DEREF:
@@ -743,6 +776,9 @@ static void emit_stmt(CGen *cg, Node *n, int ind) {
 		ind_ (cg, ind);
 		if (n->lhs) {
 			sb_printf (cg->out, "return ");
+			if (is_ptr (cg->ret)) {
+					sb_printf (cg->out, "(void *)(uintptr_t)");
+			}
 			emit_val (cg, n->lhs);
 			sb_printf (cg->out, ";\n");
 		} else {
@@ -817,19 +853,18 @@ static void emit_stmt(CGen *cg, Node *n, int ind) {
 
 static void emit_func_sig(CGen *cg, Obj *fn) {
 	Type *ret = fn->ty->base;
-	const char *rc = ret->kind == TY_VOID? "void": value_ctype (ret);
+	const char *rc = ret->kind == TY_VOID? "void": abi_ctype (ret);
 	bool exported = fn->is_public ||
 		(cg->prog && fn == cg->prog->startup && !cg->ctor_mode);
 	sb_printf (cg->out, "%s%s%s%s %s(", exported?
 		(fn->hints & HINT_INLINE? "extern ": ""): "static ",
 		fn->hints & HINT_INLINE? "inline __attribute__((always_inline)) ": "",
 		fn->hints & HINT_NOINLINE? "__attribute__((noinline)) ": "", rc, objname (cg, fn));
-	bool first = true;
-	for (Obj *p = fn->params; p; p = p->next) {
-		sb_printf (cg->out, "%s%s %s", first? "": ", ", value_ctype (p->ty), objname (cg, p));
-		first = false;
+	int np = 0;
+	for (Obj *p = fn->params; p; p = p->next, np++) {
+		sb_printf (cg->out, "%s%s hc_a%d", np? ", ": "", abi_ctype (p->ty), np);
 	}
-	if (first) {
+	if (!np) {
 		sb_printf (cg->out, "void");
 	}
 	sb_printf (cg->out, ")");
@@ -839,6 +874,15 @@ static void emit_func(CGen *cg, Obj *fn) {
 	cg->ret = fn->ty->base;
 	emit_func_sig (cg, fn);
 	sb_printf (cg->out, " {\n");
+	int np = 0;
+	for (Obj *p = fn->params; p; p = p->next, np++) {
+		if (p->ty->kind == TY_F64) {
+			sb_printf (cg->out, "\thc_f64 %s = hc_a%d;\n", objname (cg, p), np);
+		} else {
+			sb_printf (cg->out, "\thc_i64 %s = (hc_i64)%s hc_a%d;\n",
+				objname (cg, p), is_ptr (p->ty)? "(uintptr_t)": "", np);
+		}
+	}
 	for (Obj *v = fn->locals; v; v = v->next) {
 		sb_printf (cg->out, "\t");
 		if (v->align) {
@@ -881,7 +925,7 @@ static void emit_extern_decls(CGen *cg, bool only_user) {
 		/* User imports are declared under an hc_ex_ alias bound to the
 		 * real symbol: libc headers pulled in by the runtime may already
 		 * declare (printf, getenv, fopen) or #define (snprintf) these
-		 * names, and our I64-shaped prototype must not clash with them.
+		 * names, and our generated prototype must not clash with them.
 		 * Compilers without asm labels use the plain name and rely on
 		 * the headers agreeing. */
 		sb_printf (cg->out,
@@ -904,11 +948,11 @@ static void emit_extern_decls(CGen *cg, bool only_user) {
 		sb_printf (cg->out, "extern %s%s%s %s(",
 			f->hints & HINT_INLINE? "inline ": "",
 			f->hints & HINT_NOINLINE? "__attribute__((noinline)) ": "",
-			ret->kind == TY_VOID? "void": extern_ctype (ret),
+			ret->kind == TY_VOID? "void": abi_ctype (ret),
 			objname (cg, f));
 		int np = 0;
 		for (Obj *p = f->params; p; p = p->next, np++) {
-			sb_printf (cg->out, "%s%s", np? ", ": "", extern_ctype (p->ty));
+			sb_printf (cg->out, "%s%s", np? ", ": "", abi_ctype (p->ty));
 		}
 		if (cva) {
 			sb_printf (cg->out, "%s...)", np? ", ": "");
@@ -930,7 +974,7 @@ static void emit_extern_decls(CGen *cg, bool only_user) {
 		if (is_agg (g->ty)) {
 			sb_printf (cg->out, "extern hc_i64 %s[];\n", g->name);
 		} else {
-			sb_printf (cg->out, "extern %s %s;\n", scalar_ctype (g->ty), g->name);
+			sb_printf (cg->out, "extern %s %s;\n", abi_ctype (g->ty), g->name);
 		}
 	}
 }
@@ -966,7 +1010,7 @@ static void emit_obj_preamble(CGen *cg) {
 	}
 	sb_printf (cg->out,
 		"extern hc_f64 __hc_pow(hc_f64, hc_f64);\n"
-		"extern void __hc_register_start(hc_i64 (*)(hc_i64, hc_i64));\n");
+		"extern void __hc_register_start(hc_i64 (*)(hc_i64, void *));\n");
 	emit_extern_decls (cg, false);
 }
 

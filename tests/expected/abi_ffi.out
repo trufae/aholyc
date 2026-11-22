@@ -1,0 +1,7 @@
+returns=1,1,1,1
+promote=1,1,1,1
+narrow=1
+indirect=1,1
+pointers=1,1,1
+callback-int=1
+native-size=1,1,1,1

@@ -52,13 +52,25 @@ class CThreadLock
   U8 taken;
 };
 
+#ifdef IS_MACOS
+#define THREAD_KEY_TYPE USZ
+#else
+#define THREAD_KEY_TYPE U32
+#endif
+
 class CThreadTLS
 {
-  U64 key;
+  THREAD_KEY_TYPE key;
   Bool valid;
 };
 
-I64 ThreadMain(CThreadStart *start); // native entry, defined below
+#if defined(THREAD_WINDOWS) || (defined(IS_WINDOWS) && !defined(THREAD_POSIX))
+#define THREAD_ENTRY_TYPE U32
+#else
+#define THREAD_ENTRY_TYPE U8 *
+#endif
+
+THREAD_ENTRY_TYPE ThreadMain(CThreadStart *start); // native entry, defined below
 
 // THREAD_WINDOWS/THREAD_POSIX let cross-builds override the compiler host.
 #ifdef THREAD_WINDOWS
@@ -82,7 +94,7 @@ I64 ThreadMain(CThreadStart *start); // native entry, defined below
 #endif
 #endif
 
-I64 ThreadMain(CThreadStart *start)
+THREAD_ENTRY_TYPE ThreadMain(CThreadStart *start)
 {
   ThreadEntry *entry;
   U8 *data;

@@ -18,6 +18,20 @@
 #define U32_MAX 0xFFFFFFFF
 #define U64_MAX 0xFFFFFFFFFFFFFFFF
 
+#ifdef IS_32BIT
+#define ISZ I32
+#define USZ U32
+#define ISZ_MAX I32_MAX
+#define ISZ_MIN I32_MIN
+#define USZ_MAX U32_MAX
+#else
+#define ISZ I64
+#define USZ U64
+#define ISZ_MAX I64_MAX
+#define ISZ_MIN I64_MIN
+#define USZ_MAX U64_MAX
+#endif
+
 class CTask
 {
   I64 except_ch;
