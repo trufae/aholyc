@@ -8,7 +8,7 @@ class CMdFence
 };
 class CMdBlock
 {
-  CStrs source, code, language;
+  CStrs source, code, language, closing;
 };
 
 U8 *MdNextLine(CStrs *text, U8 *at, CStrs *line)
@@ -55,11 +55,13 @@ Bool MdCodeAt(CStrs *text, U8 *p, CMdBlock *block)
   if (MdFenceStep(&fence, &line, &block->language) != 1) return FALSE;
   block->source.a = p;
   block->code.a = next;
+  StrsInit(&block->closing, text->b, text->b);
   while (next < text->b) {
     end = MdNextLine(text, next, &line);
     if (MdFenceStep(&fence, &line) == -1) {
       block->code.b = next;
       block->source.b = end;
+      StrsInit(&block->closing, next, end);
       return TRUE;
     }
     next = end;
