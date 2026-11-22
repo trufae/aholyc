@@ -743,6 +743,50 @@ U0 TestWheel()
   HtkWindowClose(doc->window); WordDispose(doc, 0);
 }
 
+U0 TestCodeScrolling()
+{
+  CWordApp app;
+  CWordDoc *doc = WordNew(&app);
+  HtkCtl *c = doc->view;
+  CHtkMarkdown *view = c->data;
+  U64 *previous;
+  I64 at = 0, line = 0, row, col, top, total, span;
+
+  StrBufPutS(&doc->edit.text, "before\n```hc\nfirst\n\nsecond é\n```\nafter\n~~~text\nthird\n~~~\nend");
+  HtkWindowLayout(doc->window); HtkSetFocus(c); c->h = 6;
+  HtkMarkdownMode(c, HTK_MD_EDIT); HtkVimMode(c, TRUE); HtkClipAll; HtkMdDraw(c);
+  while (at < StrsLen(&doc->edit.text)) {
+    while (at < StrsLen(&doc->edit.text) && doc->edit.text.a[at++] != '\n') {}
+    if (at >= StrsLen(&doc->edit.text)) break;
+    line++; top = c->top; WindowKey(TERM_KEY_DOWN); HtkMdDraw(c);
+    Check(view->caret_y == line && c->top >= top,
+      "downward navigation never jumps backward or skips a code fence row");
+  }
+  while (line > 0) {
+    line--; top = c->top; WindowKey(TERM_KEY_UP); HtkMdDraw(c);
+    Check(view->caret_y == line && c->top <= top,
+      "upward navigation crosses code fences one display row at a time");
+  }
+  total = view->rows; span = total - view->height;
+  previous = MAlloc(view->height * view->viewport * sizeof(U64));
+  while (c->top < span) {
+    top = c->top;
+    for (row = 0; row < view->height; row++)
+      for (col = 0; col < view->viewport; col++)
+        previous[row * view->viewport + col] = TermPeek(c->x + view->gutter + col, c->y + view->inset + row);
+    Wheel(c, TERM_MOUSE_WHEEL_DOWN); HtkMdDraw(c); HtkMdDraw(c);
+    Check(c->top == top + 1 && view->rows == total, "code block wheel scrolling keeps stable layout metrics");
+    for (row = 0; row < view->height - 1; row++)
+      for (col = 0; col < view->viewport; col++)
+        Check(previous[(row + 1) * view->viewport + col] ==
+          TermPeek(c->x + view->gutter + col, c->y + view->inset + row),
+          "scrolling code blocks shifts the existing output by exactly one row");
+  }
+  Free(previous);
+  doc->window->closing = NULL; doc->window->submit = NULL;
+  HtkWindowClose(doc->window); WordDispose(doc, 0);
+}
+
 U0 TestResizeAnchor()
 {
   CWordApp app;
@@ -1093,6 +1137,7 @@ TestMarkdownVim;
 TestTableNavigation;
 TestVimShortcuts;
 TestWheel;
+TestCodeScrolling;
 TestResizeAnchor;
 TestTasks;
 TestAlignment;

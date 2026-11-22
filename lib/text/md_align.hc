@@ -94,7 +94,7 @@ U0 MdAlignForward(CMarkdown *md, CMarkdown *parent)
   parent->source = md->source;
   parent->target = md->target; parent->link_start = md->link_start; parent->link_end = md->link_end;
   parent->fg = md->fg; parent->bg = md->bg;
-  parent->code = md->code; parent->language = md->language;
+  parent->code = md->code; parent->language = md->language; parent->fence = md->fence;
 }
 
 Bool MdAlignIndent(CMdAlignLayout *layout, U8 *p, I64 rune)

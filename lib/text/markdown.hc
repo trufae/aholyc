@@ -44,7 +44,7 @@
 #define MD_STYLE_BG 13
 #define MD_STYLE_LINK 14 // target/link_start/link_end are valid during callback
 #define MD_STYLE_IMAGE 15
-#define MD_STYLE_CODE_FENCE 16 // code slice and language on entry
+#define MD_STYLE_CODE_FENCE 16 // code/language on entry, fence source line on entry/exit
 #define MD_STYLE_CODE_TOKEN 17 // 1 keyword, 2 string, 3 comment, 4 number
 #define MD_STYLE_PAGE_BREAK 18
 #define MD_STYLE_COUNT 19
@@ -67,7 +67,7 @@ class CMarkdown
   Bool code_pad;     // pad code backgrounds to width (disable for text export)
   Bool table_fit;    // wrap cells to fit width; FALSE keeps natural widths
   I64 table_border; // 0 single, 1 round, 2 ASCII, 3 borderless
-  CStrs target, code, language;
+  CStrs target, code, language, fence; // fence source line during CODE_FENCE callbacks
   U8 *source; // source mapping for interactive backends
   U8 *link_start;
   U8 *link_end;
@@ -831,6 +831,7 @@ U0 MarkdownRenderStrs(CMarkdown *md, CStrs *input)
       if (MdCodeAt(input, b, &block)) {
         md->code = block.code;
         md->language = block.language;
+        StrsInit(&md->fence, block.source.a, block.code.a);
         MdStyle(md, MD_STYLE_CODE_FENCE, 1);
         b = block.code.a;
         comment = FALSE;
@@ -838,13 +839,16 @@ U0 MarkdownRenderStrs(CMarkdown *md, CStrs *input)
           next_line = MdNextLine(&block.code, b, &line);
           md->source = b;
           md->codeblock = TRUE;
-          MdCodeBlockStart(md);
+          if (!StrsEmpty(&line)) MdCodeBlockStart(md);
           MdCodeLine(md, &line, &comment);
           md->col = MdWidth(&line);
-          MdNewline(md);
+          if (next_line > b && next_line[-1] == '\n') MdNewline(md);
+          else { MdLineEnd(md); md->col = 0; }
           b = next_line;
         }
         md->codeblock = FALSE;
+        md->fence = block.closing;
+        md->source = block.closing.a;
         MdStyle(md, MD_STYLE_CODE_FENCE, 0);
         b = block.source.b;
         goto next;

@@ -91,6 +91,43 @@ U0 HtkMdGuide(CHtkMarkdown *view, I64 at)
   }
 }
 
+// Fence syntax is hidden, but its source line still needs a stable display
+// row for navigation, hit tests, line numbers and resize anchoring.
+U0 HtkMdFence(CHtkMarkdown *view, CStrs *fence)
+{
+  HtkCtl *c = view->ctl;
+  I64 a, b;
+  I64 caret = view->edit->cursor, distance;
+
+  if (StrsEmpty(fence)) return;
+  a = fence->a - view->edit->text.a; b = fence->b - view->edit->text.a;
+  #ifdef UI_HTK_VIMODE
+  caret = HtkVimCaret(c, caret);
+  #endif
+  distance = AbsI64(caret - MaxI64(a, MinI64(b - 1, caret)));
+  if (distance < view->distance) {
+    view->distance = distance; view->caret_x = 0; view->caret_y = view->y;
+  }
+  if (view->query) {
+    distance = AbsI64(view->y - view->query_y) * 1000000 + AbsI64(view->query_x);
+    if (distance < view->hit_distance) {
+      view->hit_distance = distance; view->hit = a;
+      view->hit_x = 0; view->hit_y = view->y; view->hit_cells = 0;
+      view->hit_source = FALSE; view->link_a = -1;
+    }
+  }
+  if (view->paint && view->frame_at < 0 && view->y >= c->top) {
+    view->frame_at = a; view->frame_bias = view->y - c->top;
+  }
+  if (view->locate_resize) {
+    distance = AbsI64(view->resize_at - MaxI64(a, MinI64(b - 1, view->resize_at)));
+    if (distance < view->resize_distance) {
+      view->resize_distance = distance; view->resize_row = view->y;
+    }
+  }
+  HtkMdGuide(view, a);
+}
+
 U0 HtkMdStyle(CMarkdown *md, I64 style, I64 on)
 {
   CHtkMarkdown *view = md->user(CHtkMarkdown *);
@@ -99,7 +136,15 @@ U0 HtkMdStyle(CMarkdown *md, I64 style, I64 on)
   U8 *label;
 
   if (style == MD_STYLE_PAGE_BREAK && on) { HtkMdPage(view); return; }
+  if (style == MD_STYLE_CODE_FENCE && !on) {
+    if (!StrsEmpty(&md->fence)) {
+      HtkMdFence(view, &md->fence);
+      if (md->fence.b[-1] == '\n') HtkMdNewline(view);
+    }
+    return;
+  }
   if (style == MD_STYLE_CODE_FENCE && on) {
+    HtkMdFence(view, &md->fence);
     view->code_a = md->code.a - view->edit->text.a;
     view->code_b = md->code.b - view->edit->text.a;
     if (view->query && view->query_y == view->y && view->query_x - view->left >= 0 && view->query_x - view->left < 6) {
@@ -115,7 +160,7 @@ U0 HtkMdStyle(CMarkdown *md, I64 style, I64 on)
       HtkStr(c->x + view->gutter + 7, c->y + y, label, HTK_C_DIM, HTK_C_FIELD_BG);
       Free(label);
     }
-    HtkMdNewline(view);
+    if (!StrsEmpty(&md->fence) && md->fence.b[-1] == '\n') HtkMdNewline(view);
     return;
   }
   if (style == MD_STYLE_CODE_BLOCK) {

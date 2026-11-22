@@ -12,8 +12,8 @@ make word
 ```
 
 Each argument opens a separate document window. The desktop's **App** menu
-has **New Markdown** and **Open Markdown...** launchers. Open uses a directory
-browser: select a name and press Enter, or enter a path and press Open.
+has **New Markdown**, **Open Markdown...**, and **Terminal** launchers. Open
+uses a directory browser: select a name and press Enter, or enter a path and press Open.
 Closing the last document leaves the desktop available; Quit exits.
 
 ## Editing
@@ -142,6 +142,8 @@ Code retains its text and uses simple keyword, string, number and comment
 highlighting. Each rendered block has a **Copy** button that copies the exact
 code bytes without fences or display padding. Long code lines scroll
 horizontally. Indented code retains the existing renderer's tab-block support.
+The opening fence uses the Copy/language row and the closing fence keeps a
+blank row, so navigating across a code block preserves its source-line order.
 
 Click a rendered link or image label for **Open in new window**, **Replace
 this window**, **Edit link**, **Open with system handler**, or **Copy target**.

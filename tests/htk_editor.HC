@@ -94,4 +94,43 @@ for (mode = HTK_MD_EDIT; mode <= HTK_MD_SOURCE_READ; mode++) {
   }
 }
 HtkDestroy(editor); EditFini(&edit); Free(term_back); Free(term_front);
+
+// Hidden fence syntax still owns a row and a source position. Otherwise
+// movement onto a fence can jump to the preceding/following code or prose.
+term_width = 60; term_height = 12; TermBuffersAlloc; HtkThemeDefault;
+EditInit(&edit);
+StrBufPutS(&edit.text, "before\n```hc\nfirst\n\nsecond é\n```\nafter\n");
+editor = HtkMarkdownNew(&edit); editor->w = 40; editor->h = 8;
+HtkSetFocus(editor); HtkMarkdownMode(editor, HTK_MD_EDIT);
+CHtkMarkdown *view = editor->data;
+I64 at = 0, line = 0;
+while (at < StrsLen(&edit.text)) {
+  edit.cursor = at; HtkMdRender(view);
+  if (view->caret_y != line || HtkMdHit(view, 0, line) != at) {
+    "FAIL code fence row/source mapping at line %d\n", line; Exit(1);
+  }
+  while (at < StrsLen(&edit.text) && edit.text.a[at++] != '\n') {}
+  line++;
+}
+HtkMdRender(view);
+if (view->rows != line + 1) { "FAIL fenced code loses source rows\n"; Exit(1); }
+EditFini(&edit); EditInit(&edit); StrBufPutS(&edit.text, "```text\nlast é");
+HtkMarkdownMode(editor, HTK_MD_EDIT); HtkMdRender(view);
+if (view->rows != 2) { "FAIL unterminated code adds an extra output row\n"; Exit(1); }
+U8 *fences[7] = {"```hc\n```", "```hc\n```\n", "```hc\n\n```",
+  "~~~\ntext\n~~~\nafter", "```text", "```text\n", "````\n```\n````"};
+for (i = 0; i < 7; i++) {
+  EditFini(&edit); EditInit(&edit); StrBufPutS(&edit.text, fences[i]);
+  line = 1;
+  for (at = 0; at < StrsLen(&edit.text); at++) if (edit.text.a[at] == '\n') line++;
+  HtkMarkdownMode(editor, HTK_MD_EDIT); HtkMdRender(view);
+  if (view->rows != line) { "FAIL empty/EOF/matching fence row count %d\n", i; Exit(1); }
+}
+EditFini(&edit); EditInit(&edit);
+StrBufPutS(&edit.text, "::: {.htk-align-center style=\"text-align:center\"}\n```text\ninside\n```\n:::\n");
+HtkMarkdownMode(editor, HTK_MD_EDIT); HtkMdRender(view);
+if (view->rows != 4 || HtkMdHit(view, 0, 0) != StrLen(md_align_fences[MD_ALIGN_CENTER]) + 1) {
+  "FAIL aligned code forwards fence source rows\n"; Exit(1);
+}
+HtkDestroy(editor); EditFini(&edit); Free(term_back); Free(term_front);
 "ok htk editor\n";
